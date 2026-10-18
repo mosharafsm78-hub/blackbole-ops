@@ -440,10 +440,8 @@ async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStat
   const from = order.status as OrderStatus
   if (from === to) return
   if (!canTransition(from, to)) throw new Error(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
-  if (to === "approved" && (from === "pending" || from === "on_hold")) {
-    if (order.courier === "pathao" && (!order.pathaoCityId || !order.pathaoZoneId)) {
-      throw new Error(`${invoiceLabel(order)}: set the Pathao city and zone before approving`)
-    }
+  if (to === "ready_to_ship" && order.courier === "pathao" && !order.consignmentId && (!order.pathaoCityId || !order.pathaoZoneId)) {
+    throw new Error(`${invoiceLabel(order)}: set the Pathao city and zone before Ready To Ship`)
   }
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)

@@ -117,11 +117,12 @@ describe("order lifecycle", () => {
     expect(await stockOf(t, v41._id, locationId)).toMatchObject({ available: 10, processing: 0 })
   })
 
-  it("requires Pathao city and zone before approving a courier order", async () => {
+  it("requires Pathao city and zone before Ready To Ship", async () => {
     const { t, as, locationId, v41 } = await setup()
     await t.run((ctx) => ctx.db.insert("deliveryPartners", { code: 2001, name: "Pathao", provider: "pathao", locationId, active: true, createdAt: Date.now() }))
     const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular" })
-    const r = await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    expect((await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })).done).toBe(1)
+    const r = await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "ready_to_ship" })
     expect(r.errors[0]).toMatch(/Pathao city and zone/)
   })
 

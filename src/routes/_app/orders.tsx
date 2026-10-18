@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
-import { useQuery } from "convex/react"
+import { useMutation, useQuery } from "convex/react"
 import { AlertTriangle, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
 import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { ORDER_SOURCES, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
+import { ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
-import { StatusDialog } from "@/components/order-parts"
+import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -224,6 +224,9 @@ function OrdersPage() {
                       {o.externalName && <span className="text-xs text-muted-foreground">{o.externalName}</span>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{dateTime(o.createdAt)}</div>
+                    {o.reason && NEEDS_REASON.includes(o.status as OrderStatus) && (
+                      <div className="mt-1 max-w-48 rounded bg-tone-red-bg px-1.5 py-0.5 text-[11px] text-tone-red" data-testid="row-note">Note: {o.reason}</div>
+                    )}
                     {o.printedAt && <div className="text-[11px] text-muted-foreground">Printed</div>}
                   </td>
                   <td className="max-w-64 p-3">
@@ -271,7 +274,7 @@ function OrdersPage() {
                     <div className="tabular-nums">{o.callCount}</div>
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}
                   </td>
-                  <td className="p-3"><StatusPill status={o.status} /></td>
+                  <td className="p-3"><RowStatus id={o._id} status={o.status as OrderStatus} perms={me.perms} /></td>
                 </tr>
               ))}
             </tbody>
@@ -292,5 +295,50 @@ function OrdersPage() {
         onDone={() => setSelected(new Set())}
       />
     </div>
+  )
+}
+
+/** Status pill that opens a dropdown of the moves this user may make. Moves that need a note open the note dialog. */
+function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatus; perms: string[] }) {
+  const change = useMutation(api.orders.changeStatus)
+  const [dialogTo, setDialogTo] = useState<OrderStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const options = TRANSITIONS[status].filter((t) => hasPerm(perms, moveKey(status, t)))
+  if (options.length === 0) return <StatusPill status={status} />
+  return (
+    <>
+      <Select
+        value=""
+        onValueChange={async (v) => {
+          const to = v as OrderStatus
+          if (NEEDS_REASON.includes(to)) { setDialogTo(to); return }
+          setBusy(true)
+          try {
+            const r = await change({ ids: [id], to })
+            if (r.errors.length) toast.error(r.errors[0])
+            else toast.success(`Moved to ${STATUS_LABEL[to]}`)
+          } catch (e) {
+            toast.error(errMsg(e))
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        <SelectTrigger className="h-auto w-auto gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" disabled={busy} aria-label="Change status" data-testid="row-status">
+          <StatusPill status={status} />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((t) => <SelectItem key={t} value={t}>{STATUS_LABEL[t]}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <StatusDialog
+        ids={[id]}
+        options={options}
+        initial={dialogTo ?? undefined}
+        open={!!dialogTo}
+        onOpenChange={(o) => { if (!o) setDialogTo(null) }}
+        onDone={() => setDialogTo(null)}
+      />
+    </>
   )
 }
