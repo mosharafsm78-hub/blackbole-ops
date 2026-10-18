@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { internal } from "./_generated/api"
@@ -143,7 +143,7 @@ export const generate = internalAction({
   handler: async (ctx, { id, type, from, to, source }) => {
     try {
       const def = REPORT_TYPES.find((r) => r.key === type)
-      if (!def) throw new Error("Unknown report type")
+      if (!def) throw new ConvexError("Unknown report type")
       let rows: Record<string, any>[] = []
       if (type === "stock_summary") {
         rows = await ctx.runQuery(internal.reports.stockRows, {})

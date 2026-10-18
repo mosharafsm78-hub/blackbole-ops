@@ -42,6 +42,8 @@ export const TONE_CLASS: Record<Tone, string> = {
 export const TAG_TONE: Record<string, Tone> = { NEW: "amber", REGULAR: "blue", VIP: "violet", RISKY: "red" }
 
 export const errMsg = (e: unknown) => {
+  const data = (e as { data?: unknown } | null)?.data
+  if (typeof data === "string" && data) return data
   const raw = e instanceof Error ? e.message : String(e)
   // Convex wraps server errors: "[CONVEX M(...)] [Request ID: x] Server Error\nUncaught Error: msg\n  at ..."
   const m = raw.match(/Uncaught Error: ([^\n]+)/)

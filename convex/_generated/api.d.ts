@@ -20,6 +20,7 @@ import type * as orders from "../orders.js";
 import type * as outbound from "../outbound.js";
 import type * as partners from "../partners.js";
 import type * as pathao from "../pathao.js";
+import type * as pathaoNode from "../pathaoNode.js";
 import type * as publicApi from "../publicApi.js";
 import type * as reports from "../reports.js";
 import type * as rules from "../rules.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   outbound: typeof outbound;
   partners: typeof partners;
   pathao: typeof pathao;
+  pathaoNode: typeof pathaoNode;
   publicApi: typeof publicApi;
   reports: typeof reports;
   rules: typeof rules;

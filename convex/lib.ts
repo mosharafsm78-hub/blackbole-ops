@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -21,8 +22,8 @@ export async function currentStaff(ctx: QueryCtx): Promise<StaffCtx | null> {
 /** For mutations/queries that must have a permission. Throws a readable error. */
 export async function requirePerm(ctx: QueryCtx, perm?: string): Promise<StaffCtx> {
   const s = await currentStaff(ctx)
-  if (!s) throw new Error("You are not signed in or your access was removed.")
-  if (perm && !hasPerm(s.perms, perm)) throw new Error("You don't have permission for this action.")
+  if (!s) throw new ConvexError("You are not signed in or your access was removed.")
+  if (perm && !hasPerm(s.perms, perm)) throw new ConvexError("You don't have permission for this action.")
   return s
 }
 

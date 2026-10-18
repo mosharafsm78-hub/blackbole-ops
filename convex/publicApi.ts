@@ -1,6 +1,6 @@
 import { httpAction, internalMutation, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
 import { getSetting, invoiceLabel } from "./lib"
 import { insertOrder } from "./orders"
@@ -18,7 +18,7 @@ export const createFromApi = internalMutation({
       const p = await ctx.db.get(vr.productId)
       items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: Number(it.price ?? vr.price), qty: Number(it.qty ?? 1), discount: Number(it.discount ?? 0), weightKg: vr.weightKg })
     }
-    if (unknown.length) throw new Error(`Unknown SKU: ${unknown.join(", ")}`)
+    if (unknown.length) throw new ConvexError(`Unknown SKU: ${unknown.join(", ")}`)
     if (b.external_id) {
       const dupe = await ctx.db.query("orders").withIndex("by_external", (q) => q.eq("externalId", String(b.external_id))).first()
       if (dupe) return { invoice: invoiceLabel(dupe), id: dupe._id, duplicate: true }

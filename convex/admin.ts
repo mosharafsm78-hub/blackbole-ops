@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { normalizePhone, ORDER_SOURCES, PAYMENT_METHODS, SMS_STATUSES } from "./rules"
@@ -18,8 +18,8 @@ export const addBlock = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "settings.manage")
     const value = a.kind === "phone" ? normalizePhone(a.value) : a.value.trim()
-    if (a.kind === "phone" && !/^01\d{9}$/.test(value)) throw new Error("Enter an 11-digit phone number")
-    if (!value) throw new Error("Enter a value")
+    if (a.kind === "phone" && !/^01\d{9}$/.test(value)) throw new ConvexError("Enter an 11-digit phone number")
+    if (!value) throw new ConvexError("Enter a value")
     const existing = await ctx.db.query("blocks").withIndex("by_value", (q) => q.eq("kind", a.kind).eq("value", value)).first()
     if (existing) { await ctx.db.patch(existing._id, { active: true, reason: a.reason }); return existing._id }
     return await ctx.db.insert("blocks", { kind: a.kind, value, reason: a.reason, active: true, createdBy: me.staff.name, createdAt: Date.now() })
@@ -85,8 +85,8 @@ export const saveOrderSettings = mutation({
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
-    if (a.customPaymentMethods.length > 10) throw new Error("Up to 10 custom payment methods")
-    if (a.sources.length === 0) throw new Error("Keep at least one order source")
+    if (a.customPaymentMethods.length > 10) throw new ConvexError("Up to 10 custom payment methods")
+    if (a.sources.length === 0) throw new ConvexError("Keep at least one order source")
     const { codRate, ...rest } = a
     await setSetting(ctx, "orderSettings", rest)
     await setSetting(ctx, "codRate", codRate)
@@ -123,7 +123,7 @@ export const saveCommSettings = mutation({
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
-    if (a.sms.enabled && !a.sms.urlTemplate.includes("{message}")) throw new Error("The SMS gateway URL must contain {message} and {phone}")
+    if (a.sms.enabled && !a.sms.urlTemplate.includes("{message}")) throw new ConvexError("The SMS gateway URL must contain {message} and {phone}")
     await setSetting(ctx, "sms", a.sms)
     await setSetting(ctx, "contactPoints", a.contact)
   },
@@ -160,7 +160,7 @@ export const saveWebhook = mutation({
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
     const old = (await getSetting<any>(ctx, "webhook")) ?? {}
-    if (a.url && !/^https:\/\//.test(a.url)) throw new Error("Webhook URL must start with https://")
+    if (a.url && !/^https:\/\//.test(a.url)) throw new ConvexError("Webhook URL must start with https://")
     await setSetting(ctx, "webhook", { url: a.url.trim(), secret: a.secret?.trim() || old.secret, events: a.events, sources: a.sources })
   },
 })

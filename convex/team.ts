@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { mutation, query } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
@@ -33,7 +33,7 @@ export const claim = mutation({
   args: { name: v.optional(v.string()) },
   handler: async (ctx, { name }) => {
     const userId = await getAuthUserId(ctx)
-    if (!userId) throw new Error("Not signed in")
+    if (!userId) throw new ConvexError("Not signed in")
     const user = await ctx.db.get(userId)
     const email = (user?.email ?? "").toLowerCase()
     const linked = await ctx.db.query("staff").withIndex("by_user", (q) => q.eq("userId", userId)).unique()
@@ -97,14 +97,14 @@ export const saveStaff = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "team.manage")
     const email = a.email.trim().toLowerCase()
-    if (!email.includes("@")) throw new Error("Enter a valid email")
+    if (!email.includes("@")) throw new ConvexError("Enter a valid email")
     if (a.id) {
-      if (a.id === me.staff._id && !a.active) throw new Error("You can't deactivate yourself")
+      if (a.id === me.staff._id && !a.active) throw new ConvexError("You can't deactivate yourself")
       await ctx.db.patch(a.id, { email, name: a.name, phone: a.phone, roleId: a.roleId, active: a.active })
       return a.id
     }
     const exists = await ctx.db.query("staff").withIndex("by_email", (q) => q.eq("email", email)).unique()
-    if (exists) throw new Error("This email is already on the team")
+    if (exists) throw new ConvexError("This email is already on the team")
     // If this person already signed in once, link them now.
     const user = (await ctx.db.query("users").collect()).find((u) => (u.email ?? "").toLowerCase() === email)
     return await ctx.db.insert("staff", {
@@ -129,7 +129,7 @@ export const saveRole = mutation({
     await requirePerm(ctx, "team.manage")
     if (a.id) {
       const role = await ctx.db.get(a.id)
-      if (role?.system) throw new Error("Super Admin always has every permission")
+      if (role?.system) throw new ConvexError("Super Admin always has every permission")
       await ctx.db.patch(a.id, { name: a.name, permissions: a.permissions })
       return a.id
     }

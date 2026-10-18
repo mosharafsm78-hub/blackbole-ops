@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { mutation, query, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { currentStaff, nextCounter, requirePerm } from "./lib"
@@ -128,10 +128,10 @@ export const saveExpense = mutation({
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "expenses.request")
-    if (a.amount <= 0) throw new Error("Amount must be more than 0")
+    if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
     if (a.id) {
       const e = await ctx.db.get(a.id)
-      if (e && e.status !== "requested" && !hasPerm(me.perms, "expenses.approve")) throw new Error("Only requested expenses can be edited")
+      if (e && e.status !== "requested" && !hasPerm(me.perms, "expenses.approve")) throw new ConvexError("Only requested expenses can be edited")
       await ctx.db.patch(a.id, { head: a.head, amount: a.amount, month: a.month, locationId: a.locationId, note: a.note, updatedAt: Date.now() })
       return a.id
     }
@@ -157,7 +157,7 @@ export const deleteExpense = mutation({
     const me = await requirePerm(ctx, "expenses.request")
     const e = await ctx.db.get(id)
     if (!e) return
-    if (e.status !== "requested" && !hasPerm(me.perms, "expenses.approve")) throw new Error("Only requested expenses can be deleted")
+    if (e.status !== "requested" && !hasPerm(me.perms, "expenses.approve")) throw new ConvexError("Only requested expenses can be deleted")
     await ctx.db.delete(id)
   },
 })

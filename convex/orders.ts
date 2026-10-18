@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internal } from "./_generated/api"
 import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
@@ -91,12 +91,12 @@ export type NewOrder = {
 
 export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string, opts: { allowBlocked?: boolean } = {}) {
   const phone = normalizePhone(o.phone)
-  if (!/^01\d{9}$/.test(phone)) throw new Error(`Phone number looks wrong: ${o.phone}`)
-  if (o.items.length === 0) throw new Error("Add at least one product")
+  if (!/^01\d{9}$/.test(phone)) throw new ConvexError(`Phone number looks wrong: ${o.phone}`)
+  if (o.items.length === 0) throw new ConvexError("Add at least one product")
   const blocked = await isBlocked(ctx, phone, o.ipAddress)
-  if (blocked && !opts.allowBlocked) throw new Error(blocked)
+  if (blocked && !opts.allowBlocked) throw new ConvexError(blocked)
   const location = o.locationId ? await ctx.db.get(o.locationId) : await defaultLocation(ctx)
-  if (!location) throw new Error("Add a warehouse in Settings first")
+  if (!location) throw new ConvexError("Add a warehouse in Settings first")
 
   let customer = await ctx.db.query("customers").withIndex("by_phone", (q) => q.eq("phone", phone)).unique()
   const now = Date.now()
@@ -168,7 +168,7 @@ export async function buildItems(ctx: MutationCtx, items: { variantId: Id<"varia
   for (const i of items) {
     if (i.qty <= 0) continue
     const vr = await ctx.db.get(i.variantId)
-    if (!vr) throw new Error("A product in the cart no longer exists")
+    if (!vr) throw new ConvexError("A product in the cart no longer exists")
     const p = await ctx.db.get(vr.productId)
     out.push({
       variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl,
@@ -213,7 +213,7 @@ export const create = mutation({
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.create")
-    if (a.approve && !hasPerm(me.perms, moveKey("pending", "approved"))) throw new Error("You can't create approved orders")
+    if (a.approve && !hasPerm(me.perms, moveKey("pending", "approved"))) throw new ConvexError("You can't create approved orders")
     const items = await buildItems(ctx, a.items)
     const { advanceAmount, advanceMethod, advanceReference, advanceKind, approve, ...rest } = a
     return await insertOrder(ctx, {
@@ -445,9 +445,9 @@ export const get = query({
 async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string) {
   const from = order.status as OrderStatus
   if (from === to) return
-  if (!canTransition(from, to)) throw new Error(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
+  if (!canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
   if (to === "ready_to_ship" && order.courier === "pathao" && !order.consignmentId && (!order.pathaoCityId || !order.pathaoZoneId)) {
-    throw new Error(`${invoiceLabel(order)}: set the Pathao city and zone before Ready To Ship`)
+    throw new ConvexError(`${invoiceLabel(order)}: set the Pathao city and zone before Ready To Ship`)
   }
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)
@@ -575,15 +575,15 @@ export const update = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.edit")
     const order = await ctx.db.get(a.id)
-    if (!order) throw new Error("Order not found")
+    if (!order) throw new ConvexError("Order not found")
     const editable = ["pending", "on_hold", "approved", "processing"]
-    if (!editable.includes(order.status)) throw new Error("Only Pending, On Hold, Approved or Processing orders can be edited")
-    if (order.consignmentId) throw new Error("This order is already booked with the courier")
+    if (!editable.includes(order.status)) throw new ConvexError("Only Pending, On Hold, Approved or Processing orders can be edited")
+    if (order.consignmentId) throw new ConvexError("This order is already booked with the courier")
     const phone = normalizePhone(a.phone)
-    if (!/^01\d{9}$/.test(phone)) throw new Error("Phone number looks wrong")
+    if (!/^01\d{9}$/.test(phone)) throw new ConvexError("Phone number looks wrong")
 
     const items = [...order.items.filter((i) => !i.variantId && a.keepUnmatched.includes(i.sku)), ...(await buildItems(ctx, a.items))]
-    if (items.length === 0) throw new Error("An order needs at least one product")
+    if (items.length === 0) throw new ConvexError("An order needs at least one product")
     const reserved = STATUS_BUCKET[order.status as OrderStatus] !== "available"
     const locationChanged = a.locationId !== order.locationId
     if (reserved) await moveOrderStock(ctx, order, order.status as OrderStatus, "pending", me.staff.name)
@@ -657,7 +657,7 @@ export const logCall = mutation({
   handler: async (ctx, { id, outcome, note, followUpAt }) => {
     const me = await requirePerm(ctx, "orders.view")
     const order = await ctx.db.get(id)
-    if (!order) throw new Error("Order not found")
+    if (!order) throw new ConvexError("Order not found")
     await ctx.db.patch(id, {
       callCount: order.callCount + 1, lastCallOutcome: outcome, updatedAt: Date.now(),
       ...(followUpAt ? { followUpAt } : {}),
@@ -671,8 +671,8 @@ export const addPayment = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.payments")
     const order = await ctx.db.get(a.id)
-    if (!order) throw new Error("Order not found")
-    if (a.amount <= 0) throw new Error("Amount must be more than 0")
+    if (!order) throw new ConvexError("Order not found")
+    if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
     await ctx.db.insert("payments", { orderId: a.id, method: a.method, amount: a.amount, reference: a.reference, byName: me.staff.name, at: Date.now() })
     const paid = order.paidAmount + a.amount
     await ctx.db.patch(a.id, { paidAmount: paid, due: Math.max(0, order.total - paid), paymentMethod: paid >= order.total && (!order.paymentMethod || order.paymentMethod === "Cash On Delivery") ? a.method : order.paymentMethod ?? "Cash On Delivery", updatedAt: Date.now() })
@@ -686,7 +686,7 @@ export const createExchange = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.create")
     const o = await ctx.db.get(a.id)
-    if (!o) throw new Error("Order not found")
+    if (!o) throw new ConvexError("Order not found")
     const partners = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && p.isExchange && !p.deletedAt)
     const partner = partners.find((p) => p.locationId === o.locationId) ?? partners[0]
     const items = await buildItems(ctx, a.items)
@@ -821,7 +821,7 @@ export const upload = mutation({
         const items: Doc<"orders">["items"] = []
         for (const r of g) {
           const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", r.sku.trim().toUpperCase())).first()
-          if (!vr) throw new Error(`SKU ${r.sku} not found`)
+          if (!vr) throw new ConvexError(`SKU ${r.sku} not found`)
           const p = await ctx.db.get(vr.productId)
           items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: r.price ?? vr.price, qty: r.qty || 1, discount: 0, weightKg: vr.weightKg })
         }

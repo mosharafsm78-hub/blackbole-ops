@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { action, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { getSetting, requirePerm } from "./lib"
@@ -41,7 +41,7 @@ export const analytics = action({
       const url = `https://graph.facebook.com/v21.0/act_${acc.id}/insights?level=account&time_increment=1&fields=spend,impressions,clicks,actions&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&access_token=${encodeURIComponent(conf.token)}`
       const res = await fetch(url)
       const json: any = await res.json()
-      if (json.error) throw new Error(`Meta: ${json.error.message}`)
+      if (json.error) throw new ConvexError(`Meta: ${json.error.message}`)
       for (const r of json.data ?? []) {
         const d = r.date_start
         const s = (spend[d] ??= { spend: 0, impressions: 0, clicks: 0, purchases: 0 })

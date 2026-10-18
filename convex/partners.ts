@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import { currentStaff, getSetting, nextCounter, requirePerm } from "./lib"
 
@@ -40,7 +40,7 @@ export const save = mutation({
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "partners.manage")
-    if (!a.name.trim()) throw new Error("Name is required")
+    if (!a.name.trim()) throw new ConvexError("Name is required")
     const old = a.id ? await ctx.db.get(a.id) : null
     let credentials = old?.credentials
     if (a.useOwnCredentials && a.credentials) {

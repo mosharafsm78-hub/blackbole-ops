@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { mutation, query } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
@@ -66,14 +66,14 @@ export const saveProduct = mutation({
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "products.manage")
-    if (!a.name.trim()) throw new Error("Product name is required")
-    if (a.variants.length === 0) throw new Error("Add at least one variant (SKU)")
+    if (!a.name.trim()) throw new ConvexError("Product name is required")
+    if (a.variants.length === 0) throw new ConvexError("Add at least one variant (SKU)")
     const skus = a.variants.map((x) => x.sku.trim().toUpperCase())
-    if (skus.some((s) => !s)) throw new Error("Every variant needs a SKU")
-    if (new Set(skus).size !== skus.length) throw new Error("SKUs must be unique")
+    if (skus.some((s) => !s)) throw new ConvexError("Every variant needs a SKU")
+    if (new Set(skus).size !== skus.length) throw new ConvexError("SKUs must be unique")
     for (const vr of a.variants) {
       const clash = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", vr.sku.trim().toUpperCase())).first()
-      if (clash && clash._id !== vr.id) throw new Error(`SKU ${vr.sku} is already used by another product`)
+      if (clash && clash._id !== vr.id) throw new ConvexError(`SKU ${vr.sku} is already used by another product`)
     }
     const data = { name: a.name.trim(), category: a.category, description: a.description, imageUrl: a.imageUrl, active: a.active }
     let productId = a.id
@@ -220,7 +220,7 @@ export const receiveStock = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "inventory.receive")
     const items = a.items.filter((i) => i.qty > 0)
-    if (items.length === 0) throw new Error("Add at least one item with a quantity")
+    if (items.length === 0) throw new ConvexError("Add at least one item with a quantity")
     const code = await nextCounter(ctx, "receipt", 1)
     const full: { variantId: Id<"variants">; sku: string; name: string; qty: number; unitCost: number }[] = []
     for (const i of items) {
@@ -253,7 +253,7 @@ export const adjustStock = mutation({
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "inventory.adjust")
-    if (!a.note.trim()) throw new Error("Write a reason for the adjustment")
+    if (!a.note.trim()) throw new ConvexError("Write a reason for the adjustment")
     await bumpStock(ctx, { variantId: a.variantId, locationId: a.locationId, bucket: a.bucket, change: a.change, reason: "Manual adjustment", note: a.note, byName: me.staff.name })
   },
 })

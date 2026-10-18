@@ -1,4 +1,4 @@
-import { v } from "convex/values"
+import { v, ConvexError } from "convex/values"
 import { action, httpAction, internalAction, internalMutation, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Id } from "./_generated/dataModel"
@@ -57,8 +57,14 @@ export const cachePlaces = internalMutation({
 })
 
 // ---------- HTTP ----------
+async function http(ctx: any, url: string, init: { method: string; headers: Record<string, string>; body?: string }) {
+  const r: { status: number; text: string } = await ctx.runAction(internal.pathaoNode.request, { url, method: init.method, headers: init.headers, body: init.body })
+  let json: any = {}
+  try { json = JSON.parse(r.text) } catch { json = {} }
+  return { ok: r.status >= 200 && r.status < 300, status: r.status, json }
+}
 async function issueToken(ctx: any, creds: Creds, key: string): Promise<Token> {
-  const res = await fetch(`${BASE[creds.env]}/aladdin/api/v1/issue-token`, {
+  const res = await http(ctx, `${BASE[creds.env]}/aladdin/api/v1/issue-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
@@ -66,9 +72,9 @@ async function issueToken(ctx: any, creds: Creds, key: string): Promise<Token> {
       username: creds.username, password: creds.password, grant_type: "password",
     }),
   })
-  const json: any = await res.json().catch(() => ({}))
+  const json: any = res.json
   if (!res.ok || !json.access_token) {
-    throw new Error(`Pathao login failed: ${json.message ?? res.status}`)
+    throw new ConvexError(`Pathao login failed: ${json.message ?? res.status}`)
   }
   const token: Token = {
     accessToken: json.access_token,
@@ -85,10 +91,10 @@ async function pathao(
   init: { method?: string; body?: unknown; partnerId?: Id<"deliveryPartners"> | null } = {},
 ): Promise<any> {
   const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, { partnerId: init.partnerId ?? undefined })
-  if (!creds) throw new Error("Pathao is not connected. Add your credentials in Settings → Pathao.")
+  if (!creds) throw new ConvexError("Pathao is not connected. Add your credentials in Settings → Pathao.")
   let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await fetch(`${BASE[creds.env as "sandbox" | "production"]}/${path}`, {
+    const res = await http(ctx, `${BASE[creds.env as "sandbox" | "production"]}/${path}`, {
       method: init.method ?? "GET",
       headers: { Authorization: `Bearer ${tk.accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
       body: init.body ? JSON.stringify(init.body) : undefined,
@@ -97,10 +103,10 @@ async function pathao(
       tk = await issueToken(ctx, creds, tokenKey)
       continue
     }
-    const json: any = await res.json().catch(() => ({}))
+    const json: any = res.json
     if (!res.ok) {
       const detail = json.errors ? Object.values(json.errors).flat().join("; ") : ""
-      throw new Error(`${json.message ?? `Pathao error ${res.status}`}${detail ? `: ${detail}` : ""}`)
+      throw new ConvexError(`${json.message ?? `Pathao error ${res.status}`}${detail ? `: ${detail}` : ""}`)
     }
     return json
   }
@@ -114,7 +120,7 @@ export const testConnection = action({
   handler: async (ctx, { partnerId }) => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "settings.manage" })
     const { creds, tokenKey } = await ctx.runQuery(internal.pathao.config, { partnerId })
-    if (!creds) throw new Error("Save your Pathao credentials first")
+    if (!creds) throw new ConvexError("Save your Pathao credentials first")
     await issueToken(ctx, creds, tokenKey)
     const stores = listOf(await pathao(ctx, "aladdin/api/v1/stores", { partnerId }))
     return stores.map((s: any) => ({ id: Number(s.store_id), name: String(s.store_name), active: !!s.is_active }))
@@ -148,9 +154,9 @@ export const priceCheck = action({
   handler: async (ctx, { orderId }): Promise<{ price: number; codPercent: number | null; raw: any }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
     const data = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
-    if (!data) throw new Error("Order not found")
+    if (!data) throw new ConvexError("Order not found")
     const { order, pathaoStoreId, partnerId } = data
-    if (!pathaoStoreId || !order.pathaoCityId || !order.pathaoZoneId) throw new Error("Set the delivery partner's store and the order's city/zone first")
+    if (!pathaoStoreId || !order.pathaoCityId || !order.pathaoZoneId) throw new ConvexError("Set the delivery partner's store and the order's city/zone first")
     const weight = Math.min(10, Math.max(0.5, order.items.reduce((s, i) => s + i.weightKg * i.qty, 0)))
     const res = await pathao(ctx, "aladdin/api/v1/merchant/price-plan", {
       method: "POST", partnerId,
