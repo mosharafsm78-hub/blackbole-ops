@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Guard } from "@/components/app-shell"
 import { Empty, PageHeader } from "@/components/bits"
 import { ProductSearch } from "@/components/order-parts"
+import { ProductBuilder } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -35,6 +36,7 @@ function StockIn() {
   const [updateCost, setUpdateCost] = useState(true)
   const [lines, setLines] = useState<Line[]>([])
   const [busy, setBusy] = useState(false)
+  const [builder, setBuilder] = useState(false)
 
   useEffect(() => {
     if (!locationId && locations?.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id)
@@ -47,9 +49,22 @@ function StockIn() {
   return (
     <div className="space-y-6">
       <PageHeader title="Stock in" sub="Record products coming in from the factory or a supplier. Units go straight into Available." />
+      <ProductBuilder
+        open={builder}
+        onOpenChange={setBuilder}
+        onCreated={(created) => setLines((ls) => [
+          ...ls,
+          ...created
+            .filter((c) => !ls.some((l) => l.variantId === c.variantId))
+            .map((c) => ({ variantId: c.variantId, label: `${c.name} · ${c.title}`, sku: c.sku, qty: c.orderedQty, unitCost: c.unitCost })),
+        ])}
+      />
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <section className="flex h-[560px] flex-col gap-3 rounded-lg border bg-card p-4">
-          <h2 className="text-sm font-semibold">Find products</h2>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Find products</h2>
+            <Button size="sm" variant="outline" onClick={() => setBuilder(true)} data-testid="stockin-new-product"><Plus className="size-4" /> New product</Button>
+          </div>
           <div className="min-h-0 flex-1">
             <ProductSearch
               locationId={locationId}

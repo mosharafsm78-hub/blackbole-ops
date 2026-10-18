@@ -160,7 +160,7 @@ export function ProductBuilder({ open, onOpenChange, onCreated, preset }: {
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create product & add to purchase"}</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? "Creating…" : "Create product & add to list"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
