@@ -129,6 +129,8 @@ function PathaoTab() {
   const info = useQuery(api.settings.integrations)
   const save = useMutation(api.settings.savePathao)
   const test = useAction(api.pathao.testConnection)
+  const detectOpen = useAction(api.pathao.detectOpenOrders)
+  const [detecting, setDetecting] = useState(false)
   const [env, setEnv] = useState<"sandbox" | "production">("production")
   const [clientId, setClientId] = useState("")
   const [clientSecret, setClientSecret] = useState("")
@@ -181,6 +183,12 @@ function PathaoTab() {
               setBusy(true)
               try { setStores(await test({})); toast.success("Pathao connection works") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
             }}>Test connection</Button>
+          )}
+          {info.pathao && (
+            <Button variant="outline" disabled={detecting} onClick={async () => {
+              setDetecting(true)
+              try { const r = await detectOpen({}); toast.success(`Checked ${r.checked} open orders — city/zone filled for ${r.found}`) } catch (e) { toast.error(errMsg(e)) } finally { setDetecting(false) }
+            }}>{detecting ? "Detecting…" : "Detect city/zone for open orders"}</Button>
           )}
         </div>
         {stores && (

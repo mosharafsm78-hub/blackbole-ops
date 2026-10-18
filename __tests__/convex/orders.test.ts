@@ -117,13 +117,14 @@ describe("order lifecycle", () => {
     expect(await stockOf(t, v41._id, locationId)).toMatchObject({ available: 10, processing: 0 })
   })
 
-  it("requires Pathao city and zone before Ready To Ship", async () => {
+  it("lets a Pathao order reach Ready To Ship without city/zone", async () => {
     const { t, as, locationId, v41 } = await setup()
     await t.run((ctx) => ctx.db.insert("deliveryPartners", { code: 2001, name: "Pathao", provider: "pathao", locationId, active: true, createdAt: Date.now() }))
     const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular" })
     expect((await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })).done).toBe(1)
+    // Pathao now detects city/zone from the address, so Ready To Ship is allowed without them
     const r = await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "ready_to_ship" })
-    expect(r.errors[0]).toMatch(/Pathao city and zone/)
+    expect(r.done).toBe(1)
   })
 
   it("editing an approved order re-reserves the new quantity", async () => {

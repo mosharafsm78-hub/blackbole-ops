@@ -194,7 +194,11 @@ export const bookOrder = internalAction({
     const fail = async (msg: string) =>
       ctx.runMutation(internal.orders.setCourier, { id: orderId, courierError: msg, log: `Pathao booking failed: ${msg}` })
     if (!pathaoStoreId) return fail("Delivery partner has no Pathao store selected (Settings → Delivery partners)")
-    if (!order.pathaoCityId || !order.pathaoZoneId) return fail("Pathao city and zone are missing on the order")
+    if (!order.pathaoCityId) {
+      await ctx.runAction(internal.pathao.autoPlace, { orderId })
+      const again = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+      if (again) Object.assign(order, again.order)
+    }
 
     let address = order.address.trim()
     if (address.length < 10) address = `${address}, ${order.areaName ?? ""} ${order.zoneName ?? ""} ${order.cityName ?? ""}`.trim()
@@ -211,8 +215,8 @@ export const bookOrder = internalAction({
           recipient_name: order.customerName.slice(0, 100).padEnd(3, "."),
           recipient_phone: order.phone,
           recipient_address: address.slice(0, 220),
-          recipient_city: order.pathaoCityId,
-          recipient_zone: order.pathaoZoneId,
+          ...(order.pathaoCityId ? { recipient_city: order.pathaoCityId } : {}),
+          ...(order.pathaoZoneId ? { recipient_zone: order.pathaoZoneId } : {}),
           ...(order.pathaoAreaId ? { recipient_area: order.pathaoAreaId } : {}),
           delivery_type: order.deliveryType === "express" ? 12 : 48,
           item_type: 2,
@@ -324,4 +328,63 @@ export const webhook = httpAction(async (ctx, req) => {
     }
   }
   return new Response('{"ok":true}', { status: 202, headers })
+})
+
+// ---------- address auto-detect (same parser the Pathao merchant panel uses) ----------
+type Parsed = { cityId: number; cityName: string; zoneId?: number; zoneName?: string; areaId?: number; areaName?: string }
+
+async function parse(ctx: any, address: string): Promise<Parsed | null> {
+  const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, {})
+  if (!creds || creds.env !== "production" || address.trim().length < 6) return null
+  let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await http(ctx, "https://merchant.pathao.com/api/v1/address-parser", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tk.accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ address: address.trim().slice(0, 220) }),
+    })
+    if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
+    const d = res.json?.data
+    if (!res.ok || !d?.district_id) return null
+    return {
+      cityId: Number(d.district_id), cityName: String(d.district_name ?? ""),
+      zoneId: d.zone_id ? Number(d.zone_id) : undefined, zoneName: d.zone_name ?? undefined,
+      areaId: d.area_id ? Number(d.area_id) : undefined, areaName: d.area_name ?? undefined,
+    }
+  }
+  return null
+}
+
+export const parseAddress = action({
+  args: { address: v.string() },
+  handler: async (ctx, { address }): Promise<Parsed | null> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    try { return await parse(ctx, address) } catch { return null }
+  },
+})
+
+export const autoPlace = internalAction({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => {
+    const data = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+    if (!data || data.order.pathaoCityId) return
+    const o = data.order
+    const p = await parse(ctx, [o.address, o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")).catch(() => null)
+    if (p) await ctx.runMutation(internal.orders.setPlace, { id: orderId, ...p })
+  },
+})
+
+export const detectOpenOrders = action({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; found: number }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "settings.manage" })
+    const ids = await ctx.runQuery(internal.orders.needingPlace, {})
+    let found = 0
+    for (const id of ids) {
+      await ctx.runAction(internal.pathao.autoPlace, { orderId: id })
+      const d = await ctx.runMutation(internal.orders.internalGet, { id })
+      if (d?.order.pathaoCityId) found++
+    }
+    return { checked: ids.length, found }
+  },
 })

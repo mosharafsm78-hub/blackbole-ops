@@ -374,7 +374,7 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
             </div>
             <div className="space-y-1.5"><Label>Email</Label><Input value={email} onChange={(e) => setEmail(e.target.value)} /></div>
             <div className="space-y-1.5"><Label>Address</Label><Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} /></div>
-            {deliveryType !== "pickup" && <PathaoAddress value={place} onChange={setPlace} />}
+            {deliveryType !== "pickup" && <PathaoAddress value={place} onChange={setPlace} address={address} />}
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label>Source</Label>

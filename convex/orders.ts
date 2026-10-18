@@ -1,7 +1,7 @@
 import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internal } from "./_generated/api"
-import { internalMutation, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
+import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
 import {
@@ -143,6 +143,9 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     purchaseCost: await computePurchaseCost(ctx, o.items),
   })
   await bumpStatusCount(ctx, status, 1)
+  if (!o.pathaoCityId && o.deliveryType !== "pickup" && partner?.provider === "pathao" && o.address.trim().length >= 10) {
+    await ctx.scheduler.runAfter(0, internal.pathao.autoPlace, { orderId })
+  }
   if (paid > 0) {
     await ctx.db.insert("payments", { orderId, method: o.advance!.method, amount: paid, reference: o.advance!.reference, byName, at: now })
     const kind = o.advance!.kind === "delivery" ? " (delivery charge)" : o.advance!.kind === "full" ? " (full payment)" : ""
@@ -446,9 +449,6 @@ async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStat
   const from = order.status as OrderStatus
   if (from === to) return
   if (!canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
-  if (to === "ready_to_ship" && order.courier === "pathao" && !order.consignmentId && (!order.pathaoCityId || !order.pathaoZoneId)) {
-    throw new ConvexError(`${invoiceLabel(order)}: set the Pathao city and zone before Ready To Ship`)
-  }
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)
   const now = Date.now()
@@ -904,6 +904,32 @@ export const internalGet = internalMutation({
       partnerCreds: partner?.useOwnCredentials ? partner.credentials ?? null : null,
       partnerId: partner?._id ?? null,
     }
+  },
+})
+
+export const setPlace = internalMutation({
+  args: { id: v.id("orders"), cityId: v.number(), cityName: v.string(), zoneId: v.optional(v.number()), zoneName: v.optional(v.string()), areaId: v.optional(v.number()), areaName: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const o = await ctx.db.get(a.id)
+    if (!o || o.pathaoCityId) return false
+    await ctx.db.patch(a.id, {
+      pathaoCityId: a.cityId, cityName: o.cityName || a.cityName, pathaoZoneId: a.zoneId, zoneName: a.zoneName,
+      pathaoAreaId: a.areaId, areaName: a.areaName, updatedAt: Date.now(),
+    })
+    await logOrder(ctx, a.id, `Pathao detected: ${[a.areaName, a.zoneName, a.cityName].filter(Boolean).join(", ")}`, "Pathao")
+    return true
+  },
+})
+
+export const needingPlace = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const out: Id<"orders">[] = []
+    for (const st of ["pending", "on_hold", "approved", "processing", "ready_to_ship"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
+      for (const o of rows) if (!o.deletedAt && !o.pathaoCityId && o.courier === "pathao") out.push(o._id)
+    }
+    return out
   },
 })
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useAction, useMutation, useQuery } from "convex/react"
 import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -86,10 +86,35 @@ function usePlaces(kind: "city" | "zone" | "area", parentId?: number) {
   return { list, loading, error }
 }
 
-export function PathaoAddress({ value, onChange }: { value: Place; onChange: (p: Place) => void }) {
+export function PathaoAddress({ value, onChange, address }: { value: Place; onChange: (p: Place) => void; address?: string }) {
   const cities = usePlaces("city")
   const zones = usePlaces("zone", value.pathaoCityId)
   const areas = usePlaces("area", value.pathaoZoneId)
+  const parse = useAction(api.pathao.parseAddress)
+  const [detecting, setDetecting] = useState(false)
+  const [auto, setAuto] = useState<"idle" | "found" | "none">("idle")
+  const manual = useRef(!!value.pathaoCityId)
+  const latest = useRef(value)
+  latest.current = value
+  // Like Pathao/Nuport: read the typed address and fill city, zone and area automatically.
+  useEffect(() => {
+    const text = (address ?? "").trim()
+    if (manual.current || text.length < 8 || cities.error) return
+    const t = setTimeout(async () => {
+      setDetecting(true)
+      try {
+        const p = await parse({ address: text })
+        if (manual.current) return
+        if (p) {
+          onChange({ ...latest.current, pathaoCityId: p.cityId, cityName: p.cityName, pathaoZoneId: p.zoneId, zoneName: p.zoneName, pathaoAreaId: p.areaId, areaName: p.areaName })
+          setAuto("found")
+        } else setAuto("none")
+      } catch { setAuto("none") } finally { setDetecting(false) }
+    }, 700)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address])
+  const pick = (p: Place) => { manual.current = true; setAuto("idle"); onChange(p) }
   if (cities.error) {
     return (
       <div className="space-y-1.5">
@@ -105,23 +130,29 @@ export function PathaoAddress({ value, onChange }: { value: Place; onChange: (p:
         <Label>City</Label>
         <SearchSelect
           value={value.pathaoCityId} options={cities.list} loading={cities.loading} placeholder="Select city"
-          onChange={(o) => onChange({ ...value, pathaoCityId: o?.id, cityName: o?.name, pathaoZoneId: undefined, zoneName: undefined, pathaoAreaId: undefined, areaName: undefined })}
+          onChange={(o) => pick({ ...value, pathaoCityId: o?.id, cityName: o?.name, pathaoZoneId: undefined, zoneName: undefined, pathaoAreaId: undefined, areaName: undefined })}
         />
       </div>
       <div className="space-y-1.5">
         <Label>Zone</Label>
         <SearchSelect
           value={value.pathaoZoneId} options={zones.list} loading={zones.loading} disabled={!value.pathaoCityId} placeholder="Select zone"
-          onChange={(o) => onChange({ ...value, pathaoZoneId: o?.id, zoneName: o?.name, pathaoAreaId: undefined, areaName: undefined })}
+          onChange={(o) => pick({ ...value, pathaoZoneId: o?.id, zoneName: o?.name, pathaoAreaId: undefined, areaName: undefined })}
         />
       </div>
       <div className="space-y-1.5">
         <Label>Area <span className="font-normal text-muted-foreground">(optional)</span></Label>
         <SearchSelect
           value={value.pathaoAreaId} options={areas.list} loading={areas.loading} disabled={!value.pathaoZoneId} placeholder="Select area"
-          onChange={(o) => onChange({ ...value, pathaoAreaId: o?.id, areaName: o?.name })}
+          onChange={(o) => pick({ ...value, pathaoAreaId: o?.id, areaName: o?.name })}
         />
       </div>
+      <p className="text-xs text-muted-foreground sm:col-span-3" data-testid="pathao-detect">
+        {detecting ? "Detecting city / zone from the address…"
+          : auto === "found" ? "✓ Filled automatically from the address (Pathao). Change it if needed."
+          : auto === "none" ? "Couldn't detect from the address. Pick city and zone, or Pathao will detect it when booking."
+          : "City, zone and area fill in automatically when you type the address."}
+      </p>
     </div>
   )
 }
