@@ -347,6 +347,17 @@ function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatu
           <DropdownMenuItem onSelect={() => { setNote(""); setNoteOpen(true) }}>Add note…</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {options.length > 0 && (
+        <div className="mt-1.5 flex max-w-56 flex-wrap gap-1" data-testid="row-moves">
+          <span className="w-full text-[10px] uppercase tracking-wide text-muted-foreground">Move to</span>
+          {options.slice(0, 4).map((t) => (
+            <button key={t} type="button" disabled={busy} onClick={() => move(t)} title={`Move to ${STATUS_LABEL[t]}`}
+              className="rounded-full border bg-background px-0.5 py-0.5 transition hover:border-foreground/40 hover:shadow-sm disabled:opacity-50">
+              <StatusPill status={t} />
+            </button>
+          ))}
+        </div>
+      )}
       <StatusDialog
         ids={[id]}
         options={options}
