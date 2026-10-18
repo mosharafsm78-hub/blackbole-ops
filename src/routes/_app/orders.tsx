@@ -11,7 +11,7 @@ import { Guard, useMe } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -328,36 +328,33 @@ function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatu
   }
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild disabled={busy}>
-          <button type="button" className="inline-flex items-center gap-1 rounded-full outline-none focus-visible:ring-2" aria-label="Change status" data-testid="row-status">
-            <StatusPill status={status} />
-            <ChevronDown className="size-3.5 text-muted-foreground" />
+      <StatusPill status={status} />
+      <div className="mt-1.5 flex max-w-60 flex-wrap items-center gap-1" data-testid="row-moves">
+        {options.length > 0 && <span className="w-full text-[10px] uppercase tracking-wide text-muted-foreground">Move to</span>}
+        {options.slice(0, 4).map((t) => (
+          <button key={t} type="button" disabled={busy} onClick={() => move(t)} title={`Move to ${STATUS_LABEL[t]}${NEEDS_REASON.includes(t) ? " (asks for a note)" : ""}`}
+            className="rounded-full border bg-background px-0.5 py-0.5 transition hover:border-foreground/40 hover:shadow-sm disabled:opacity-50">
+            <StatusPill status={t} />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">Move to</DropdownMenuLabel>
-          {options.length === 0 && <DropdownMenuItem disabled>No moves allowed</DropdownMenuItem>}
-          {options.map((t) => (
-            <DropdownMenuItem key={t} onSelect={() => move(t)}>
-              {STATUS_LABEL[t]}{NEEDS_REASON.includes(t) ? " …" : ""}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => { setNote(""); setNoteOpen(true) }}>Add note…</DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {options.length > 0 && (
-        <div className="mt-1.5 flex max-w-56 flex-wrap gap-1" data-testid="row-moves">
-          <span className="w-full text-[10px] uppercase tracking-wide text-muted-foreground">Move to</span>
-          {options.slice(0, 4).map((t) => (
-            <button key={t} type="button" disabled={busy} onClick={() => move(t)} title={`Move to ${STATUS_LABEL[t]}`}
-              className="rounded-full border bg-background px-0.5 py-0.5 transition hover:border-foreground/40 hover:shadow-sm disabled:opacity-50">
-              <StatusPill status={t} />
-            </button>
-          ))}
-        </div>
-      )}
+        ))}
+        {options.length > 4 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild disabled={busy}>
+              <button type="button" className="inline-flex items-center gap-0.5 rounded-full border bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:border-foreground/40" data-testid="row-more">
+                More <ChevronDown className="size-3" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {options.slice(4).map((t) => (
+                <DropdownMenuItem key={t} onSelect={() => move(t)}>{STATUS_LABEL[t]}{NEEDS_REASON.includes(t) ? " …" : ""}</DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <button type="button" onClick={() => { setNote(""); setNoteOpen(true) }} className="rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground hover:border-foreground/40 hover:text-foreground" data-testid="row-add-note">
+          + Note
+        </button>
+      </div>
       <StatusDialog
         ids={[id]}
         options={options}
