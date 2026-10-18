@@ -62,6 +62,26 @@ function SettingsPage() {
 }
 
 // ---------------- Shopify ----------------
+function ShopifyPrivateLink({ linked }: { linked: boolean }) {
+  const getLink = useMutation(api.settings.shopifyLink)
+  const [url, setUrl] = useState<string | null>(null)
+  return (
+    <Section title="Private webhook link" sub={linked ? <Pill tone="green">Created</Pill> : undefined}>
+      <p className="text-sm text-muted-foreground">Use this link instead of a signing key (for webhooks created by an app or the API). Keep it private.</p>
+      <div className="mt-3 flex max-w-2xl gap-2">
+        {url ? (
+          <>
+            <Input readOnly value={url} className="font-mono text-xs" data-testid="shopify-private-link" />
+            <Button variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(url); toast.success("Link copied") }} aria-label="Copy link"><Copy className="size-4" /></Button>
+          </>
+        ) : (
+          <Button variant="outline" onClick={async () => { try { setUrl(await getLink({})) } catch (e) { toast.error(errMsg(e)) } }}>Show private link</Button>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 function ShopifyTab() {
   const info = useQuery(api.settings.integrations)
   const save = useMutation(api.settings.saveShopifySecret)
@@ -90,6 +110,7 @@ function ShopifyTab() {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">Products are matched by SKU. Keep the same SKUs in Shopify and here so stock moves automatically.</p>
       </Section>
+      <ShopifyPrivateLink linked={info.shopifyLinked} />
       <Section title="Last webhook received">
         {info.shopifyLast ? (
           <div className="text-sm">
