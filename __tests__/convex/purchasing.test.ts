@@ -41,7 +41,7 @@ describe("purchases", () => {
     expect(await stockOf(t, v41)).toMatchObject({ available: 8, damaged: 2 })
     expect(await stockOf(t, v42)).toMatchObject({ available: 4 })
     const v = await t.run((ctx) => ctx.db.get(v41))
-    expect(v!.purchasePrice).toBe(550)
+    expect((v as any).purchasePrice).toBe(550)
 
     po = (await as.query(api.purchasing.getPO, { id }))!
     if (po.missing) return
@@ -56,6 +56,15 @@ describe("purchases", () => {
     await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 4000, method: "Bank transfer" })
     const sup = (await as.query(api.purchasing.listSuppliers, {})).find((s) => s._id === supplierId)!
     expect(sup).toMatchObject({ purchased: 11000, paid: 4000, due: 7000 })
+
+    // supplier-level payment: previous due first, then oldest purchase, extra becomes advance
+    await as.mutation(api.purchasing.saveSupplier, { id: supplierId, name: "Guangzhou Factory", openingDue: 2000, active: true })
+    const r = await as.mutation(api.purchasing.paySupplier, { id: supplierId, amount: 10000, method: "Cash" })
+    expect(r.applied).toEqual(["previous due 2000", "PO-0001 7000", "advance 1000"])
+    const st = (await as.query(api.purchasing.supplierStatement, { id: supplierId }))!
+    expect(st.due).toBe(-1000)
+    expect(st.advance).toBe(1000)
+    expect(st.rows[0].balance).toBe(-1000)
   })
 
   it("matches an uploaded supplier list by SKU and by name + size", async () => {

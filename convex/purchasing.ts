@@ -4,26 +4,96 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
 
 // ---------------- Suppliers ----------------
+const counted = (p: Doc<"purchaseOrders">) => p.status !== "draft" && p.status !== "cancelled"
+
+/** Supplier account: opening due + purchases − all payments. */
+async function supplierAccount(ctx: any, sp: Doc<"suppliers">) {
+  const pos: Doc<"purchaseOrders">[] = (await ctx.db.query("purchaseOrders").withIndex("by_supplier", (q: any) => q.eq("supplierId", sp._id)).collect()).filter(counted)
+  const payments: Doc<"supplierPayments">[] = await ctx.db.query("supplierPayments").withIndex("by_supplier", (q: any) => q.eq("supplierId", sp._id)).collect()
+  const opening = sp.openingDue ?? 0
+  const purchased = pos.reduce((t, p) => t + p.total, 0)
+  const paid = payments.reduce((t, p) => t + p.amount, 0)
+  const unlinkedPaid = payments.filter((p) => !p.poId).reduce((t, p) => t + p.amount, 0)
+  return {
+    pos, payments, opening, purchased, paid,
+    openingLeft: Math.max(0, opening - unlinkedPaid),
+    advance: Math.max(0, unlinkedPaid - opening), // paid in advance, not yet used by a purchase
+    due: opening + purchased - paid,
+    lastAt: pos.reduce((t, p) => Math.max(t, p.createdAt), 0) || undefined,
+  }
+}
+
 export const listSuppliers = query({
   args: {},
   handler: async (ctx) => {
     const s = await currentStaff(ctx)
     if (!s) return []
     const suppliers = await ctx.db.query("suppliers").collect()
-    const pos = await ctx.db.query("purchaseOrders").collect()
-    return suppliers
-      .map((sp) => {
-        const mine = pos.filter((p) => p.supplierId === sp._id && p.status !== "cancelled" && p.status !== "draft")
-        return {
-          ...sp,
-          poCount: mine.length,
-          purchased: mine.reduce((t, p) => t + p.total, 0),
-          paid: mine.reduce((t, p) => t + p.paid, 0),
-          due: mine.reduce((t, p) => t + p.due, 0),
-          lastAt: mine.reduce((t, p) => Math.max(t, p.createdAt), 0) || undefined,
-        }
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
+    const out = await Promise.all(suppliers.map(async (sp) => {
+      const a = await supplierAccount(ctx, sp)
+      return { ...sp, poCount: a.pos.length, purchased: a.purchased, paid: a.paid, due: a.due, opening: a.opening, lastAt: a.lastAt }
+    }))
+    return out.sort((a, b) => b.due - a.due || a.name.localeCompare(b.name))
+  },
+})
+
+/** Statement like a bank statement: purchases add to what we owe, payments reduce it. */
+export const supplierStatement = query({
+  args: { id: v.id("suppliers") },
+  handler: async (ctx, { id }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const sp = await ctx.db.get(id)
+    if (!sp) return null
+    const a = await supplierAccount(ctx, sp)
+    const poCode = (n: number) => `PO-${String(n).padStart(4, "0")}`
+    const entries: { at: number; kind: "opening" | "purchase" | "payment"; text: string; debit: number; credit: number; poId?: Id<"purchaseOrders"> }[] = []
+    if (a.opening) entries.push({ at: sp.createdAt, kind: "opening", text: "Previous due (before BlackBole Ops)", debit: a.opening, credit: 0 })
+    for (const p of a.pos) entries.push({ at: p.orderedAt ?? p.createdAt, kind: "purchase", text: `${poCode(p.code)}${p.supplierRef ? ` · Inv ${p.supplierRef}` : ""} · ${p.items.reduce((t, i) => t + i.orderedQty, 0)} pcs`, debit: p.total, credit: 0, poId: p._id })
+    for (const pay of a.payments) {
+      const po = pay.poId ? a.pos.find((p) => p._id === pay.poId) : undefined
+      entries.push({ at: pay.at, kind: "payment", text: `Paid · ${pay.method}${pay.reference ? ` · ${pay.reference}` : ""}${po ? ` · for ${poCode(po.code)}` : pay.poId ? "" : " · on account"}`, debit: 0, credit: pay.amount, poId: pay.poId })
+    }
+    entries.sort((x, y) => x.at - y.at || (x.kind === "payment" ? 1 : -1))
+    let bal = 0
+    const rows = entries.map((e) => { bal += e.debit - e.credit; return { ...e, balance: bal } })
+    const openPOs = a.pos.filter((p) => p.due > 0).sort((x, y) => x.createdAt - y.createdAt).map((p) => ({ _id: p._id, code: p.code, total: p.total, paid: p.paid, due: p.due, createdAt: p.createdAt, status: p.status }))
+    return { supplier: sp, purchased: a.purchased, paid: a.paid, due: a.due, opening: a.opening, openingLeft: a.openingLeft, advance: a.advance, rows: rows.reverse(), openPOs }
+  },
+})
+
+/** Pay a supplier any amount: clears the previous due first, then the oldest unpaid purchases. Extra stays as advance. */
+export const paySupplier = mutation({
+  args: { id: v.id("suppliers"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "purchases.pay")
+    if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
+    const sp = await ctx.db.get(a.id)
+    if (!sp) throw new ConvexError("Supplier not found")
+    const acc = await supplierAccount(ctx, sp)
+    const now = Date.now()
+    let left = a.amount
+    const base = { supplierId: a.id, method: a.method, reference: a.reference, note: a.note, byName: me.staff.name, at: now }
+    const applied: string[] = []
+    if (acc.openingLeft > 0) {
+      const x = Math.min(left, acc.openingLeft)
+      await ctx.db.insert("supplierPayments", { ...base, amount: x })
+      left -= x
+      applied.push(`previous due ${x}`)
+    }
+    for (const po of acc.pos.filter((p) => p.due > 0).sort((x, y) => (x.orderedAt ?? x.createdAt) - (y.orderedAt ?? y.createdAt))) {
+      if (left <= 0) break
+      const x = Math.min(left, po.due)
+      await ctx.db.insert("supplierPayments", { ...base, poId: po._id, amount: x })
+      await ctx.db.patch(po._id, { paid: po.paid + x, due: Math.max(0, po.due - x), updatedAt: now })
+      left -= x
+      applied.push(`PO-${String(po.code).padStart(4, "0")} ${x}`)
+    }
+    if (left > 0) {
+      await ctx.db.insert("supplierPayments", { ...base, amount: left })
+      applied.push(`advance ${left}`)
+    }
+    return { applied }
   },
 })
 
@@ -36,6 +106,7 @@ export const saveSupplier = mutation({
     email: v.optional(v.string()),
     address: v.optional(v.string()),
     note: v.optional(v.string()),
+    openingDue: v.optional(v.number()),
     active: v.boolean(),
   },
   handler: async (ctx, { id, ...a }) => {

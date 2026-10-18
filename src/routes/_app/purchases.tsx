@@ -44,7 +44,6 @@ function Purchases() {
     <div>
       <PageHeader title="Purchases & stock in" sub="Order from suppliers, track shipments, receive stock into the warehouse and pay suppliers.">
         <Button variant="outline" size="sm" asChild><Link to="/suppliers"><Users className="size-4" /> Suppliers</Link></Button>
-        <Button variant="outline" size="sm" asChild><Link to="/stock-in">Quick stock in</Link></Button>
         {can("purchases.manage") && <Button size="sm" onClick={() => navigate({ to: "/purchase", search: { id: "new" } })}><Plus className="size-4" /> New purchase</Button>}
       </PageHeader>
 
@@ -52,7 +51,7 @@ function Purchases() {
         <Stat label="Open purchases" value={open.length} />
         <Stat label="On the way" value={<span className="inline-flex items-center gap-1.5"><Truck className="size-4" />{onTheWay.reduce((t, p) => t + p.orderedUnits - p.receivedUnits - p.damagedUnits, 0)} pcs</span>} hint={`${onTheWay.length} shipments`} />
         <Stat label="Waiting to receive" value={`${open.reduce((t, p) => t + p.orderedUnits - p.receivedUnits - p.damagedUnits, 0)} pcs`} />
-        <Stat label="We owe suppliers" value={taka(due)} tone={due > 0 ? "red" : undefined} />
+        <Link to="/suppliers" className="block"><Stat label="We owe suppliers →" value={taka(due)} tone={due > 0 ? "red" : undefined} hint="Open supplier accounts" /></Link>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-1">

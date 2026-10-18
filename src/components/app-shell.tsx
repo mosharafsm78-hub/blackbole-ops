@@ -132,7 +132,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="space-y-0.5">
       {NAV.filter((n) => hasPerm(me.perms, n.perm)).map((n) => {
-        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|suppliers|stock-in)/.test(path))
+        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|supplier|stock-in)/.test(path))
         const Icon = n.icon
         return (
           <Link

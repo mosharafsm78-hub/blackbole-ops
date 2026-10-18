@@ -125,6 +125,7 @@ export default defineSchema({
     email: v.optional(v.string()),
     address: v.optional(v.string()),
     note: v.optional(v.string()),
+    openingDue: v.optional(v.number()), // what we owed before using this system
     active: v.boolean(),
     createdAt: v.number(),
   }),

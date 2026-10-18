@@ -290,17 +290,17 @@ export function UploadList({ open, onOpenChange, onAdd, onCreateNew }: {
 }
 
 export function SupplierDialog({ supplier, open, onOpenChange, onSaved }: {
-  supplier?: { _id: Id<"suppliers">; name: string; contactPerson?: string; phone?: string; email?: string; address?: string; note?: string; active: boolean } | null
+  supplier?: { _id: Id<"suppliers">; name: string; contactPerson?: string; phone?: string; email?: string; address?: string; note?: string; openingDue?: number; active: boolean } | null
   open: boolean
   onOpenChange: (o: boolean) => void
   onSaved?: (id: Id<"suppliers">) => void
 }) {
   const save = useMutation(api.purchasing.saveSupplier)
-  const [f, setF] = useState({ name: "", contactPerson: "", phone: "", email: "", address: "", note: "", active: true })
+  const [f, setF] = useState({ name: "", contactPerson: "", phone: "", email: "", address: "", note: "", openingDue: 0, active: true })
   useEffect(() => {
-    if (open) setF({ name: supplier?.name ?? "", contactPerson: supplier?.contactPerson ?? "", phone: supplier?.phone ?? "", email: supplier?.email ?? "", address: supplier?.address ?? "", note: supplier?.note ?? "", active: supplier?.active ?? true })
+    if (open) setF({ name: supplier?.name ?? "", contactPerson: supplier?.contactPerson ?? "", phone: supplier?.phone ?? "", email: supplier?.email ?? "", address: supplier?.address ?? "", note: supplier?.note ?? "", openingDue: supplier?.openingDue ?? 0, active: supplier?.active ?? true })
   }, [open, supplier])
-  const set = (k: keyof typeof f, v: string | boolean) => setF((x) => ({ ...x, [k]: v }))
+  const set = (k: keyof typeof f, v: string | boolean | number) => setF((x) => ({ ...x, [k]: v }))
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -312,12 +312,16 @@ export function SupplierDialog({ supplier, open, onOpenChange, onSaved }: {
           <div className="space-y-1.5 sm:col-span-2"><Label>Email</Label><Input value={f.email} onChange={(e) => set("email", e.target.value)} /></div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Note</Label><Textarea value={f.note} onChange={(e) => set("note", e.target.value)} rows={2} /></div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Previous due (what we already owed before this system)</Label>
+            <Input type="number" value={f.openingDue} onChange={(e) => set("openingDue", Number(e.target.value) || 0)} />
+          </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => set("active", v)} /> Active</label>
         </div>
         <DialogFooter>
           <Button onClick={async () => {
             try {
-              const id = await save({ id: supplier?._id, name: f.name, contactPerson: f.contactPerson || undefined, phone: f.phone || undefined, email: f.email || undefined, address: f.address || undefined, note: f.note || undefined, active: f.active })
+              const id = await save({ id: supplier?._id, name: f.name, contactPerson: f.contactPerson || undefined, phone: f.phone || undefined, email: f.email || undefined, address: f.address || undefined, note: f.note || undefined, openingDue: f.openingDue || undefined, active: f.active })
               toast.success("Supplier saved")
               onSaved?.(id)
               onOpenChange(false)
