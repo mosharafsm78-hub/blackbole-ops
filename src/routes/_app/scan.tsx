@@ -21,7 +21,8 @@ const MODES: { to: OrderStatus; label: string; hint: string }[] = [
   { to: "ready_to_ship", label: "Packed → Ready To Ship", hint: "Scan the invoice on the box. The order is booked with Pathao automatically." },
   { to: "processing", label: "Start → Processing", hint: "Scan to start packing an approved order." },
   { to: "in_transit", label: "Handed over → In Transit", hint: "For custom couriers. Pathao orders move to In Transit by themselves when picked up." },
-  { to: "returned", label: "Return received → Returned", hint: "Scan a returned parcel. Stock goes back to available." },
+  { to: "returned", label: "Return received → Returned", hint: "Scan a returned parcel in good condition. Stock goes back to Available and can be sold again." },
+  { to: "damaged", label: "Return damaged → Damaged", hint: "Scan a returned parcel that came back damaged. Stock goes to Damaged, not Available." },
 ]
 
 type Line = { at: number; code: string; ok: boolean; text: string }
