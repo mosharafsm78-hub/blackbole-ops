@@ -232,6 +232,8 @@ export default defineSchema({
     assignedTo: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     imported: v.optional(v.boolean()),
+    lastNote: v.optional(v.string()),
+    lastNoteBy: v.optional(v.string()),
   })
     .index("by_status", ["status", "createdAt"])
     .index("by_status_changed", ["status", "statusChangedAt"])

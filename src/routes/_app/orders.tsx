@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
+import { AlertTriangle, ChevronDown, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
 import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
@@ -11,6 +11,9 @@ import { Guard, useMe } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
@@ -224,8 +227,10 @@ function OrdersPage() {
                       {o.externalName && <span className="text-xs text-muted-foreground">{o.externalName}</span>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{dateTime(o.createdAt)}</div>
-                    {o.reason && NEEDS_REASON.includes(o.status as OrderStatus) && (
-                      <div className="mt-1 max-w-48 rounded bg-tone-red-bg px-1.5 py-0.5 text-[11px] text-tone-red" data-testid="row-note">Note: {o.reason}</div>
+                    {(o.lastNote || (o.reason && NEEDS_REASON.includes(o.status as OrderStatus))) && (
+                      <div className="mt-1 max-w-52 rounded bg-tone-amber-bg px-1.5 py-0.5 text-[11px] text-foreground" data-testid="row-note">
+                        📝 {o.lastNote ?? o.reason}{o.lastNoteBy ? <span className="text-muted-foreground"> — {o.lastNoteBy}</span> : null}
+                      </div>
                     )}
                     {o.printedAt && <div className="text-[11px] text-muted-foreground">Printed</div>}
                   </td>
@@ -299,39 +304,49 @@ function OrdersPage() {
   )
 }
 
-/** Status pill that opens a dropdown of the moves this user may make. Moves that need a note open the note dialog. */
+/** Status pill with a menu of the moves this user may make, plus "Add note". Moves that need a reason open the note dialog. */
 function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatus; perms: string[] }) {
   const change = useMutation(api.orders.changeStatus)
+  const addNote = useMutation(api.orders.addNote)
   const [dialogTo, setDialogTo] = useState<OrderStatus | null>(null)
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const options = TRANSITIONS[status].filter((t) => hasPerm(perms, moveKey(status, t)))
-  if (options.length === 0) return <StatusPill status={status} />
+  const move = async (to: OrderStatus) => {
+    if (NEEDS_REASON.includes(to)) { setDialogTo(to); return }
+    setBusy(true)
+    try {
+      const r = await change({ ids: [id], to })
+      if (r.errors.length) toast.error(r.errors[0])
+      else toast.success(`Moved to ${STATUS_LABEL[to]}`)
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <>
-      <Select
-        value=""
-        onValueChange={async (v) => {
-          const to = v as OrderStatus
-          if (NEEDS_REASON.includes(to)) { setDialogTo(to); return }
-          setBusy(true)
-          try {
-            const r = await change({ ids: [id], to })
-            if (r.errors.length) toast.error(r.errors[0])
-            else toast.success(`Moved to ${STATUS_LABEL[to]}`)
-          } catch (e) {
-            toast.error(errMsg(e))
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <SelectTrigger className="h-auto w-auto gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0" disabled={busy} aria-label="Change status" data-testid="row-status">
-          <StatusPill status={status} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((t) => <SelectItem key={t} value={t}>{STATUS_LABEL[t]}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={busy}>
+          <button type="button" className="inline-flex items-center gap-1 rounded-full outline-none focus-visible:ring-2" aria-label="Change status" data-testid="row-status">
+            <StatusPill status={status} />
+            <ChevronDown className="size-3.5 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">Move to</DropdownMenuLabel>
+          {options.length === 0 && <DropdownMenuItem disabled>No moves allowed</DropdownMenuItem>}
+          {options.map((t) => (
+            <DropdownMenuItem key={t} onSelect={() => move(t)}>
+              {STATUS_LABEL[t]}{NEEDS_REASON.includes(t) ? " …" : ""}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => { setNote(""); setNoteOpen(true) }}>Add note…</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
       <StatusDialog
         ids={[id]}
         options={options}
@@ -340,6 +355,17 @@ function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatu
         onOpenChange={(o) => { if (!o) setDialogTo(null) }}
         onDone={() => setDialogTo(null)}
       />
+      <Dialog open={noteOpen} onOpenChange={setNoteOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add note</DialogTitle></DialogHeader>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Customer will receive after 5pm" autoFocus />
+          <DialogFooter>
+            <Button disabled={!note.trim()} onClick={async () => {
+              try { await addNote({ id, text: note }); toast.success("Note added"); setNoteOpen(false) } catch (e) { toast.error(errMsg(e)) }
+            }}>Save note</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

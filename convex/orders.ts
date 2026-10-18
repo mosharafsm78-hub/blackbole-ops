@@ -453,7 +453,7 @@ async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStat
   await updateCustomerStats(ctx, order, from, to)
   const now = Date.now()
   const patch: Partial<Doc<"orders">> = { status: to, statusChangedAt: now, updatedAt: now }
-  if (reason) patch.reason = reason
+  if (reason) { patch.reason = reason; patch.lastNote = `${STATUS_LABEL[to]}: ${reason}`; patch.lastNoteBy = byName }
   if (to === "approved" && !order.approvedAt) patch.approvedAt = now
   if (to === "in_transit" && !order.shippedAt) patch.shippedAt = now
   if (isDelivered(to) && !order.deliveredAt) {
@@ -648,7 +648,7 @@ export const addNote = mutation({
     if (!text.trim()) return
     const o = await ctx.db.get(id)
     await logOrder(ctx, id, text.trim(), me.staff.name, "note")
-    if (o) await ctx.db.patch(id, { noteCount: (o.noteCount ?? 0) + 1 })
+    if (o) await ctx.db.patch(id, { noteCount: (o.noteCount ?? 0) + 1, lastNote: text.trim(), lastNoteBy: me.staff.name })
   },
 })
 
