@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
-import { Guard, useCan } from "@/components/app-shell"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
 import { ProductSearch } from "@/components/order-parts"
 import { POStatus, ProductBuilder, SupplierDialog, UploadList, poCode, type POLine } from "@/components/purchase-parts"
@@ -130,12 +130,12 @@ function Editor({ data }: { data: Data | null }) {
       >
         {editable && (dirty || !po) && <Button variant="outline" size="sm" disabled={busy} onClick={() => doSave()}>Save{!po ? " draft" : ""}</Button>}
         {editable && status === "draft" && <Button size="sm" disabled={busy} onClick={() => (po ? (dirty ? doSave("ordered") : changeStatus("ordered")) : doSave("ordered"))}>Place order</Button>}
-        {po && can("purchases.manage") && status === "ordered" && <Button size="sm" variant="outline" onClick={() => setDlg("ship")}><Truck className="size-4" /> Mark on the way</Button>}
-        {po && can("inventory.receive") && ["ordered", "shipped", "partial"].includes(status) && <Button size="sm" onClick={() => setDlg("receive")}><PackageCheck className="size-4" /> Receive goods</Button>}
-        {po && can("purchases.pay") && status !== "draft" && status !== "cancelled" && <Button size="sm" variant="outline" onClick={() => setDlg("pay")}><Wallet className="size-4" /> Pay supplier</Button>}
+        {po && status === "ordered" && <Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setDlg("ship")}><Truck className="size-4" /> Mark on the way</Button></Perm>}
+        {po && ["ordered", "shipped", "partial"].includes(status) && <Perm perm="inventory.receive"><Button size="sm" onClick={() => setDlg("receive")}><PackageCheck className="size-4" /> Receive goods</Button></Perm>}
+        {po && status !== "draft" && status !== "cancelled" && <Perm perm="purchases.pay"><Button size="sm" variant="outline" onClick={() => setDlg("pay")}><Wallet className="size-4" /> Pay supplier</Button></Perm>}
         {po && anyReceived && <Button size="sm" variant="outline" asChild><a href={`/labels?po=${po._id}`} target="_blank" rel="noreferrer"><Printer className="size-4" /> Labels</a></Button>}
-        {po && can("purchases.manage") && status === "partial" && <Button size="sm" variant="ghost" onClick={() => { if (confirm("Close this purchase? The rest won't be received.")) changeStatus("received") }}>Close</Button>}
-        {po && can("purchases.manage") && !anyReceived && status !== "cancelled" && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Cancel this purchase?")) changeStatus("cancelled") }}>Cancel</Button>}
+        {po && status === "partial" && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" onClick={() => { if (confirm("Close this purchase? The rest won't be received.")) changeStatus("received") }}>Close</Button></Perm>}
+        {po && !anyReceived && status !== "cancelled" && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Cancel this purchase?")) changeStatus("cancelled") }}>Cancel</Button></Perm>}
       </PageHeader>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -149,7 +149,7 @@ function Editor({ data }: { data: Data | null }) {
                   <SelectTrigger className="w-full"><SelectValue placeholder="Choose supplier" /></SelectTrigger>
                   <SelectContent>{suppliers.filter((s) => s.active || s._id === supplierId).map((s) => <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>)}</SelectContent>
                 </Select>
-                {can("purchases.manage") && <Button type="button" variant="outline" size="icon" onClick={() => setDlg("supplier")} aria-label="New supplier"><Plus className="size-4" /></Button>}
+                {<Perm perm="purchases.manage"><Button type="button" variant="outline" size="icon" onClick={() => setDlg("supplier")} aria-label="New supplier"><Plus className="size-4" /></Button></Perm>}
               </div>
             </div>
             <div className="space-y-1.5">
@@ -377,7 +377,7 @@ function Files({ po }: { po: Data["po"] }) {
     <section className="space-y-2 rounded-lg border bg-card p-4 text-sm">
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Supplier invoice & files</h2>
-        {can("purchases.manage") && <Button size="xs" variant="outline" disabled={busy} onClick={() => input.current?.click()}><Paperclip className="size-3" /> {busy ? "Uploading…" : "Attach"}</Button>}
+        {<Perm perm="purchases.manage"><Button size="xs" variant="outline" disabled={busy} onClick={() => input.current?.click()}><Paperclip className="size-3" /> {busy ? "Uploading…" : "Attach"}</Button></Perm>}
       </div>
       <input ref={input} type="file" className="hidden" accept="image/*,application/pdf,.xlsx,.xls,.csv" multiple onChange={async (e) => {
         const files = Array.from(e.target.files ?? [])
@@ -398,7 +398,7 @@ function Files({ po }: { po: Data["po"] }) {
             <li key={f.storageId} className="flex items-center gap-2">
               {f.type.startsWith("image/") && f.url ? <img src={f.url} alt="" className="size-10 rounded object-cover" /> : <FileText className="size-5 text-muted-foreground" />}
               <a href={f.url ?? "#"} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-tone-blue hover:underline">{f.name}</a>
-              {can("purchases.manage") && <Button size="icon" variant="ghost" onClick={() => remove({ id: po._id, storageId: f.storageId })} aria-label="Remove file"><Trash2 className="size-4" /></Button>}
+              {<Perm perm="purchases.manage"><Button size="icon" variant="ghost" onClick={() => remove({ id: po._id, storageId: f.storageId })} aria-label="Remove file"><Trash2 className="size-4" /></Button></Perm>}
             </li>
           ))}
         </ul>

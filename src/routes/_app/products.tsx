@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Plus, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { Guard, useCan } from "@/components/app-shell"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -50,12 +50,8 @@ function ProductsPage() {
   return (
     <div>
       <PageHeader title="Products & pricing" sub="Every SKU the team can sell. Shopify orders match products by SKU.">
-        {can("products.manage") && (
-          <>
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="size-4" /> Import CSV</Button>
-            <Button size="sm" onClick={() => setEditing(blank())}><Plus className="size-4" /> Add product</Button>
-          </>
-        )}
+        <Perm perm="products.manage"><Button variant="outline" size="sm" onClick={() => setImportOpen(true)}><Upload className="size-4" /> Import CSV</Button></Perm>
+        <Perm perm="products.manage"><Button size="sm" onClick={() => setEditing(blank())}><Plus className="size-4" /> Add product</Button></Perm>
       </PageHeader>
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Products" value={products.length} />

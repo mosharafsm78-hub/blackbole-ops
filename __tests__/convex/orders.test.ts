@@ -52,9 +52,26 @@ describe("first run", () => {
     const { t } = await setup()
     const other = await t.run((ctx) => ctx.db.insert("users", { email: "random@gmail.com" }))
     const as2 = t.withIdentity({ subject: `${other}|s2` })
-    expect(await as2.mutation(api.team.claim, {})).toBe("noAccess")
-    expect(await as2.query(api.team.me, {})).toMatchObject({ kind: "noAccess" })
+    expect(await as2.mutation(api.team.claim, { name: "Injamam" })).toBe("waiting")
+    expect(await as2.query(api.team.me, {})).toMatchObject({ kind: "waiting", name: "Injamam" })
     await expect(as2.mutation(api.orders.create, baseOrder("x" as any, "y" as any))).rejects.toThrow()
+  })
+
+  it("admin approves a sign-up with a role, then can switch single permissions off for that person", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const other = await t.run((ctx) => ctx.db.insert("users", { email: "injamam@blackbole.com" }))
+    const as2 = t.withIdentity({ subject: `${other}|s2` })
+    await as2.mutation(api.team.claim, { name: "Injamam" })
+    const [req] = await as.query(api.team.listRequests, {})
+    const cx = (await as.query(api.team.listRoles, {})).find((r) => r.name === "Team CX")!
+    await as.mutation(api.team.approveRequest, { id: req._id, name: "Injamam", roleId: cx._id })
+    expect(await as2.query(api.team.me, {})).toMatchObject({ kind: "ok", roleName: "Team CX" })
+    // allowed by the role…
+    await as2.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    // …until the admin switches it off for this person only
+    const staff = (await as.query(api.team.listStaff, {})).find((s) => s.email === "injamam@blackbole.com")!
+    await as.mutation(api.team.setStaffPerms, { id: staff._id, extraPerms: [], deniedPerms: ["orders.create"] })
+    await expect(as2.mutation(api.orders.create, baseOrder(locationId, v41._id))).rejects.toThrow()
   })
 })
 

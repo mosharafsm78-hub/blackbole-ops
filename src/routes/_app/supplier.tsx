@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
-import { Guard, useCan } from "@/components/app-shell"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader, Stat } from "@/components/bits"
 import { POStatus, SupplierDialog, poCode } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
@@ -41,9 +41,9 @@ function SupplierPage() {
       <div className="no-print text-sm"><Link to="/suppliers" className="inline-flex items-center gap-1 text-muted-foreground hover:underline"><ArrowLeft className="size-4" /> Suppliers</Link></div>
       <PageHeader title={sp.name} sub={[sp.contactPerson, sp.phone, sp.email, sp.address].filter(Boolean).join(" · ") || "Supplier account"}>
         <div className="no-print flex flex-wrap gap-2">
-          {can("purchases.manage") && <Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil className="size-4" /> Edit</Button>}
+          {<Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil className="size-4" /> Edit</Button></Perm>}
           <Button size="sm" variant="outline" onClick={() => window.print()}><Printer className="size-4" /> Print statement</Button>
-          {can("purchases.pay") && <Button size="sm" onClick={() => setPay(true)}><Wallet className="size-4" /> Pay supplier</Button>}
+          {<Perm perm="purchases.pay"><Button size="sm" onClick={() => setPay(true)}><Wallet className="size-4" /> Pay supplier</Button></Perm>}
         </div>
       </PageHeader>
 

@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useRef, useState } from "react"
+import { cloneElement, createContext, useContext, useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
 import {
-  LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine,
+  LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -107,15 +107,33 @@ function Gate({ children }: { children: React.ReactNode }) {
       </Centered>
     )
   }
-  if (me.kind === "noAccess") {
+  if (me.kind === "noAccess" || me.kind === "waiting" || me.kind === "rejected" || me.kind === "disabled") {
+    const waiting = me.kind === "waiting"
     return (
       <Centered>
         <Brand />
-        <h1 className="mt-6 text-lg font-semibold">No access yet</h1>
+        <h1 className="mt-6 text-lg font-semibold">
+          {me.kind === "rejected" ? "Access not approved" : me.kind === "disabled" ? "Your access is turned off" : waiting ? "Waiting for approval" : "Request access"}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {me.email} isn't on the team. Ask an admin to add this email in Settings → Team, then sign in again.
+          {me.kind === "rejected" ? `${me.email} was not approved. Talk to your admin if this is a mistake.`
+            : me.kind === "disabled" ? "An admin turned off your access. Talk to your admin."
+            : waiting ? `Thanks${me.name ? `, ${me.name}` : ""}! An admin will approve ${me.email} and give you your team's access. This page opens by itself once approved.`
+            : `${me.email} isn't on the team yet. Write your name and ask for access.`}
         </p>
-        <Button variant="outline" className="mt-5 w-full" onClick={() => signOut()}>Sign out</Button>
+        {(me.kind === "noAccess" || (waiting && !me.name)) && (
+          <form
+            className="mt-5 space-y-3"
+            onSubmit={async (e) => { e.preventDefault(); setBusy(true); await claim({ name }).finally(() => setBusy(false)) }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="rname">Your name</Label>
+              <Input id="rname" value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Injamam" />
+            </div>
+            <Button type="submit" className="w-full" disabled={busy}>Request access</Button>
+          </form>
+        )}
+        <Button variant="outline" className="mt-3 w-full" onClick={() => signOut()}>Sign out</Button>
       </Centered>
     )
   }
@@ -131,9 +149,16 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
   return (
     <nav className="space-y-0.5">
-      {NAV.filter((n) => hasPerm(me.perms, n.perm)).map((n) => {
-        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|supplier|stock-in)/.test(path))
+      {NAV.map((n) => {
         const Icon = n.icon
+        if (!hasPerm(me.perms, n.perm)) {
+          return (
+            <div key={n.to} title="Locked — ask your admin for access" className="flex cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground/50">
+              <Icon className="size-4" />{n.label}<Lock className="ml-auto size-3.5" />
+            </div>
+          )
+        }
+        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|supplier|stock-in)/.test(path))
         return (
           <Link
             key={n.to}
@@ -228,7 +253,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 export function Guard({ perm, children }: { perm: string; children: React.ReactNode }) {
   const me = useMe()
   if (!hasPerm(me.perms, perm)) {
-    return <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">You don't have access to this page.</div>
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border bg-card p-10 text-center text-sm text-muted-foreground">
+        <Lock className="size-6" />
+        <div className="font-medium text-foreground">This page is locked for you</div>
+        <div>Your admin can switch it on in Settings → Team.</div>
+      </div>
+    )
   }
   return <>{children}</>
+}
+
+/**
+ * Wrap a button that needs a permission. Allowed → shown as is.
+ * Not allowed → same button, greyed out with a lock, and it does nothing.
+ */
+export function Perm({ perm, children }: { perm: string; children: React.ReactElement<any> }) {
+  const me = useMe()
+  if (hasPerm(me.perms, perm)) return children
+  return cloneElement(children, {
+    disabled: true,
+    onClick: undefined,
+    href: undefined,
+    asChild: false,
+    title: "Locked — ask your admin for access",
+    "data-locked": "true",
+    className: cn(children.props.className, "cursor-not-allowed opacity-60"),
+    children: <><Lock className="size-3.5" />{lockLabel(children.props.children)}</>,
+  })
+}
+
+function lockLabel(c: React.ReactNode): React.ReactNode {
+  // If the button wraps a link (asChild), show the link's text instead of the link.
+  const el = c as React.ReactElement<any>
+  if (el && typeof el === "object" && "props" in el && (el.type === "a" || (el.props && el.props.to))) return el.props.children
+  return c
 }

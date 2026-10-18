@@ -4,7 +4,7 @@ import { useQuery } from "convex/react"
 import { Plus, Truck, Users } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { PO_STATUS_LABEL } from "@/convex/rules"
-import { Guard, useCan } from "@/components/app-shell"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Stat } from "@/components/bits"
 import { POStatus, poCode } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
@@ -44,7 +44,7 @@ function Purchases() {
     <div>
       <PageHeader title="Purchases & stock in" sub="Order from suppliers, track shipments, receive stock into the warehouse and pay suppliers.">
         <Button variant="outline" size="sm" asChild><Link to="/suppliers"><Users className="size-4" /> Suppliers</Link></Button>
-        {can("purchases.manage") && <Button size="sm" onClick={() => navigate({ to: "/purchase", search: { id: "new" } })}><Plus className="size-4" /> New purchase</Button>}
+        {<Perm perm="purchases.manage"><Button size="sm" onClick={() => navigate({ to: "/purchase", search: { id: "new" } })}><Plus className="size-4" /> New purchase</Button></Perm>}
       </PageHeader>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-4">

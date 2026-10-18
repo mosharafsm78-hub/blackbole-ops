@@ -3,7 +3,7 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
 import { Plus } from "lucide-react"
 import { api } from "@/convex/_generated/api"
-import { Guard, useCan } from "@/components/app-shell"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { SupplierDialog } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
@@ -29,7 +29,7 @@ function Suppliers() {
     <div>
       <PageHeader title="Suppliers" sub="Factories and suppliers you buy from — what you bought, paid and still owe.">
         <Button variant="outline" size="sm" asChild><Link to="/purchases">Purchases</Link></Button>
-        {can("purchases.manage") && <Button size="sm" onClick={() => { setEdit(null); setOpen(true) }}><Plus className="size-4" /> New supplier</Button>}
+        {<Perm perm="purchases.manage"><Button size="sm" onClick={() => { setEdit(null); setOpen(true) }}><Plus className="size-4" /> New supplier</Button></Perm>}
       </PageHeader>
       {rows && rows.length > 0 && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3">
@@ -60,7 +60,7 @@ function Suppliers() {
                   <td className="p-3 text-right tabular-nums">{taka(s.paid)}</td>
                   <td className={`p-3 text-right tabular-nums ${s.due > 0 ? "font-semibold text-tone-red" : s.due < 0 ? "text-tone-blue" : ""}`}>{s.due < 0 ? `${taka(-s.due)} adv.` : taka(s.due)}</td>
                   <td className="p-3 text-xs">{s.lastAt ? dateOnly(s.lastAt) : "—"}</td>
-                  <td className="p-3 text-right">{can("purchases.manage") && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEdit(s); setOpen(true) }}>Edit</Button>}</td>
+                  <td className="p-3 text-right">{<Perm perm="purchases.manage"><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setEdit(s); setOpen(true) }}>Edit</Button></Perm>}</td>
                 </tr>
               ))}
             </tbody>

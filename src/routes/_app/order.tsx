@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { ChevronLeft, ChevronRight, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
+import { ChevronLeft, ChevronRight, Lock, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { ORDER_SOURCES, PAYMENT_METHODS, type OrderStatus } from "@/convex/rules"
-import { Guard, useCan } from "@/components/app-shell"
+import { ORDER_SOURCES, PAYMENT_METHODS, TRANSITIONS, type OrderStatus } from "@/convex/rules"
+import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
   CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place,
@@ -94,24 +94,27 @@ function OrderPage() {
         </div>
         <div className="ml-auto flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}><PhoneCall className="size-4" /> Log call</Button>
-          {editable && <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>}
-          {can("orders.print") && (
+          {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
+            : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
+          <Perm perm="orders.print">
             <Button variant="outline" size="sm" onClick={() => window.open(`/print?ids=${o._id}`, "_blank")}><Printer className="size-4" /> Invoice</Button>
-          )}
+          </Perm>
           <Button size="sm" disabled={next.length === 0} onClick={() => { setInitialStatus(undefined); setStatusOpen(true) }}>
             <Shuffle className="size-4" /> Change status
           </Button>
         </div>
       </div>
 
-      {/* Quick actions for the common next step */}
-      {next.length > 0 && (
+      {/* Quick actions for the common next step; moves this person isn't allowed are shown locked */}
+      {TRANSITIONS[status].length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-sm">
           <span className="text-muted-foreground">Move to:</span>
-          {next.slice(0, 5).map((s) => (
+          {TRANSITIONS[status].map((s) => next.includes(s) ? (
             <Button key={s} variant="secondary" size="xs" onClick={() => { setInitialStatus(s); setStatusOpen(true) }}>
               <StatusPill status={s} />
             </Button>
+          ) : (
+            <span key={s} title="Locked for you — ask your admin" className="inline-flex cursor-not-allowed items-center gap-1 rounded-md px-1.5 py-0.5 opacity-50"><Lock className="size-3" /><StatusPill status={s} /></span>
           ))}
         </div>
       )}
@@ -221,7 +224,7 @@ function OrderPage() {
             </dl>
           </Card>
 
-          <Card title="Payments" action={can("orders.payments") && <Button size="xs" variant="outline" onClick={() => setPayOpen(true)}>Add payment</Button>}>
+          <Card title="Payments" action={<Perm perm="orders.payments"><Button size="xs" variant="outline" onClick={() => setPayOpen(true)}>Add payment</Button></Perm>}>
             {payments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No payments yet. Due {taka(o.due)} will be collected on delivery.</p>
             ) : (
@@ -285,7 +288,7 @@ function OrderPage() {
         </Card>
       </div>
 
-      <StatusDialog ids={[o._id]} options={next as OrderStatus[]} initial={initialStatus} open={statusOpen} onOpenChange={setStatusOpen} />
+      <StatusDialog ids={[o._id]} options={next as OrderStatus[]} initial={initialStatus} open={statusOpen} onOpenChange={setStatusOpen} label={o.invoiceCode ?? invoice(o.invoiceNo)} from={status} confirmOnly={!!initialStatus} />
       <CallDialog
         orderId={o._id} open={callOpen} onOpenChange={setCallOpen}
         onConfirmed={() => {

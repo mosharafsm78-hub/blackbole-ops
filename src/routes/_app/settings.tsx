@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { Copy } from "lucide-react"
+import { Copy, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, errMsg } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/settings")({
   component: () => (
@@ -46,8 +47,8 @@ function SettingsPage() {
           <TabsTrigger value="shopify">Shopify</TabsTrigger>
           <TabsTrigger value="pathao">Pathao</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
-          {can("team.manage") && <TabsTrigger value="team">Team</TabsTrigger>}
-          {can("team.manage") && <TabsTrigger value="roles">Roles</TabsTrigger>}
+          <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
+          <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
           <TabsTrigger value="general">General</TabsTrigger>
         </TabsList>
         <TabsContent value="shopify"><ShopifyTab /></TabsContent>
@@ -261,23 +262,65 @@ function WarehousesTab() {
 function TeamTab() {
   const staff = useQuery(api.team.listStaff)
   const roles = useQuery(api.team.listRoles)
+  const requests = useQuery(api.team.listRequests)
   const save = useMutation(api.team.saveStaff)
+  const approve = useMutation(api.team.approveRequest)
+  const reject = useMutation(api.team.rejectRequest)
   const [edit, setEdit] = useState<{ id?: Id<"staff">; email: string; name: string; phone: string; roleId?: Id<"roles">; active: boolean } | null>(null)
+  const [permsFor, setPermsFor] = useState<NonNullable<typeof staff>[number] | null>(null)
+  const [reqRole, setReqRole] = useState<Record<string, string>>({})
+  const [reqName, setReqName] = useState<Record<string, string>>({})
   if (!staff || !roles) return <Loading />
+  const assignable = roles.filter((r) => !r.permissions.includes("*"))
   return (
-    <Section title="Team" sub="Add someone's email, give them a role, and they sign in with a code sent to that email.">
-      <div className="divide-y rounded-md border">
-        {staff.map((s) => (
-          <div key={s._id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">{s.name} <span className="font-normal text-muted-foreground">· {s.email}</span></div>
-              <div className="mt-0.5 flex gap-1.5"><Pill tone="blue">{s.roleName}</Pill>{!s.active && <Pill tone="gray">Disabled</Pill>}{!s.joined && <Pill tone="amber">Invited — not signed in yet</Pill>}</div>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setEdit({ id: s._id, email: s.email, name: s.name, phone: s.phone ?? "", roleId: s.roleId, active: s.active })}>Edit</Button>
+    <div className="space-y-4">
+      {requests && requests.length > 0 && (
+        <Section title={`Waiting for access (${requests.length})`} sub="These people created a password themselves. Pick their team and approve — or reject.">
+          <div className="divide-y rounded-md border" data-testid="access-requests">
+            {requests.map((r) => (
+              <div key={r._id} className="flex flex-wrap items-center gap-2 p-3 text-sm">
+                <div className="min-w-48 flex-1"><div className="text-xs text-muted-foreground">{r.email}</div>
+                  <Input className="mt-1 h-8" value={reqName[r._id] ?? r.name ?? ""} onChange={(e) => setReqName({ ...reqName, [r._id]: e.target.value })} placeholder="Their name" />
+                </div>
+                <Select value={reqRole[r._id]} onValueChange={(v) => setReqRole({ ...reqRole, [r._id]: v })}>
+                  <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Choose team / role" /></SelectTrigger>
+                  <SelectContent>{roles.map((x) => <SelectItem key={x._id} value={x._id}>{x.name}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button size="sm" disabled={!reqRole[r._id]} onClick={async () => {
+                  try { await approve({ id: r._id, roleId: reqRole[r._id] as Id<"roles">, name: (reqName[r._id] ?? r.name ?? "").trim() || r.email.split("@")[0] }); toast.success("Approved — they can use the app now") } catch (e) { toast.error(errMsg(e)) }
+                }}>Approve</Button>
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={async () => { await reject({ id: r._id }); toast.success("Rejected") }}>Reject</Button>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <Button className="mt-3" size="sm" onClick={() => setEdit({ email: "", name: "", phone: "", roleId: roles.find((r) => r.name === "Customer Care")?._id, active: true })}>Add team member</Button>
+        </Section>
+      )}
+
+      <Section title="Team" sub="Each person gets a team role. Use “Permissions” to switch single things on or off for one person — anything off shows locked for them.">
+        <div className="divide-y rounded-md border">
+          {staff.map((s) => {
+            const custom = (s.extraPerms?.length ?? 0) + (s.deniedPerms?.length ?? 0)
+            return (
+              <div key={s._id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium">{s.name} <span className="font-normal text-muted-foreground">· {s.email}</span></div>
+                  <div className="mt-0.5 flex flex-wrap gap-1.5">
+                    <Pill tone="blue">{s.roleName}</Pill>
+                    {custom > 0 && <Pill tone="violet">{custom} personal change{custom > 1 ? "s" : ""}</Pill>}
+                    {!s.active && <Pill tone="gray">Disabled</Pill>}
+                    {!s.joined && <Pill tone="amber">Added — hasn't signed up yet</Pill>}
+                  </div>
+                </div>
+                {!s.isSuperAdmin && <Button variant="outline" size="sm" onClick={() => setPermsFor(s)}>Permissions</Button>}
+                <Button variant="outline" size="sm" onClick={() => setEdit({ id: s._id, email: s.email, name: s.name, phone: s.phone ?? "", roleId: s.roleId, active: s.active })}>Edit</Button>
+              </div>
+            )
+          })}
+        </div>
+        <Button className="mt-3" size="sm" onClick={() => setEdit({ email: "", name: "", phone: "", roleId: assignable[0]?._id, active: true })}>Add team member</Button>
+        <p className="mt-2 text-xs text-muted-foreground">Or ask them to open the app and choose “First time? Create password” — they'll appear above under “Waiting for access”.</p>
+      </Section>
+
       {edit && (
         <Dialog open onOpenChange={(o) => !o && setEdit(null)}>
           <DialogContent>
@@ -287,13 +330,13 @@ function TeamTab() {
               <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Phone</Label><Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></div>
               <div className="space-y-1.5">
-                <Label>Role</Label>
+                <Label>Team / role</Label>
                 <Select value={edit.roleId} onValueChange={(v) => setEdit({ ...edit, roleId: v as Id<"roles"> })}>
                   <SelectTrigger className="w-full"><SelectValue placeholder="Select" /></SelectTrigger>
                   <SelectContent>{roles.map((r) => <SelectItem key={r._id} value={r._id}>{r.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={edit.active} onCheckedChange={(v) => setEdit({ ...edit, active: v })} /> Can sign in</label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={edit.active} onCheckedChange={(v) => setEdit({ ...edit, active: v })} /> Can use the app</label>
             </div>
             <DialogFooter>
               <Button disabled={!edit.roleId || !edit.email || !edit.name} onClick={async () => {
@@ -306,7 +349,62 @@ function TeamTab() {
           </DialogContent>
         </Dialog>
       )}
-    </Section>
+      {permsFor && <PersonPerms person={permsFor} onClose={() => setPermsFor(null)} />}
+    </div>
+  )
+}
+
+/** Switch single permissions on/off for one person, starting from their role. */
+function PersonPerms({ person, onClose }: { person: { _id: Id<"staff">; name: string; roleName: string; rolePerms: string[]; perms: string[] }; onClose: () => void }) {
+  const save = useMutation(api.team.setStaffPerms)
+  const [on, setOn] = useState<Set<string>>(new Set(person.perms))
+  const groups = [...new Set(PERMISSIONS.map((p) => p.group))]
+  const role = new Set(person.rolePerms)
+  const toggle = (k: string) => setOn((cur) => { const n = new Set(cur); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const Row = ({ k, label }: { k: string; label: string }) => {
+    const changed = on.has(k) !== role.has(k)
+    return (
+      <label className="flex items-center gap-2 py-1 text-sm">
+        <Switch checked={on.has(k)} onCheckedChange={() => toggle(k)} />
+        <span className={cn(!on.has(k) && "text-muted-foreground")}>{!on.has(k) && <Lock className="mr-1 inline size-3" />}{label}</span>
+        {changed && <span className="rounded bg-tone-violet-bg px-1.5 text-[10px] font-semibold text-tone-violet">{on.has(k) ? "added for this person" : "turned off for this person"}</span>}
+      </label>
+    )
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Permissions — {person.name}</DialogTitle>
+          <p className="text-sm text-muted-foreground">Starts from the <b>{person.roleName}</b> role. Switch anything on or off for {person.name} only. Off = shown locked 🔒 to them.</p>
+        </DialogHeader>
+        <div className="grid gap-5 md:grid-cols-2">
+          {groups.map((g) => (
+            <div key={g}>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g}</div>
+              {PERMISSIONS.filter((p) => p.group === g).map((p) => <Row key={p.key} k={p.key} label={p.label} />)}
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Order status moves</div>
+        <div className="grid gap-x-6 gap-y-3 md:grid-cols-2 xl:grid-cols-3">
+          {ALL_STATUSES.filter((f) => TRANSITIONS[f].length).map((f) => (
+            <div key={f}>
+              <div className="text-sm font-medium">From {STATUS_LABEL[f]}</div>
+              {TRANSITIONS[f].map((t) => <Row key={t} k={moveKey(f, t)} label={`→ ${STATUS_LABEL[t]}`} />)}
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOn(new Set(person.rolePerms))}>Reset to role</Button>
+          <Button onClick={async () => {
+            const extraPerms = [...on].filter((k) => !role.has(k))
+            const deniedPerms = [...role].filter((k) => !on.has(k))
+            try { await save({ id: person._id, extraPerms, deniedPerms }); toast.success(`Saved for ${person.name}`); onClose() } catch (e) { toast.error(errMsg(e)) }
+          }}>Save permissions</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

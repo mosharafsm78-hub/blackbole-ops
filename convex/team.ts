@@ -2,8 +2,8 @@ import { v, ConvexError } from "convex/values"
 import { getAuthUserId } from "@convex-dev/auth/server"
 import { mutation, query } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
-import { currentStaff, requirePerm } from "./lib"
-import { DEFAULT_ROLES } from "./rules"
+import { currentStaff, effectivePerms, requirePerm } from "./lib"
+import { DEFAULT_ROLES, PERMISSIONS, ALL_MOVE_KEYS } from "./rules"
 
 /** Access gate for the UI. Never throws. */
 export const me = query({
@@ -23,8 +23,13 @@ export const me = query({
       }
     }
     const anyStaff = await ctx.db.query("staff").first()
-    if (anyStaff) return { kind: "noAccess" as const, email: user?.email ?? "" }
-    return { kind: "firstRun" as const, email: user?.email ?? "" }
+    if (!anyStaff) return { kind: "firstRun" as const, email: user?.email ?? "" }
+    const linked = await ctx.db.query("staff").withIndex("by_user", (q) => q.eq("userId", userId)).unique()
+    if (linked && !linked.active) return { kind: "disabled" as const, email: user?.email ?? "" }
+    const req = await ctx.db.query("accessRequests").withIndex("by_user", (q) => q.eq("userId", userId)).unique()
+    if (req?.status === "waiting") return { kind: "waiting" as const, email: user?.email ?? "", name: req.name ?? "" }
+    if (req?.status === "rejected") return { kind: "rejected" as const, email: user?.email ?? "" }
+    return { kind: "noAccess" as const, email: user?.email ?? "" }
   },
 })
 
@@ -46,7 +51,13 @@ export const claim = mutation({
     }
 
     const anyStaff = await ctx.db.query("staff").first()
-    if (anyStaff) return "noAccess"
+    if (anyStaff) {
+      // Not invited: ask an admin for access
+      const req = await ctx.db.query("accessRequests").withIndex("by_user", (q) => q.eq("userId", userId)).unique()
+      if (!req) await ctx.db.insert("accessRequests", { userId, email, name: name?.trim() || undefined, status: "waiting", at: Date.now() })
+      else if (req.status === "waiting" && name?.trim()) await ctx.db.patch(req._id, { name: name.trim() })
+      return "waiting"
+    }
 
     // First run: create default roles, a default warehouse and make this user Super Admin.
     let adminRoleId: Id<"roles"> | null = null
@@ -77,11 +88,17 @@ export const listStaff = query({
     await requirePerm(ctx, "team.manage")
     const staff = await ctx.db.query("staff").collect()
     const roles = await ctx.db.query("roles").collect()
-    return staff.map((s) => ({
-      ...s,
-      roleName: roles.find((r) => r._id === s.roleId)?.name ?? "",
-      joined: !!s.userId,
-    }))
+    return staff.map((s) => {
+      const role = roles.find((r) => r._id === s.roleId)
+      return {
+        ...s,
+        roleName: role?.name ?? "",
+        rolePerms: role?.permissions ?? [],
+        isSuperAdmin: !!role?.permissions.includes("*"),
+        perms: effectivePerms(role?.permissions ?? [], s),
+        joined: !!s.userId,
+      }
+    })
   },
 })
 
@@ -169,5 +186,54 @@ export const saveLocation = mutation({
       return a.id
     }
     return await ctx.db.insert("locations", data)
+  },
+})
+
+// ---------------- Access requests (people who signed up themselves) ----------------
+export const listRequests = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "team.manage")
+    return (await ctx.db.query("accessRequests").collect()).filter((r) => r.status === "waiting").sort((a, b) => b.at - a.at)
+  },
+})
+
+export const approveRequest = mutation({
+  args: { id: v.id("accessRequests"), name: v.string(), roleId: v.id("roles"), phone: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    await requirePerm(ctx, "team.manage")
+    const req = await ctx.db.get(a.id)
+    if (!req) throw new ConvexError("Request not found")
+    if (!a.name.trim()) throw new ConvexError("Write their name")
+    const existing = await ctx.db.query("staff").withIndex("by_email", (q) => q.eq("email", req.email)).unique()
+    if (existing) await ctx.db.patch(existing._id, { userId: req.userId, roleId: a.roleId, active: true, name: a.name.trim() })
+    else await ctx.db.insert("staff", { email: req.email, name: a.name.trim(), phone: a.phone, roleId: a.roleId, userId: req.userId, active: true, createdAt: Date.now() })
+    await ctx.db.delete(a.id)
+  },
+})
+
+export const rejectRequest = mutation({
+  args: { id: v.id("accessRequests") },
+  handler: async (ctx, { id }) => {
+    await requirePerm(ctx, "team.manage")
+    await ctx.db.patch(id, { status: "rejected" })
+  },
+})
+
+/** Per-person switches: start from the role, then turn single permissions on or off for this person. */
+export const setStaffPerms = mutation({
+  args: { id: v.id("staff"), extraPerms: v.array(v.string()), deniedPerms: v.array(v.string()) },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "team.manage")
+    const s = await ctx.db.get(a.id)
+    if (!s) throw new ConvexError("Team member not found")
+    const role = await ctx.db.get(s.roleId)
+    if (role?.permissions.includes("*")) throw new ConvexError("Super Admin always has every permission")
+    if (a.id === me.staff._id && a.deniedPerms.includes("team.manage")) throw new ConvexError("You can't remove your own team access")
+    const known = new Set([...PERMISSIONS.map((p) => p.key), ...ALL_MOVE_KEYS])
+    await ctx.db.patch(a.id, {
+      extraPerms: a.extraPerms.filter((p) => known.has(p)),
+      deniedPerms: a.deniedPerms.filter((p) => known.has(p)),
+    })
   },
 })

@@ -16,8 +16,17 @@ export async function currentStaff(ctx: QueryCtx): Promise<StaffCtx | null> {
     .unique()
   if (!staff || !staff.active) return null
   const role = await ctx.db.get(staff.roleId)
-  return { staff, perms: role?.permissions ?? [] }
+  return { staff, perms: effectivePerms(role?.permissions ?? [], staff) }
 }
+
+/** Role permissions, plus this person's extra switches, minus the ones switched off. Super Admin ("*") stays full. */
+export function effectivePerms(rolePerms: string[], staff: { extraPerms?: string[]; deniedPerms?: string[] }) {
+  if (rolePerms.includes("*")) return ["*"]
+  const set = new Set([...rolePerms, ...(staff.extraPerms ?? [])])
+  for (const d of staff.deniedPerms ?? []) set.delete(d)
+  return [...set]
+}
+
 
 /** For mutations/queries that must have a permission. Throws a readable error. */
 export async function requirePerm(ctx: QueryCtx, perm?: string): Promise<StaffCtx> {

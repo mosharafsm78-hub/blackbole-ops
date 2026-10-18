@@ -41,9 +41,22 @@ export default defineSchema({
     userId: v.optional(v.id("users")),
     active: v.boolean(),
     createdAt: v.number(),
+    // per-person switches on top of the role
+    extraPerms: v.optional(v.array(v.string())),
+    deniedPerms: v.optional(v.array(v.string())),
   })
     .index("by_email", ["email"])
     .index("by_user", ["userId"]),
+
+  // People who signed up but aren't on the team yet — an admin approves them
+  accessRequests: defineTable({
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.optional(v.string()),
+    status: v.string(), // waiting | rejected
+    at: v.number(),
+  }).index("by_user", ["userId"]),
+
 
   roles: defineTable({
     name: v.string(),

@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ChevronDown, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
+import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
 import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
-import { Guard, useMe } from "@/components/app-shell"
+import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
@@ -108,9 +108,7 @@ function OrdersPage() {
         >
           <RefreshCw className="size-4" /> Sync Pathao
         </Button>
-        {hasPerm(me.perms, "orders.create") && (
-          <Button size="sm" asChild><Link to="/new-order">Create order</Link></Button>
-        )}
+        <Perm perm="orders.create"><Button size="sm" asChild><Link to="/new-order">Create order</Link></Button></Perm>
       </PageHeader>
 
       {/* Status tabs */}
@@ -163,17 +161,19 @@ function OrdersPage() {
           <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => setStatusOpen(true)}>
             <Shuffle className="size-4" /> Change status
           </Button>
-          <Button
-            size="sm" variant="outline" disabled={selected.size === 0 || !hasPerm(me.perms, "orders.print")}
-            onClick={() => window.open(`/print?ids=${[...selected].join(",")}`, "_blank")}
-          >
-            <Printer className="size-4" /> Print invoices
-          </Button>
-          {hasPerm(me.perms, "orders.export") && (
+          <Perm perm="orders.print">
+            <Button
+              size="sm" variant="outline" disabled={selected.size === 0}
+              onClick={() => window.open(`/print?ids=${[...selected].join(",")}`, "_blank")}
+            >
+              <Printer className="size-4" /> Print invoices
+            </Button>
+          </Perm>
+          <Perm perm="orders.export">
             <Button size="sm" variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
               <Download className="size-4" /> Export CSV
             </Button>
-          )}
+          </Perm>
         </div>
       </div>
 
@@ -313,6 +313,7 @@ function RowStatus({ id, status, perms, label }: { id: Id<"orders">; status: Ord
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const options = TRANSITIONS[status].filter((t) => hasPerm(perms, moveKey(status, t)))
+  const lockedMoves = TRANSITIONS[status].filter((t) => !hasPerm(perms, moveKey(status, t)))
   // Every move asks for confirmation first (note optional; required for cancel / hold / returns).
   const move = (to: OrderStatus) => setDialogTo(to)
   return (
@@ -339,6 +340,11 @@ function RowStatus({ id, status, perms, label }: { id: Id<"orders">; status: Ord
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
+        )}
+        {lockedMoves.length > 0 && (
+          <span title={`Locked for you: ${lockedMoves.map((t) => STATUS_LABEL[t]).join(", ")}. Ask your admin.`} className="inline-flex cursor-not-allowed items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground/70" data-testid="row-locked">
+            <Lock className="size-3" />{lockedMoves.length}
+          </span>
         )}
         <button type="button" onClick={() => { setNote(""); setNoteOpen(true) }} className="rounded-full border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground hover:border-foreground/40 hover:text-foreground" data-testid="row-add-note">
           + Note
