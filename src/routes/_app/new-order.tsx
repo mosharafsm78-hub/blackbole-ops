@@ -45,8 +45,11 @@ function NewOrder() {
   const [discount, setDiscount] = useState(0)
   const [fee, setFee] = useState(0)
   const [feeTouched, setFeeTouched] = useState(false)
-  const [advance, setAdvance] = useState(0)
+  const [paymentMethod, setPaymentMethod] = useState("Cash On Delivery")
+  const [advanceMode, setAdvanceMode] = useState<"none" | "delivery" | "full" | "custom">("none")
+  const [customAdvance, setCustomAdvance] = useState(0)
   const [advanceMethod, setAdvanceMethod] = useState("bKash")
+  const [advanceRef, setAdvanceRef] = useState("")
   const [busy, setBusy] = useState(false)
 
   const normalized = normalizePhone(phone)
@@ -71,6 +74,8 @@ function NewOrder() {
     setFee(deliveryType === "pickup" ? 0 : suggestFee(place.cityName, settings))
   }, [place.cityName, deliveryType, settings, feeTouched])
 
+  const full = useTotals(cart, discount, fee, 0).total
+  const advance = advanceMode === "delivery" ? fee : advanceMode === "full" ? full : advanceMode === "custom" ? Math.min(customAdvance, full) : 0
   const t = useTotals(cart, discount, fee, advance)
   const canApprove = hasPerm(me.perms, moveKey("pending", "approved"))
 
@@ -88,7 +93,8 @@ function NewOrder() {
         source, customerName: name, phone: normalized, email: email || undefined, address, ...place,
         locationId, deliveryType,
         items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty, price: c.price, discount: c.discount })),
-        discount, deliveryFee: fee, advanceAmount: advance, advanceMethod, customerNote: note || undefined, approve,
+        discount, deliveryFee: fee, advanceAmount: advance, advanceMethod, advanceReference: advanceRef || undefined,
+        advanceKind: advanceMode === "none" ? undefined : advanceMode, paymentMethod, customerNote: note || undefined, approve,
       })
       toast.success(`Order ${invoice(res.invoiceNo)} created`)
       navigate({ to: "/order", search: { id: res.orderId } })
@@ -167,21 +173,48 @@ function NewOrder() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5"><Label>Order discount</Label><Input type="number" value={discount} onChange={(e) => setDiscount(Number(e.target.value) || 0)} /></div>
             <div className="space-y-1.5"><Label>Delivery fee</Label><Input type="number" value={fee} onChange={(e) => { setFee(Number(e.target.value) || 0); setFeeTouched(true) }} /></div>
-            <div className="space-y-1.5"><Label>Advance paid</Label><Input type="number" value={advance} onChange={(e) => setAdvance(Number(e.target.value) || 0)} /></div>
-            <div className="space-y-1.5">
-              <Label>Paid via</Label>
-              <Select value={advanceMethod} onValueChange={setAdvanceMethod} disabled={advance <= 0}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{PAYMENT_METHODS.filter((m) => m !== "Cash On Delivery").map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Payment type</Label>
+              <Select value={paymentMethod} onValueChange={(m) => {
+                setPaymentMethod(m)
+                if (m === "Cash On Delivery") { if (advanceMode === "full") setAdvanceMode("none") }
+                else { setAdvanceMode("full"); setAdvanceMethod(m) }
+              }}>
+                <SelectTrigger className="w-full" data-testid="payment-type"><SelectValue /></SelectTrigger>
+                <SelectContent>{PAYMENT_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Advance received</Label>
+              <div className="grid grid-cols-4 gap-1">
+                {([["none", "None"], ["delivery", "Delivery charge"], ["full", "Full payment"], ["custom", "Custom"]] as const).map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setAdvanceMode(k)}
+                    className={`rounded-md border px-1.5 py-1.5 text-xs ${advanceMode === k ? "border-foreground bg-foreground text-background" : "hover:bg-accent"}`}>{l}</button>
+                ))}
+              </div>
+            </div>
+            {advanceMode === "custom" && (
+              <div className="col-span-2 space-y-1.5"><Label>Advance amount</Label><Input type="number" value={customAdvance} onChange={(e) => setCustomAdvance(Number(e.target.value) || 0)} /></div>
+            )}
+            {advance > 0 && (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Advance paid via</Label>
+                  <Select value={advanceMethod} onValueChange={setAdvanceMethod}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>{PAYMENT_METHODS.filter((m) => m !== "Cash On Delivery").map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5"><Label>Transaction ID</Label><Input value={advanceRef} onChange={(e) => setAdvanceRef(e.target.value)} placeholder="e.g. 9JK3LM2X" /></div>
+              </>
+            )}
           </div>
           <dl className="space-y-1 rounded-md bg-muted/60 p-3 text-sm">
             <div className="flex justify-between"><dt>Subtotal</dt><dd className="tabular-nums">{taka(t.subtotal)}</dd></div>
             <div className="flex justify-between"><dt>Discounts</dt><dd className="tabular-nums">−{taka(t.itemDiscount + discount)}</dd></div>
             <div className="flex justify-between"><dt>Delivery</dt><dd className="tabular-nums">{taka(fee)}</dd></div>
-            <div className="flex justify-between"><dt>Advance</dt><dd className="tabular-nums">−{taka(advance)}</dd></div>
-            <div className="flex justify-between border-t pt-1 text-base font-semibold"><dt>Collect (COD)</dt><dd className="tabular-nums">{taka(t.due)}</dd></div>
+            <div className="flex justify-between"><dt>Advance{advanceMode === "delivery" ? " (delivery charge)" : advanceMode === "full" ? " (full)" : ""}</dt><dd className="tabular-nums">−{taka(advance)}</dd></div>
+            <div className="flex justify-between border-t pt-1 text-base font-semibold"><dt>{t.due === 0 ? "Fully paid — collect nothing" : "Collect (COD)"}</dt><dd className="tabular-nums">{taka(t.due)}</dd></div>
           </dl>
           <div className="flex flex-col gap-2">
             {canApprove && <Button disabled={busy} onClick={() => submit(true)}>Create & approve</Button>}

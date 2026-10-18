@@ -75,7 +75,8 @@ export type NewOrder = {
   items: Doc<"orders">["items"]
   discount: number
   deliveryFee: number
-  advance?: { amount: number; method: string; reference?: string }
+  advance?: { amount: number; method: string; reference?: string; kind?: string }
+  paymentMethod?: string
   customerNote?: string
   additionalInfo?: string
   status?: OrderStatus
@@ -129,7 +130,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     address: o.address, cityName: o.cityName, pathaoCityId: o.pathaoCityId, pathaoZoneId: o.pathaoZoneId,
     pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName, locationId: location._id,
     deliveryType: o.deliveryType, items: o.items, subtotal: t.subtotal, discount: o.discount, deliveryFee: o.deliveryFee,
-    paidAmount: paid, total: t.total, due: t.due, paymentMethod: paid > 0 ? o.advance!.method : "Cash On Delivery",
+    paidAmount: paid, total: t.total, due: t.due, paymentMethod: o.paymentMethod ?? (paid > 0 && t.due === 0 ? o.advance!.method : "Cash On Delivery"),
     courier: o.deliveryType === "pickup" ? "pickup" : partner?.provider === "pathao" ? "pathao" : "manual",
     deliveryPartnerId: partner?._id, deliveryPartnerName: partner?.name,
     customerNote: o.customerNote, additionalInfo: o.additionalInfo,
@@ -144,6 +145,8 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
   await bumpStatusCount(ctx, status, 1)
   if (paid > 0) {
     await ctx.db.insert("payments", { orderId, method: o.advance!.method, amount: paid, reference: o.advance!.reference, byName, at: now })
+    const kind = o.advance!.kind === "delivery" ? " (delivery charge)" : o.advance!.kind === "full" ? " (full payment)" : ""
+    await logOrder(ctx, orderId, `Advance ৳${paid}${kind} received via ${o.advance!.method}${o.advance!.reference ? ` — TrxID ${o.advance!.reference}` : ""}`, byName)
   }
   await logOrder(ctx, orderId, `Order created by ${byName} from ${o.source}${o.externalName ? ` (${o.externalName})` : ""}`, byName)
   if (blocked) await logOrder(ctx, orderId, `Auto-cancelled: ${blocked}`, "System")
@@ -200,6 +203,9 @@ export const create = mutation({
     deliveryFee: v.number(),
     advanceAmount: v.number(),
     advanceMethod: v.string(),
+    advanceReference: v.optional(v.string()),
+    advanceKind: v.optional(v.string()), // delivery | full | custom
+    paymentMethod: v.optional(v.string()),
     customerNote: v.optional(v.string()),
     additionalInfo: v.optional(v.string()),
     followUpAt: v.optional(v.number()),
@@ -209,10 +215,10 @@ export const create = mutation({
     const me = await requirePerm(ctx, "orders.create")
     if (a.approve && !hasPerm(me.perms, moveKey("pending", "approved"))) throw new Error("You can't create approved orders")
     const items = await buildItems(ctx, a.items)
-    const { advanceAmount, advanceMethod, approve, ...rest } = a
+    const { advanceAmount, advanceMethod, advanceReference, advanceKind, approve, ...rest } = a
     return await insertOrder(ctx, {
       ...rest, items,
-      advance: advanceAmount > 0 ? { amount: advanceAmount, method: advanceMethod } : undefined,
+      advance: advanceAmount > 0 ? { amount: advanceAmount, method: advanceMethod, reference: advanceReference?.trim() || undefined, kind: advanceKind } : undefined,
       status: approve ? "approved" : "pending",
     }, me.staff.name)
   },
@@ -669,7 +675,7 @@ export const addPayment = mutation({
     if (a.amount <= 0) throw new Error("Amount must be more than 0")
     await ctx.db.insert("payments", { orderId: a.id, method: a.method, amount: a.amount, reference: a.reference, byName: me.staff.name, at: Date.now() })
     const paid = order.paidAmount + a.amount
-    await ctx.db.patch(a.id, { paidAmount: paid, due: Math.max(0, order.total - paid), paymentMethod: order.paidAmount === 0 ? a.method : order.paymentMethod, updatedAt: Date.now() })
+    await ctx.db.patch(a.id, { paidAmount: paid, due: Math.max(0, order.total - paid), paymentMethod: paid >= order.total && (!order.paymentMethod || order.paymentMethod === "Cash On Delivery") ? a.method : order.paymentMethod ?? "Cash On Delivery", updatedAt: Date.now() })
     await logOrder(ctx, a.id, `Payment ৳${a.amount} via ${a.method}${a.reference ? ` (${a.reference})` : ""}`, me.staff.name, "payment")
   },
 })

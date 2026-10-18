@@ -292,13 +292,13 @@ function OrderPage() {
           if ((next as string[]).includes("approved")) { setInitialStatus("approved"); setStatusOpen(true) }
         }}
       />
-      <PaymentDialog orderId={o._id} due={o.due} open={payOpen} onOpenChange={setPayOpen} />
+      <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
     </div>
   )
 }
 
-function PaymentDialog({ orderId, due, open, onOpenChange }: { orderId: Id<"orders">; due: number; open: boolean; onOpenChange: (o: boolean) => void }) {
+function PaymentDialog({ orderId, due, deliveryFee, consignmentId, open, onOpenChange }: { orderId: Id<"orders">; due: number; deliveryFee: number; consignmentId?: string; open: boolean; onOpenChange: (o: boolean) => void }) {
   const add = useMutation(api.orders.addPayment)
   const [amount, setAmount] = useState(due)
   const [method, setMethod] = useState("bKash")
@@ -309,6 +309,10 @@ function PaymentDialog({ orderId, due, open, onOpenChange }: { orderId: Id<"orde
       <DialogContent>
         <DialogHeader><DialogTitle>Add payment</DialogTitle></DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex gap-1.5 sm:col-span-2">
+            <Button type="button" size="xs" variant="outline" onClick={() => setAmount(Math.min(deliveryFee, due))}>Delivery charge ({taka(Math.min(deliveryFee, due))})</Button>
+            <Button type="button" size="xs" variant="outline" onClick={() => setAmount(due)}>Full due ({taka(due)})</Button>
+          </div>
           <div className="space-y-1.5"><Label>Amount</Label><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></div>
           <div className="space-y-1.5">
             <Label>Method</Label>
@@ -318,6 +322,8 @@ function PaymentDialog({ orderId, due, open, onOpenChange }: { orderId: Id<"orde
             </Select>
           </div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Transaction ID / reference</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">Collect (COD) after this payment: {taka(Math.max(0, due - amount))}
+            {consignmentId ? " — already booked with the courier, so also update the COD amount in the courier's panel." : ""}</p>
         </div>
         <DialogFooter>
           <Button onClick={async () => {

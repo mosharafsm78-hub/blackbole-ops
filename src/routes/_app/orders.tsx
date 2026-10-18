@@ -255,6 +255,7 @@ function OrdersPage() {
                     {o.paidAmount > 0 && <div className="text-tone-green">Paid {taka(o.paidAmount)}</div>}
                     <div>Due <span className="font-semibold">{taka(o.due)}</span></div>
                     <div className="text-muted-foreground">Delivery {taka(o.deliveryFee)}</div>
+                    <div className="mt-0.5 text-muted-foreground">{o.due === 0 && o.paidAmount > 0 ? `Paid · ${o.paymentMethod ?? ""}` : o.paidAmount > 0 ? `COD + advance` : (o.paymentMethod ?? "Cash On Delivery")}</div>
                   </td>
                   <td className="p-3 text-xs">
                     {o.courier === "pickup" ? (
