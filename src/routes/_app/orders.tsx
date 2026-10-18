@@ -280,7 +280,7 @@ function OrdersPage() {
                     <div className="tabular-nums">{o.callCount}</div>
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}
                   </td>
-                  <td className="p-3"><RowStatus id={o._id} status={o.status as OrderStatus} perms={me.perms} /></td>
+                  <td className="p-3"><RowStatus id={o._id} status={o.status as OrderStatus} perms={me.perms} label={o.invoiceCode ?? invoice(o.invoiceNo)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -305,7 +305,7 @@ function OrdersPage() {
 }
 
 /** Status pill with a menu of the moves this user may make, plus "Add note". Moves that need a reason open the note dialog. */
-function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatus; perms: string[] }) {
+function RowStatus({ id, status, perms, label }: { id: Id<"orders">; status: OrderStatus; perms: string[]; label: string }) {
   const change = useMutation(api.orders.changeStatus)
   const addNote = useMutation(api.orders.addNote)
   const [dialogTo, setDialogTo] = useState<OrderStatus | null>(null)
@@ -313,19 +313,8 @@ function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatu
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const options = TRANSITIONS[status].filter((t) => hasPerm(perms, moveKey(status, t)))
-  const move = async (to: OrderStatus) => {
-    if (NEEDS_REASON.includes(to)) { setDialogTo(to); return }
-    setBusy(true)
-    try {
-      const r = await change({ ids: [id], to })
-      if (r.errors.length) toast.error(r.errors[0])
-      else toast.success(`Moved to ${STATUS_LABEL[to]}`)
-    } catch (e) {
-      toast.error(errMsg(e))
-    } finally {
-      setBusy(false)
-    }
-  }
+  // Every move asks for confirmation first (note optional; required for cancel / hold / returns).
+  const move = (to: OrderStatus) => setDialogTo(to)
   return (
     <>
       <StatusPill status={status} />
@@ -359,6 +348,9 @@ function RowStatus({ id, status, perms }: { id: Id<"orders">; status: OrderStatu
         ids={[id]}
         options={options}
         initial={dialogTo ?? undefined}
+        label={label}
+        from={status}
+        confirmOnly
         open={!!dialogTo}
         onOpenChange={(o) => { if (!o) setDialogTo(null) }}
         onDone={() => setDialogTo(null)}

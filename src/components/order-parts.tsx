@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { CALL_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -315,7 +316,7 @@ export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Dupl
 export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Advance payment pending", "Address unclear", "Other"]
 
 export function StatusDialog({
-  ids, options, open, onOpenChange, initial, onDone,
+  ids, options, open, onOpenChange, initial, onDone, label, from, confirmOnly,
 }: {
   ids: Id<"orders">[]
   options: OrderStatus[]
@@ -323,6 +324,11 @@ export function StatusDialog({
   onOpenChange: (o: boolean) => void
   initial?: OrderStatus
   onDone?: () => void
+  /** e.g. "BB-11625" — shown in the confirmation */
+  label?: string
+  from?: OrderStatus
+  /** Only confirm the chosen move (no list of other statuses) */
+  confirmOnly?: boolean
 }) {
   const change = useMutation(api.orders.changeStatus)
   const [to, setTo] = useState<OrderStatus | undefined>(initial)
@@ -335,13 +341,19 @@ export function StatusDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change status{ids.length > 1 ? ` of ${ids.length} orders` : ""}</DialogTitle>
+          <DialogTitle>{confirmOnly && to ? `Move ${label ?? "this order"} to ${STATUS_LABEL[to]}?` : `Change status${ids.length > 1 ? ` of ${ids.length} orders` : ""}`}</DialogTitle>
         </DialogHeader>
+        {confirmOnly && to && (
+          <div className="flex items-center gap-2 rounded-md bg-muted/60 p-3 text-sm" data-testid="confirm-move">
+            {from && <StatusPill status={from} />}<span className="text-muted-foreground">→</span><StatusPill status={to} />
+            {to === "cancelled" && <span className="ml-auto text-xs text-tone-red">Stock goes back to available</span>}
+          </div>
+        )}
         {options.length === 0 ? (
           <p className="text-sm text-muted-foreground">There's no move you're allowed to make from here.</p>
         ) : (
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
+            <div className={cn("flex flex-wrap gap-2", confirmOnly && "hidden")}>
               {options.map((o) => (
                 <button
                   key={o} type="button" onClick={() => setTo(o)}
@@ -351,9 +363,15 @@ export function StatusDialog({
                 </button>
               ))}
             </div>
+            {!needReason && (
+              <div className="space-y-1.5">
+                <Label>Note <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Confirmed on call" />
+              </div>
+            )}
             {needReason && (
               <div className="space-y-2">
-                <Label>Reason</Label>
+                <Label>Reason <span className="font-normal text-tone-red">(required)</span></Label>
                 {presets.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {presets.map((p) => (
@@ -368,6 +386,7 @@ export function StatusDialog({
           </div>
         )}
         <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             disabled={busy || !to || (needReason && !reason.trim())}
             onClick={async () => {
@@ -385,8 +404,9 @@ export function StatusDialog({
                 setBusy(false)
               }
             }}
+            data-testid="confirm-status"
           >
-            Confirm
+            {busy ? "Moving…" : "Confirm"}
           </Button>
         </DialogFooter>
       </DialogContent>
