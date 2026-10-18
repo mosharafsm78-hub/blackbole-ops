@@ -8,7 +8,7 @@ import { canTransition, type OrderStatus } from "./rules"
 type Creds = { env: "sandbox" | "production"; clientId: string; clientSecret: string; username: string; password: string }
 type Token = { accessToken: string; refreshToken?: string; expiresAt: number }
 
-const BASE = { sandbox: "https://courier-api-sandbox.pathao.com", production: "https://courier-api.pathao.com" }
+const BASE = { sandbox: "https://courier-api-sandbox.pathao.com", production: "https://api-hermes.pathao.com" }
 
 // ---------- internal storage ----------
 export const checkPerm = internalQuery({

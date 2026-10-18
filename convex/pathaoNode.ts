@@ -1,5 +1,5 @@
 "use node"
-// Pathao HTTP calls. Convex's servers can't resolve courier-api.pathao.com, so when
+// Pathao HTTP calls. Pathao's API can be unreachable from Convex's servers, so when
 // PATHAO_PROXY_URL is set the call goes through the app's Vercel proxy (Singapore).
 import { v } from "convex/values"
 import { internalAction } from "./_generated/server"
