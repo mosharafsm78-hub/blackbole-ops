@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import JsBarcode from "jsbarcode"
 import { createFileRoute } from "@tanstack/react-router"
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
 import { api } from "@/convex/_generated/api"
@@ -52,7 +53,8 @@ function Invoices() {
               <div className="text-xs">{o.locationName}</div>
             </div>
             <div className="text-right">
-              <div className="text-lg font-bold">{invoice(o.invoiceNo)}</div>
+              <div className="text-lg font-bold">{o.invoiceCode ?? invoice(o.invoiceNo)}</div>
+              <Barcode value={o.invoiceCode ?? invoice(o.invoiceNo)} />
               <div className="text-xs">Date: {dateOnly(o.createdAt)}</div>
               {o.externalName && <div className="text-xs">Web order {o.externalName}</div>}
               {o.consignmentId && <div className="text-xs font-semibold">Pathao: {o.consignmentId}</div>}
@@ -104,4 +106,13 @@ function Invoices() {
       ))}
     </div>
   )
+}
+
+/** Code 128 barcode of the invoice number, scanned on the Scan page. */
+function Barcode({ value }: { value: string }) {
+  const ref = useRef<SVGSVGElement>(null)
+  useEffect(() => {
+    if (ref.current) JsBarcode(ref.current, value, { format: "CODE128", height: 40, width: 1.6, fontSize: 11, margin: 0, displayValue: false })
+  }, [value])
+  return <svg ref={ref} className="ml-auto mt-1" data-testid="invoice-barcode" />
 }

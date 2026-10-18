@@ -21,6 +21,7 @@ import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
 import { Route as AppOrderRouteImport } from './routes/_app/order'
 import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
+import { Route as AppScanRouteImport } from './routes/_app/scan'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
@@ -84,6 +85,11 @@ const AppProductsRoute = AppProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
+const AppScanRoute = AppScanRouteImport.update({
+  id: '/scan',
+  path: '/scan',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRoute
+  '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -127,6 +134,7 @@ export interface FileRoutesByTo {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRoute
+  '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -145,6 +153,7 @@ export interface FileRoutesById {
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
   '/_app/products': typeof AppProductsRoute
+  '/_app/scan': typeof AppScanRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/stock-in': typeof AppStockInRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -164,6 +173,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/products'
+    | '/scan'
     | '/settings'
     | '/stock-in'
     | '/api/pathao-proxy'
@@ -179,6 +189,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/products'
+    | '/scan'
     | '/settings'
     | '/stock-in'
     | '/api/pathao-proxy'
@@ -196,6 +207,7 @@ export interface FileRouteTypes {
     | '/_app/order'
     | '/_app/orders'
     | '/_app/products'
+    | '/_app/scan'
     | '/_app/settings'
     | '/_app/stock-in'
     | '/api/pathao-proxy'
@@ -294,6 +306,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/scan': {
+      id: '/_app/scan'
+      path: '/scan'
+      fullPath: '/scan'
+      preLoaderRoute: typeof AppScanRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -328,6 +347,7 @@ interface AppRouteChildren {
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
   AppProductsRoute: typeof AppProductsRoute
+  AppScanRoute: typeof AppScanRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockInRoute: typeof AppStockInRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -343,6 +363,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
   AppProductsRoute: AppProductsRoute,
+  AppScanRoute: AppScanRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockInRoute: AppStockInRoute,
   AppIndexRoute: AppIndexRoute,

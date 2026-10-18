@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
 import {
-  LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload,
+  LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -31,6 +31,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create" },
+  { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view" },
   { to: "/products", label: "Products", icon: Package, perm: "orders.view" },
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view" },
   { to: "/stock-in", label: "Stock in", icon: PackagePlus, perm: "inventory.receive" },

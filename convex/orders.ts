@@ -520,13 +520,15 @@ export const fastAction = mutation({
       if (o) ids.push(o._id); else notFound.push(raw)
     }
     const errors: string[] = notFound.map((n) => `${n}: not found`)
+    const moved: string[] = []
     let done = 0
     for (const id of ids) {
       const order = (await ctx.db.get(id))!
       if (!hasPerm(me.perms, moveKey(order.status as OrderStatus, to))) { errors.push(`${invoiceLabel(order)}: not allowed`); continue }
-      try { await applyStatus(ctx, order, to, me.staff.name, reason); done++ } catch (e) { errors.push(e instanceof Error ? e.message : String(e)) }
+      if (order.status === to) { errors.push(`${invoiceLabel(order)}: already ${STATUS_LABEL[to]}`); continue }
+      try { await applyStatus(ctx, order, to, me.staff.name, reason); done++; moved.push(invoiceLabel(order)) } catch (e) { errors.push(e instanceof Error ? e.message : String(e)) }
     }
-    return { done, errors }
+    return { done, errors, moved }
   },
 })
 
@@ -727,6 +729,10 @@ export const markPrinted = mutation({
       if (!o) continue
       await ctx.db.patch(id, { printedAt: Date.now() })
       if (!o.printedAt) await logOrder(ctx, id, "Invoice printed", me.staff.name)
+      // Same as Nuport: printing an approved order's invoice starts processing it.
+      if (o.status === "approved" && hasPerm(me.perms, moveKey("approved", "processing"))) {
+        await applyStatus(ctx, (await ctx.db.get(id))!, "processing", me.staff.name)
+      }
     }
   },
 })
