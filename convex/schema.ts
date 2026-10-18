@@ -117,10 +117,76 @@ export default defineSchema({
     .index("by_variant", ["variantId", "at"])
     .index("by_at", ["at"]),
 
+  // Factories / suppliers we buy from
+  suppliers: defineTable({
+    name: v.string(),
+    contactPerson: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    address: v.optional(v.string()),
+    note: v.optional(v.string()),
+    active: v.boolean(),
+    createdAt: v.number(),
+  }),
+
+  // Purchase orders: what we ordered from a supplier, received in one or more GRNs
+  purchaseOrders: defineTable({
+    code: v.number(), // PO-0001
+    supplierId: v.optional(v.id("suppliers")),
+    supplierName: v.string(),
+    locationId: v.id("locations"),
+    status: v.string(), // draft | ordered | shipped | partial | received | cancelled
+    shippedAt: v.optional(v.number()),
+    tracking: v.optional(v.string()), // freight forwarder / tracking no.
+    supplierRef: v.optional(v.string()), // supplier's invoice / challan no.
+    orderedAt: v.optional(v.number()),
+    expectedAt: v.optional(v.number()),
+    items: v.array(v.object({
+      variantId: v.id("variants"),
+      sku: v.string(),
+      name: v.string(),
+      title: v.string(),
+      orderedQty: v.number(),
+      receivedQty: v.number(),
+      damagedQty: v.number(),
+      unitCost: v.number(),
+    })),
+    subtotal: v.number(),
+    discount: v.number(),
+    shippingCost: v.number(),
+    otherCost: v.number(),
+    total: v.number(),
+    paid: v.number(),
+    due: v.number(),
+    note: v.optional(v.string()),
+    files: v.array(v.object({ storageId: v.id("_storage"), name: v.string(), type: v.string(), at: v.number() })),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    receivedAt: v.optional(v.number()),
+  })
+    .index("by_created", ["createdAt"])
+    .index("by_supplier", ["supplierId", "createdAt"]),
+
+  supplierPayments: defineTable({
+    poId: v.optional(v.id("purchaseOrders")),
+    supplierId: v.optional(v.id("suppliers")),
+    amount: v.number(),
+    method: v.string(),
+    reference: v.optional(v.string()),
+    note: v.optional(v.string()),
+    byName: v.string(),
+    at: v.number(),
+  })
+    .index("by_po", ["poId"])
+    .index("by_supplier", ["supplierId"]),
+
   // "Product come in" — goods received into a warehouse
   receipts: defineTable({
     code: v.number(),
     locationId: v.id("locations"),
+    poId: v.optional(v.id("purchaseOrders")),
+    supplierId: v.optional(v.id("suppliers")),
     supplier: v.optional(v.string()),
     note: v.optional(v.string()),
     items: v.array(
@@ -130,6 +196,7 @@ export default defineSchema({
         name: v.string(),
         qty: v.number(),
         unitCost: v.number(),
+        damaged: v.optional(v.number()),
       }),
     ),
     totalQty: v.number(),

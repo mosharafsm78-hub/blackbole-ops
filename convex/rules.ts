@@ -96,6 +96,8 @@ export const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: "products.manage", label: "Manage products & prices", group: "Products" },
   { key: "inventory.receive", label: "Receive stock (product in)", group: "Inventory" },
   { key: "inventory.adjust", label: "Adjust stock", group: "Inventory" },
+  { key: "purchases.manage", label: "Create purchase orders & suppliers", group: "Inventory" },
+  { key: "purchases.pay", label: "Record supplier payments", group: "Inventory" },
   { key: "orders.upload", label: "Upload orders (CSV)", group: "Orders" },
   { key: "orders.delete", label: "Delete / restore orders", group: "Orders" },
   { key: "orders.costs", label: "View & edit order costs", group: "Orders" },
@@ -135,7 +137,7 @@ export const DEFAULT_ROLES: { name: string; permissions: string[] }[] = [
   },
   {
     name: "Procurement & Sourcing",
-    permissions: ["orders.view", "products.manage", "inventory.receive", "inventory.adjust", "reports.view", "expenses.request"],
+    permissions: ["orders.view", "products.manage", "inventory.receive", "inventory.adjust", "purchases.manage", "purchases.pay", "reports.view", "expenses.request"],
   },
   {
     name: "Team CX",
@@ -153,7 +155,7 @@ export const DEFAULT_ROLES: { name: string; permissions: string[] }[] = [
   },
   {
     name: "Asst. O. of Fulfillment & Inventory",
-    permissions: ["orders.view", "products.manage", "inventory.receive", "inventory.adjust"],
+    permissions: ["orders.view", "products.manage", "inventory.receive", "inventory.adjust", "purchases.manage"],
   },
 ]
 
@@ -218,4 +220,27 @@ export function orderTotals(items: { price: number; qty: number; discount: numbe
   const itemDiscount = items.reduce((s, i) => s + i.discount, 0)
   const total = Math.max(0, subtotal - itemDiscount - discount + deliveryFee)
   return { subtotal, total, due: Math.max(0, total - paid) }
+}
+
+export const PO_STATUS_LABEL: Record<string, string> = {
+  draft: "Draft", ordered: "Ordered", shipped: "On the way", partial: "Partly received", received: "Received", cancelled: "Cancelled",
+}
+
+export const SUPPLIER_PAY_METHODS = ["Cash", "Bank transfer", "bKash", "Nagad", "Rocket", "Cheque", "Other"]
+
+/** SKU in BlackBole style: BB-SH-HSS-BLACK-41 */
+export function makeSku(prefix: string, model: string, color: string, size: string) {
+  const clean = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, "")
+  return [prefix.toUpperCase().replace(/[^A-Z0-9-]+/g, ""), clean(model), clean(color), clean(size)].filter(Boolean).join("-").replace(/-+/g, "-")
+}
+
+/** Initials of a model name: "Harbor Shore Sandal" -> "HSS" */
+export function modelCode(name: string) {
+  const words = name.replace(/blackbole/gi, "").split(/\s+/).filter((w) => w && !/^(for|and|the|men|women|kids|unisex|-)$/i.test(w))
+  return words.map((w) => w[0]).join("").toUpperCase().slice(0, 5)
+}
+
+export const CATEGORY_CODES: Record<string, string> = {
+  Sandals: "SH", Shoes: "SH", Sneakers: "SH", Loafers: "SH", Boots: "SH", "Hiking Shoes": "SH", "Kids Shoes": "SH",
+  Dresses: "DRESS", "T-Shirts": "TS", Shirts: "SHIRT", Pants: "PANT", Bags: "BAG", Accessories: "ACC",
 }

@@ -1,0 +1,70 @@
+import { convexTest } from "convex-test"
+import { describe, expect, it } from "vitest"
+import schema from "../../convex/schema"
+import { api } from "../../convex/_generated/api"
+
+function makeT() {
+  return convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+}
+
+async function setup() {
+  const t = makeT()
+  const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+  const as = t.withIdentity({ subject: `${userId}|s1` })
+  await as.mutation(api.team.claim, { name: "Emon" })
+  const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+  const supplierId = await as.mutation(api.purchasing.saveSupplier, { name: "Guangzhou Factory", active: true })
+  const created = await as.mutation(api.purchasing.createProductWithSizes, {
+    name: "BlackBole Harbor Shore Sandal For Men - Black", category: "Sandals", price: 1480, purchasePrice: 0, weightKg: 0.4,
+    attrLabel: "Size", variants: [{ title: "41", sku: "BB-SH-HSS-BLACK-41" }, { title: "42", sku: "BB-SH-HSS-BLACK-42" }],
+  })
+  return { t, as, locationId, supplierId, v41: created.variants[0].variantId, v42: created.variants[1].variantId }
+}
+
+const stockOf = (t: ReturnType<typeof makeT>, variantId: any) =>
+  t.run((ctx) => ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", variantId)).first())
+
+describe("purchases", () => {
+  it("receives in parts, splits damaged units, and tracks supplier due", async () => {
+    const { t, as, locationId, supplierId, v41, v42 } = await setup()
+    const id = await as.mutation(api.purchasing.savePO, {
+      supplierId, locationId, lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }, { variantId: v42, orderedQty: 10, unitCost: 500 }],
+      discount: 0, shippingCost: 1000, otherCost: 0, status: "ordered",
+    })
+    // 10000 goods + 1000 shipping = 11000, landed cost 550 per pair
+    let po = (await as.query(api.purchasing.getPO, { id }))!
+    expect(po.missing).toBe(false)
+    if (po.missing) return
+    expect(po.po.total).toBe(11000)
+
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "average", lines: [{ variantId: v41, qty: 8, damaged: 2 }, { variantId: v42, qty: 4, damaged: 0 }] })
+    expect(await stockOf(t, v41)).toMatchObject({ available: 8, damaged: 2 })
+    expect(await stockOf(t, v42)).toMatchObject({ available: 4 })
+    const v = await t.run((ctx) => ctx.db.get(v41))
+    expect(v!.purchasePrice).toBe(550)
+
+    po = (await as.query(api.purchasing.getPO, { id }))!
+    if (po.missing) return
+    expect(po.po.status).toBe("partial")
+    // can't receive more than ordered
+    await expect(as.mutation(api.purchasing.receivePO, { id, costMode: "average", lines: [{ variantId: v42, qty: 7, damaged: 0 }] })).rejects.toThrow()
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "average", lines: [{ variantId: v42, qty: 6, damaged: 0 }] })
+    po = (await as.query(api.purchasing.getPO, { id }))!
+    if (po.missing) return
+    expect(po.po.status).toBe("received")
+
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 4000, method: "Bank transfer" })
+    const sup = (await as.query(api.purchasing.listSuppliers, {})).find((s) => s._id === supplierId)!
+    expect(sup).toMatchObject({ purchased: 11000, paid: 4000, due: 7000 })
+  })
+
+  it("matches an uploaded supplier list by SKU and by name + size", async () => {
+    const { as } = await setup()
+    const m = await as.query(api.purchasing.matchLines, {
+      lines: [{ sku: "bb-sh-hss-black-42" }, { name: "BlackBole Harbor Shore Sandal For Men - Black", size: "41" }, { name: "Unknown boot", size: "40" }],
+    })
+    expect(m[0]?.sku).toBe("BB-SH-HSS-BLACK-42")
+    expect(m[1]?.sku).toBe("BB-SH-HSS-BLACK-41")
+    expect(m[2]).toBeNull()
+  })
+})

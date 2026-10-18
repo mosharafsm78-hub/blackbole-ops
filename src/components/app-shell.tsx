@@ -34,7 +34,7 @@ const NAV = [
   { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view" },
   { to: "/products", label: "Products", icon: Package, perm: "orders.view" },
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view" },
-  { to: "/stock-in", label: "Stock in", icon: PackagePlus, perm: "inventory.receive" },
+  { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive" },
   { to: "/customers", label: "Customers", icon: Users, perm: "orders.view" },
   { to: "/delivery-partners", label: "Delivery partners", icon: Truck, perm: "partners.manage" },
   { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage" },
@@ -132,7 +132,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="space-y-0.5">
       {NAV.filter((n) => hasPerm(me.perms, n.perm)).map((n) => {
-        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order"))
+        const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|suppliers|stock-in)/.test(path))
         const Icon = n.icon
         return (
           <Link

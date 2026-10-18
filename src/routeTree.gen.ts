@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as LabelsRouteImport } from './routes/labels'
 import { Route as PrintRouteImport } from './routes/print'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppCustomerRouteImport } from './routes/_app/customer'
@@ -21,13 +22,21 @@ import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
 import { Route as AppOrderRouteImport } from './routes/_app/order'
 import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
+import { Route as AppPurchaseRouteImport } from './routes/_app/purchase'
+import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
 import { Route as AppScanRouteImport } from './routes/_app/scan'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
+import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabelsRoute = LabelsRouteImport.update({
+  id: '/labels',
+  path: '/labels',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrintRoute = PrintRouteImport.update({
@@ -85,6 +94,16 @@ const AppProductsRoute = AppProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPurchaseRoute = AppPurchaseRouteImport.update({
+  id: '/purchase',
+  path: '/purchase',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPurchasesRoute = AppPurchasesRouteImport.update({
+  id: '/purchases',
+  path: '/purchases',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppScanRoute = AppScanRouteImport.update({
   id: '/scan',
   path: '/scan',
@@ -100,6 +119,11 @@ const AppStockInRoute = AppStockInRouteImport.update({
   path: '/stock-in',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSuppliersRoute = AppSuppliersRouteImport.update({
+  id: '/suppliers',
+  path: '/suppliers',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   id: '/api/pathao-proxy',
   path: '/api/pathao-proxy',
@@ -108,6 +132,7 @@ const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
@@ -118,12 +143,16 @@ export interface FileRoutesByFullPath {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRoute
+  '/purchase': typeof AppPurchaseRoute
+  '/purchases': typeof AppPurchasesRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
+  '/suppliers': typeof AppSuppliersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
+  '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
@@ -134,15 +163,19 @@ export interface FileRoutesByTo {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRoute
+  '/purchase': typeof AppPurchaseRoute
+  '/purchases': typeof AppPurchasesRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
+  '/suppliers': typeof AppSuppliersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/_app/customer': typeof AppCustomerRoute
   '/_app/customers': typeof AppCustomersRoute
@@ -153,9 +186,12 @@ export interface FileRoutesById {
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
   '/_app/products': typeof AppProductsRoute
+  '/_app/purchase': typeof AppPurchaseRoute
+  '/_app/purchases': typeof AppPurchasesRoute
   '/_app/scan': typeof AppScanRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/stock-in': typeof AppStockInRoute
+  '/_app/suppliers': typeof AppSuppliersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -163,6 +199,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/labels'
     | '/print'
     | '/customer'
     | '/customers'
@@ -173,12 +210,16 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/products'
+    | '/purchase'
+    | '/purchases'
     | '/scan'
     | '/settings'
     | '/stock-in'
+    | '/suppliers'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/labels'
     | '/print'
     | '/customer'
     | '/customers'
@@ -189,14 +230,18 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/products'
+    | '/purchase'
+    | '/purchases'
     | '/scan'
     | '/settings'
     | '/stock-in'
+    | '/suppliers'
     | '/api/pathao-proxy'
     | '/'
   id:
     | '__root__'
     | '/_app'
+    | '/labels'
     | '/print'
     | '/_app/customer'
     | '/_app/customers'
@@ -207,15 +252,19 @@ export interface FileRouteTypes {
     | '/_app/order'
     | '/_app/orders'
     | '/_app/products'
+    | '/_app/purchase'
+    | '/_app/purchases'
     | '/_app/scan'
     | '/_app/settings'
     | '/_app/stock-in'
+    | '/_app/suppliers'
     | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  LabelsRoute: typeof LabelsRoute
   PrintRoute: typeof PrintRoute
   ApiPathaoProxyRoute: typeof ApiPathaoProxyRoute
 }
@@ -227,6 +276,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/labels': {
+      id: '/labels'
+      path: '/labels'
+      fullPath: '/labels'
+      preLoaderRoute: typeof LabelsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/print': {
@@ -306,6 +362,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/purchase': {
+      id: '/_app/purchase'
+      path: '/purchase'
+      fullPath: '/purchase'
+      preLoaderRoute: typeof AppPurchaseRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/purchases': {
+      id: '/_app/purchases'
+      path: '/purchases'
+      fullPath: '/purchases'
+      preLoaderRoute: typeof AppPurchasesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/scan': {
       id: '/_app/scan'
       path: '/scan'
@@ -325,6 +395,13 @@ declare module '@tanstack/react-router' {
       path: '/stock-in'
       fullPath: '/stock-in'
       preLoaderRoute: typeof AppStockInRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/suppliers': {
+      id: '/_app/suppliers'
+      path: '/suppliers'
+      fullPath: '/suppliers'
+      preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
     '/api/pathao-proxy': {
@@ -347,9 +424,12 @@ interface AppRouteChildren {
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
   AppProductsRoute: typeof AppProductsRoute
+  AppPurchaseRoute: typeof AppPurchaseRoute
+  AppPurchasesRoute: typeof AppPurchasesRoute
   AppScanRoute: typeof AppScanRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockInRoute: typeof AppStockInRoute
+  AppSuppliersRoute: typeof AppSuppliersRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -363,9 +443,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
   AppProductsRoute: AppProductsRoute,
+  AppPurchaseRoute: AppPurchaseRoute,
+  AppPurchasesRoute: AppPurchasesRoute,
   AppScanRoute: AppScanRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockInRoute: AppStockInRoute,
+  AppSuppliersRoute: AppSuppliersRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
@@ -373,6 +456,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  LabelsRoute: LabelsRoute,
   PrintRoute: PrintRoute,
   ApiPathaoProxyRoute: ApiPathaoProxyRoute,
 }

@@ -168,6 +168,7 @@ export type CartLine = {
   qty: number
   discount: number
   available: number
+  purchasePrice?: number
 }
 
 export function ProductSearch({ locationId, onAdd }: { locationId?: Id<"locations">; onAdd: (l: CartLine) => void }) {
@@ -200,7 +201,7 @@ export function ProductSearch({ locationId, onAdd }: { locationId?: Id<"location
             </div>
             <Button
               size="sm" variant="outline"
-              onClick={() => onAdd({ variantId: r._id, sku: r.sku, name: r.productName, title: r.title, imageUrl: r.imageUrl, price: r.price, qty: 1, discount: 0, available: r.available })}
+              onClick={() => onAdd({ variantId: r._id, sku: r.sku, name: r.productName, title: r.title, imageUrl: r.imageUrl, price: r.price, qty: 1, discount: 0, available: r.available, purchasePrice: r.purchasePrice })}
             >
               <Plus className="size-4" /> Add
             </Button>
