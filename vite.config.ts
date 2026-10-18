@@ -10,7 +10,7 @@ export default defineConfig({
     tsconfigPaths({ projects: ['./tsconfig.json'] }),
     tailwindcss(),
     tanstackStart(),
-    nitro(),
+    nitro({ vercel: { functions: { regions: ['sin1'] } } } as any),
     viteReact(),
   ],
 })

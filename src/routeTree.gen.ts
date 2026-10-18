@@ -23,6 +23,7 @@ import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
+import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -93,6 +94,11 @@ const AppStockInRoute = AppStockInRouteImport.update({
   path: '/stock-in',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
+  id: '/api/pathao-proxy',
+  path: '/api/pathao-proxy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -108,6 +114,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof AppProductsRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
+  '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
   '/print': typeof PrintRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/products': typeof AppProductsRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
+  '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/_app/products': typeof AppProductsRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/stock-in': typeof AppStockInRoute
+  '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/settings'
     | '/stock-in'
+    | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/print'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/settings'
     | '/stock-in'
+    | '/api/pathao-proxy'
     | '/'
   id:
     | '__root__'
@@ -187,12 +198,14 @@ export interface FileRouteTypes {
     | '/_app/products'
     | '/_app/settings'
     | '/_app/stock-in'
+    | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   PrintRoute: typeof PrintRoute
+  ApiPathaoProxyRoute: typeof ApiPathaoProxyRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -295,6 +308,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppStockInRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/pathao-proxy': {
+      id: '/api/pathao-proxy'
+      path: '/api/pathao-proxy'
+      fullPath: '/api/pathao-proxy'
+      preLoaderRoute: typeof ApiPathaoProxyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -333,6 +353,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   PrintRoute: PrintRoute,
+  ApiPathaoProxyRoute: ApiPathaoProxyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

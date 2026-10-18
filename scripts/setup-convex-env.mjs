@@ -2,6 +2,8 @@
 // sign-in keys Convex Auth needs and stores them in the Convex deployment.
 // Nothing secret is kept in the repository.
 import { execSync } from "node:child_process"
+import { randomBytes } from "node:crypto"
+import { readFileSync, writeFileSync } from "node:fs"
 import { exportJWK, exportPKCS8, generateKeyPair } from "jose"
 
 const run = (cmd) => execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] }).toString().trim()
@@ -31,3 +33,14 @@ if (site && get("SITE_URL") !== site) {
   set("SITE_URL", site)
   console.log(`SITE_URL set to ${site}`)
 }
+
+// Pathao proxy: Convex can't reach Pathao directly, so it calls this site's /api/pathao-proxy.
+let proxySecret = get("PATHAO_PROXY_SECRET")
+if (!proxySecret) {
+  proxySecret = randomBytes(24).toString("hex")
+  set("PATHAO_PROXY_SECRET", proxySecret)
+}
+if (site && get("PATHAO_PROXY_URL") !== `${site}/api/pathao-proxy`) set("PATHAO_PROXY_URL", `${site}/api/pathao-proxy`)
+const secretFile = "src/server/proxy-secret.ts"
+writeFileSync(secretFile, readFileSync(secretFile, "utf8").replace("__PATHAO_PROXY_SECRET__", proxySecret))
+console.log("Pathao proxy configured")
