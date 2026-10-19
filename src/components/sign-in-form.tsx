@@ -29,12 +29,25 @@ export function SignInForm({ brand }: { brand: React.ReactNode }) {
             setError(null)
             const fd = new FormData(e.currentTarget)
             fd.set("flow", flow)
+            const typed = String(fd.get("email") ?? "").trim()
             try {
-              await signIn("password", fd)
+              if (flow === "signUp") {
+                fd.set("email", typed.toLowerCase())
+                await signIn("password", fd)
+              } else {
+                // Phones often capitalise the first letter — try the usual spellings of the same email.
+                const tries = [...new Set([typed, typed.toLowerCase(), typed.charAt(0).toUpperCase() + typed.slice(1).toLowerCase()])]
+                let ok = false
+                for (const t of tries) {
+                  fd.set("email", t)
+                  try { await signIn("password", fd); ok = true; break } catch { /* try next spelling */ }
+                }
+                if (!ok) throw new Error("bad login")
+              }
             } catch {
               setError(
                 flow === "signIn"
-                  ? "Email or password is wrong. First time? Choose “Create password” below."
+                  ? "Email or password is wrong. Forgot your password? Ask your admin to “Reset login” for you in Settings → Team, then choose “Create password” below."
                   : "Could not create the account. If you already have one, sign in instead.",
               )
             } finally {

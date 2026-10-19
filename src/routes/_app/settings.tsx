@@ -266,6 +266,7 @@ function TeamTab() {
   const save = useMutation(api.team.saveStaff)
   const approve = useMutation(api.team.approveRequest)
   const reject = useMutation(api.team.rejectRequest)
+  const resetLogin = useMutation(api.team.resetStaffLogin)
   const [edit, setEdit] = useState<{ id?: Id<"staff">; email: string; name: string; phone: string; roleId?: Id<"roles">; active: boolean } | null>(null)
   const [permsFor, setPermsFor] = useState<NonNullable<typeof staff>[number] | null>(null)
   const [reqRole, setReqRole] = useState<Record<string, string>>({})
@@ -338,7 +339,13 @@ function TeamTab() {
               </div>
               <label className="flex items-center gap-2 text-sm"><Switch checked={edit.active} onCheckedChange={(v) => setEdit({ ...edit, active: v })} /> Can use the app</label>
             </div>
-            <DialogFooter>
+            <DialogFooter className="sm:justify-between">
+              {edit.id ? (
+                <Button variant="outline" className="text-destructive" onClick={async () => {
+                  if (!window.confirm(`Reset ${edit.name}'s login?\n\nTheir password is removed and they are signed out. Their role and history stay. They then open the app, choose “First time? Create password” with ${edit.email} and make a new password.`)) return
+                  try { await resetLogin({ id: edit.id! }); toast.success("Login reset — they can create a new password now"); setEdit(null) } catch (e) { toast.error(errMsg(e)) }
+                }}>Reset login (forgot password)</Button>
+              ) : <span />}
               <Button disabled={!edit.roleId || !edit.email || !edit.name} onClick={async () => {
                 try {
                   await save({ id: edit.id, email: edit.email, name: edit.name, phone: edit.phone || undefined, roleId: edit.roleId!, active: edit.active })

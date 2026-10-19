@@ -1,6 +1,6 @@
 import { v, ConvexError } from "convex/values"
 import { getAuthUserId } from "@convex-dev/auth/server"
-import { mutation, query } from "./_generated/server"
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server"
 import type { Id } from "./_generated/dataModel"
 import { currentStaff, effectivePerms, requirePerm } from "./lib"
 import { DEFAULT_ROLES, PERMISSIONS, ALL_MOVE_KEYS } from "./rules"
@@ -44,7 +44,8 @@ export const claim = mutation({
     const linked = await ctx.db.query("staff").withIndex("by_user", (q) => q.eq("userId", userId)).unique()
     if (linked) return "ok"
 
-    const invited = await ctx.db.query("staff").withIndex("by_email", (q) => q.eq("email", email)).unique()
+    const invited = (await ctx.db.query("staff").withIndex("by_email", (q) => q.eq("email", email)).unique())
+      ?? (await ctx.db.query("staff").collect()).find((x) => x.email.toLowerCase() === email && !x.userId) ?? null
     if (invited) {
       await ctx.db.patch(invited._id, { userId })
       return "ok"
@@ -235,5 +236,41 @@ export const setStaffPerms = mutation({
       extraPerms: a.extraPerms.filter((p) => known.has(p)),
       deniedPerms: a.deniedPerms.filter((p) => known.has(p)),
     })
+  },
+})
+
+// ---------------- Reset login (forgotten password) ----------------
+/** Removes the email+password login for this email (any capitalisation) and signs them out everywhere.
+ *  Their team record, role and history stay. They then choose "First time? Create password" with the same email. */
+async function resetLogin(ctx: MutationCtx, email: string) {
+  const target = email.trim().toLowerCase()
+  const accounts = (await ctx.db.query("authAccounts").collect()).filter((a) => a.provider === "password" && a.providerAccountId.toLowerCase() === target)
+  for (const acc of accounts) {
+    for (const sess of await ctx.db.query("authSessions").withIndex("userId", (q) => q.eq("userId", acc.userId)).collect()) {
+      for (const rt of await ctx.db.query("authRefreshTokens").withIndex("sessionId", (q) => q.eq("sessionId", sess._id)).collect()) await ctx.db.delete(rt._id)
+      await ctx.db.delete(sess._id)
+    }
+    for (const code of (await ctx.db.query("authVerificationCodes").collect()).filter((c) => c.accountId === acc._id)) await ctx.db.delete(code._id)
+    await ctx.db.delete(acc._id)
+  }
+  // unlink the staff record so the new login gets linked to it by email
+  const staff = (await ctx.db.query("staff").collect()).find((s) => s.email.toLowerCase() === target)
+  if (staff) await ctx.db.patch(staff._id, { userId: undefined, email: target })
+  return { removed: accounts.length, staff: staff?.name ?? null }
+}
+
+export const resetLoginByEmail = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => resetLogin(ctx, email),
+})
+
+export const resetStaffLogin = mutation({
+  args: { id: v.id("staff") },
+  handler: async (ctx, { id }) => {
+    const me = await requirePerm(ctx, "team.manage")
+    if (id === me.staff._id) throw new ConvexError("You can't reset your own login here")
+    const s = await ctx.db.get(id)
+    if (!s) throw new ConvexError("Team member not found")
+    return await resetLogin(ctx, s.email)
   },
 })

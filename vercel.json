@@ -1,4 +1,4 @@
 {
-  "buildCommand": "node scripts/setup-convex-env.mjs && npx convex deploy --cmd 'npm run build' --cmd-url-env-var-name VITE_CONVEX_URL",
+  "buildCommand": "node scripts/setup-convex-env.mjs && npx convex deploy --cmd 'npm run build' --cmd-url-env-var-name VITE_CONVEX_URL && node scripts/after-deploy.mjs",
   "installCommand": "npm install"
 }
