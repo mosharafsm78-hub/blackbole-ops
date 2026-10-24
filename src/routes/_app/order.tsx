@@ -31,19 +31,69 @@ export const Route = createFileRoute("/_app/order")({
 
 function Card({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <section className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between border-b px-4 py-2.5">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
+    <section className="rounded-xl border bg-card shadow-xs">
+      <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3.5">
+        <h2 className="text-sm font-semibold">{title}</h2>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="px-4 pb-4 pt-2">{children}</div>
     </section>
+  )
+}
+
+const TILE_TONE: Record<string, string> = {
+  blue: "border-t-tone-blue", green: "border-t-tone-green", amber: "border-t-tone-amber", violet: "border-t-tone-violet", red: "border-t-tone-red", gray: "border-t-tone-gray",
+}
+function Tile({ label, value, hint, tone }: { label: string; value: React.ReactNode; hint?: string; tone: string }) {
+  return (
+    <div className={cn("rounded-xl border border-t-[3px] bg-card px-4 py-3", TILE_TONE[tone])}>
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="mt-0.5 truncate text-xl font-semibold tabular-nums">{value}</div>
+      {hint && <div className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
+const isDelivered = (s: OrderStatus) => s === "delivered_due" || s === "delivered_paid"
+const STEPS: { label: string; statuses: OrderStatus[] }[] = [
+  { label: "Pending", statuses: ["pending", "on_hold"] },
+  { label: "Approved", statuses: ["approved"] },
+  { label: "Processing", statuses: ["processing"] },
+  { label: "Ready to ship", statuses: ["ready_to_ship"] },
+  { label: "In transit", statuses: ["in_transit"] },
+  { label: "Delivered", statuses: ["delivered_due", "delivered_paid"] },
+]
+/** Where the order is in the normal journey. Returns and cancellations show as a coloured note instead. */
+function Progress({ status }: { status: OrderStatus }) {
+  const off = status === "cancelled" ? { text: "This order was cancelled", cls: "bg-tone-gray-bg text-tone-gray" }
+    : ["pending_returned", "returned", "damaged"].includes(status) ? { text: status === "pending_returned" ? "Coming back from the customer (return on the way)" : status === "damaged" ? "Returned damaged" : "Returned and received back", cls: "bg-tone-red-bg text-tone-red" }
+    : null
+  if (off) return <div className={cn("mx-5 my-3 rounded-lg px-3 py-2 text-sm font-medium", off.cls)}>{off.text}</div>
+  const at = STEPS.findIndex((s) => s.statuses.includes(status))
+  return (
+    <ol className="flex items-center gap-1 overflow-x-auto px-5 py-4" data-testid="order-progress">
+      {STEPS.map((s, i) => {
+        const done = i < at, now = i === at
+        return (
+          <li key={s.label} className="flex min-w-fit flex-1 items-center gap-1">
+            <span className={cn("flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+              done ? "bg-tone-green text-white" : now ? "bg-foreground text-background ring-4 ring-foreground/10" : "bg-muted text-muted-foreground")}>
+              {done ? "✓" : i + 1}
+            </span>
+            <span className={cn("whitespace-nowrap text-xs", now ? "font-semibold" : done ? "text-foreground" : "text-muted-foreground")}>
+              {s.label}{now && status === "on_hold" ? " · on hold" : ""}{now && status === "delivered_paid" ? " · paid" : ""}
+            </span>
+            {i < STEPS.length - 1 && <span className={cn("mx-1 h-0.5 min-w-4 flex-1 rounded-full", i < at ? "bg-tone-green" : "bg-muted")} />}
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-4 py-1 text-sm">
+    <div className="flex justify-between gap-4 py-1.5 text-sm">
       <span className="text-muted-foreground">{k}</span>
       <span className="text-right font-medium">{v}</span>
     </div>
@@ -74,147 +124,109 @@ function OrderPage() {
   const editable = ["pending", "on_hold", "approved", "processing"].includes(status) && !o.consignmentId && can("orders.edit")
   const canBook = o.courier === "pathao" && !o.consignmentId && ["ready_to_ship", "processing", "approved"].includes(status) && can("courier.book")
 
+  const itemCount = o.items.reduce((s, i) => s + i.qty, 0)
+  const itemDiscount = o.items.reduce((s, i) => s + i.discount, 0)
+  const area = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
+  const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Link to="/orders" search={{ tab: "all" }} className="text-sm text-muted-foreground hover:underline">Orders</Link>
-        <span className="text-muted-foreground">/</span>
-        <h1 className="text-xl font-semibold">{invoice(o.invoiceNo)}</h1>
-        <StatusPill status={o.status} />
-        {o.reason && <span className="text-sm text-muted-foreground">— {o.reason}</span>}
-        <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon-sm" disabled={!data.newerId} asChild={!!data.newerId} aria-label="Newer order">
-            {data.newerId ? <Link to="/order" search={{ id: data.newerId }}><ChevronLeft className="size-4" /></Link> : <span><ChevronLeft className="size-4" /></span>}
-          </Button>
-          <Button variant="outline" size="icon-sm" disabled={!data.olderId} asChild={!!data.olderId} aria-label="Older order">
-            {data.olderId ? <Link to="/order" search={{ id: data.olderId }}><ChevronRight className="size-4" /></Link> : <span><ChevronRight className="size-4" /></span>}
-          </Button>
+    <div className="mx-auto max-w-[1400px] space-y-4">
+      {/* ===== Header ===== */}
+      <section className="rounded-xl border bg-card">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-4">
+          <Link to="/orders" search={{ tab: "all" }} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeft className="size-4" />Orders</Link>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" disabled={!data.newerId} asChild={!!data.newerId} aria-label="Newer order" title="Newer order">
+              {data.newerId ? <Link to="/order" search={{ id: data.newerId }}><ChevronLeft className="size-4" /></Link> : <span><ChevronLeft className="size-4" /></span>}
+            </Button>
+            <Button variant="ghost" size="icon-sm" disabled={!data.olderId} asChild={!!data.olderId} aria-label="Older order" title="Older order">
+              {data.olderId ? <Link to="/order" search={{ id: data.olderId }}><ChevronRight className="size-4" /></Link> : <span><ChevronRight className="size-4" /></span>}
+            </Button>
+          </div>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}><PhoneCall className="size-4" /> Log call</Button>
+            {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
+              : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
+            <Perm perm="orders.print">
+              <Button variant="outline" size="sm" onClick={() => window.open(`/print?ids=${o._id}`, "_blank")}><Printer className="size-4" /> Invoice</Button>
+            </Perm>
+            <Button size="sm" disabled={next.length === 0} onClick={() => { setInitialStatus(undefined); setStatusOpen(true) }}>
+              <Shuffle className="size-4" /> Change status
+            </Button>
+          </div>
         </div>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}><PhoneCall className="size-4" /> Log call</Button>
-          {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
-            : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
-          <Perm perm="orders.print">
-            <Button variant="outline" size="sm" onClick={() => window.open(`/print?ids=${o._id}`, "_blank")}><Printer className="size-4" /> Invoice</Button>
-          </Perm>
-          <Button size="sm" disabled={next.length === 0} onClick={() => { setInitialStatus(undefined); setStatusOpen(true) }}>
-            <Shuffle className="size-4" /> Change status
-          </Button>
+
+        <div className="flex flex-wrap items-end gap-x-4 gap-y-1 px-5 pb-1 pt-2">
+          <h1 className="text-2xl font-semibold tracking-tight">{invoice(o.invoiceNo)}</h1>
+          <StatusPill status={o.status} />
+          <span className="pb-0.5 text-sm text-muted-foreground">
+            {o.source}{o.externalName ? ` ${o.externalName}` : ""} · {dateTime(o.createdAt)} · by {o.createdByName}
+          </span>
         </div>
+        {o.reason && <div className="mx-5 mt-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">Reason: {o.reason}</div>}
+
+        <Progress status={status} />
+
+        {/* Move to: every allowed next step; moves this person isn't allowed are shown locked */}
+        {TRANSITIONS[status].length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-t px-5 py-3 text-sm">
+            <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Move to</span>
+            {TRANSITIONS[status].map((s) => next.includes(s) ? (
+              <button key={s} type="button" onClick={() => { setInitialStatus(s); setStatusOpen(true) }}
+                className="rounded-full border bg-background p-0.5 transition hover:-translate-y-px hover:border-foreground/30 hover:shadow-sm">
+                <StatusPill status={s} />
+              </button>
+            ) : (
+              <span key={s} title="Locked for you — ask your admin" className="inline-flex cursor-not-allowed items-center gap-1 rounded-full p-0.5 opacity-45"><Lock className="size-3" /><StatusPill status={s} /></span>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ===== Money at a glance ===== */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile label="Order total" value={taka(o.total)} hint={`${itemCount} item${itemCount === 1 ? "" : "s"} · delivery ${taka(o.deliveryFee)}`} tone="blue" />
+        <Tile label="Paid" value={taka(o.paidAmount)} hint={payments.length ? `${payments.length} payment${payments.length === 1 ? "" : "s"}` : "Nothing paid yet"} tone="green" />
+        <Tile label={isDelivered(status) ? "Still due" : "Collect on delivery"} value={taka(o.due)} hint={paymentType} tone={o.due > 0 ? "amber" : "green"} />
+        <Tile
+          label="Courier"
+          value={o.courier === "pickup" ? "Store pickup" : o.consignmentId ? <span className="text-base">{o.consignmentId}</span> : "Not booked"}
+          hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus}` : o.courierError ? "Booking failed — see Delivery" : "Pathao · books at Ready To Ship"}
+          tone={o.courierError ? "red" : o.consignmentId ? "violet" : "gray"}
+        />
       </div>
 
-      {/* Quick actions for the common next step; moves this person isn't allowed are shown locked */}
-      {TRANSITIONS[status].length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-sm">
-          <span className="text-muted-foreground">Move to:</span>
-          {TRANSITIONS[status].map((s) => next.includes(s) ? (
-            <Button key={s} variant="secondary" size="xs" onClick={() => { setInitialStatus(s); setStatusOpen(true) }}>
-              <StatusPill status={s} />
-            </Button>
-          ) : (
-            <span key={s} title="Locked for you — ask your admin" className="inline-flex cursor-not-allowed items-center gap-1 rounded-md px-1.5 py-0.5 opacity-50"><Lock className="size-3" /><StatusPill status={s} /></span>
-          ))}
-        </div>
-      )}
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Customer" action={customer && <Link to="/customer" search={{ id: customer._id }} className="text-xs text-tone-blue hover:underline">Profile</Link>}>
-          <div className="flex items-center gap-2">
-            <span className="font-semibold">{o.customerName}</span>
-            {customer && <TagPill tag={customer.tag} />}
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            <span className="tabular-nums">{o.phone}</span>
-            <ContactButtons phone={o.phone} onCall={() => setTimeout(() => setCallOpen(true), 400)} />
-          </div>
-          {o.email && <div className="mt-1 text-sm text-muted-foreground">{o.email}</div>}
-          <div className="mt-3 text-sm">{o.address}</div>
-          <div className="text-sm text-muted-foreground">{[o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ") || "Pathao area not set"}</div>
-          {customer && <CustomerRatio s={data.customerStats} />}
-          <CourierHistory phone={o.phone} />
-        </Card>
-
-        <Card title="Order">
-          <Row k="Source" v={<>{o.source}{o.externalName ? ` · ${o.externalName}` : ""}</>} />
-          <Row k="Created" v={dateTime(o.createdAt)} />
-          <Row k="Created by" v={o.createdByName} />
-          <Row k="Warehouse" v={data.locationName} />
-          <Row k="Delivery" v={o.deliveryType === "pickup" ? "Store pickup" : o.deliveryType === "express" ? "Express" : "Regular"} />
-          {o.shippingDate && <Row k="Shipped" v={dateTime(o.shippingDate)} />}
-          <Row k="Calls" v={`${o.callCount}${o.lastCallOutcome ? ` · ${o.lastCallOutcome}` : ""}`} />
-          {o.customerNote && <div className="mt-2 rounded-md bg-tone-amber-bg p-2 text-sm text-tone-amber">Note: {o.customerNote}</div>}
-        </Card>
-
-        <Card
-          title="Courier"
-          action={canBook && (
-            <Button
-              size="xs" variant="outline" disabled={booking}
-              onClick={async () => {
-                setBooking(true)
-                try { await retryBook({ orderId: o._id }); toast.success("Sent to Pathao") } catch (e) { toast.error(errMsg(e)) } finally { setBooking(false) }
-              }}
-            >
-              <Truck className="size-3.5" /> {o.courierError ? "Retry booking" : "Book now"}
-            </Button>
-          )}
-        >
-          {o.courier === "pickup" ? (
-            <p className="text-sm text-muted-foreground">Customer picks up from the store.</p>
-          ) : (
-            <>
-              <Row k="Courier" v="Pathao" />
-              <Row k="Consignment" v={o.consignmentId ?? "Not booked"} />
-              {o.courierStatus && <Row k="Pathao status" v={o.courierStatus} />}
-              {o.courierFee !== undefined && <Row k="Courier charge" v={taka(o.courierFee)} />}
-              {o.courierError && <div className="mt-2 rounded-md bg-tone-red-bg p-2 text-sm text-tone-red">{o.courierError}</div>}
-              {!o.consignmentId && !o.courierError && (
-                <p className="mt-2 text-xs text-muted-foreground">Booked automatically when the order reaches Ready To Ship.</p>
-              )}
-            </>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <Card title={`Products (${o.items.reduce((s, i) => s + i.qty, 0)})`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs text-muted-foreground">
-                  <tr><th className="pb-2">Product</th><th className="pb-2">SKU</th><th className="pb-2 text-right">Price</th><th className="pb-2 text-right">Qty</th><th className="pb-2 text-right">Discount</th><th className="pb-2 text-right">Total</th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {o.items.map((i, k) => (
-                    <tr key={k}>
-                      <td className="py-2">
-                        <div className="flex items-center gap-2">
-                          {i.imageUrl ? <img src={i.imageUrl} alt="" className="size-9 rounded object-cover" /> : <div className="size-9 rounded bg-muted" />}
-                          <div>
-                            <div className="font-medium">{i.name}</div>
-                            {i.attrs && <div className="text-xs text-muted-foreground">{i.attrs}</div>}
-                            {!i.variantId && <div className="text-xs text-tone-red">Not linked to a product — stock not tracked</div>}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-2 text-xs">{i.sku}</td>
-                      <td className="py-2 text-right tabular-nums">{taka(i.price)}</td>
-                      <td className="py-2 text-right tabular-nums">{i.qty}</td>
-                      <td className="py-2 text-right tabular-nums">{i.discount ? `−${taka(i.discount)}` : "—"}</td>
-                      <td className="py-2 text-right font-medium tabular-nums">{taka(i.price * i.qty - i.discount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      <div className="grid items-start gap-4 lg:grid-cols-12">
+        {/* ===== Main column ===== */}
+        <div className="space-y-4 lg:col-span-8">
+          <Card title={`Products · ${itemCount}`}>
+            <div className="divide-y">
+              {o.items.map((i, k) => (
+                <div key={k} className="flex items-center gap-3 py-3 first:pt-0">
+                  {i.imageUrl ? <img src={i.imageUrl} alt="" className="size-14 shrink-0 rounded-lg border object-cover" /> : <div className="size-14 shrink-0 rounded-lg bg-muted" />}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium leading-snug">{i.name}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      {i.attrs && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{i.attrs}</span>}
+                      <span className="font-mono">{i.sku}</span>
+                    </div>
+                    {!i.variantId && <div className="mt-0.5 text-xs text-tone-red">Not linked to a product — stock not tracked</div>}
+                  </div>
+                  <div className="text-right text-sm tabular-nums">
+                    <div className="text-muted-foreground">{taka(i.price)} × {i.qty}</div>
+                    {i.discount ? <div className="text-xs text-tone-green">−{taka(i.discount)}</div> : null}
+                  </div>
+                  <div className="w-24 text-right font-semibold tabular-nums">{taka(i.price * i.qty - i.discount)}</div>
+                </div>
+              ))}
             </div>
-            <dl className="ml-auto mt-3 max-w-xs space-y-1 text-sm">
-              <div className="flex justify-between"><dt>Subtotal</dt><dd className="tabular-nums">{taka(o.subtotal)}</dd></div>
-              <div className="flex justify-between"><dt>Discount</dt><dd className="tabular-nums">−{taka(o.items.reduce((s, i) => s + i.discount, 0) + o.discount)}</dd></div>
-              <div className="flex justify-between"><dt>Delivery fee</dt><dd className="tabular-nums">{taka(o.deliveryFee)}</dd></div>
-              <div className="flex justify-between font-semibold"><dt>Total</dt><dd className="tabular-nums">{taka(o.total)}</dd></div>
+            <dl className="ml-auto mt-3 max-w-sm space-y-1.5 rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="flex justify-between"><dt className="text-muted-foreground">Subtotal</dt><dd className="tabular-nums">{taka(o.subtotal)}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">Discount</dt><dd className="tabular-nums">−{taka(itemDiscount + o.discount)}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">Delivery fee</dt><dd className="tabular-nums">{taka(o.deliveryFee)}</dd></div>
+              <div className="flex justify-between border-t pt-1.5 font-semibold"><dt>Total</dt><dd className="tabular-nums">{taka(o.total)}</dd></div>
               <div className="flex justify-between text-tone-green"><dt>Paid</dt><dd className="tabular-nums">−{taka(o.paidAmount)}</dd></div>
-              <div className="flex justify-between border-t pt-1 text-base font-semibold"><dt>Due</dt><dd className="tabular-nums">{taka(o.due)}</dd></div>
+              <div className="flex justify-between text-base font-semibold"><dt>Due</dt><dd className={cn("tabular-nums", o.due > 0 && "text-tone-amber")}>{taka(o.due)}</dd></div>
             </dl>
           </Card>
 
@@ -224,62 +236,146 @@ function OrderPage() {
             ) : (
               <div className="divide-y text-sm">
                 {payments.map((p) => (
-                  <div key={p._id} className="flex justify-between py-1.5">
-                    <span>{p.method}{p.reference ? ` · ${p.reference}` : ""} <span className="text-muted-foreground">· {p.byName} · {dateTime(p.at)}</span></span>
-                    <span className="font-medium tabular-nums">{taka(p.amount)}</span>
+                  <div key={p._id} className="flex items-center justify-between gap-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-tone-green-bg px-2 py-0.5 text-xs font-semibold text-tone-green">{p.method}</span>
+                      <span>{p.reference ? <span className="font-mono text-xs">{p.reference}</span> : null} <span className="text-xs text-muted-foreground">{p.byName} · {dateTime(p.at)}</span></span>
+                    </div>
+                    <span className="font-semibold tabular-nums">{taka(p.amount)}</span>
                   </div>
                 ))}
               </div>
             )}
           </Card>
-        </div>
 
-        <Card title="Timeline">
-          <form
-            className="mb-3 flex gap-2"
-            onSubmit={async (e) => {
-              e.preventDefault()
-              if (!note.trim()) return
-              await addNote({ id: o._id, text: note })
-              setNote("")
-            }}
-          >
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add internal note…" />
-            <Button type="submit" size="sm" variant="outline">Add</Button>
-          </form>
-          <div className="mb-3 flex gap-1">
-            {(["all", "call", "note", "log"] as const).map((f) => (
-              <button key={f} onClick={() => setFilter(f)} className={cn("rounded-md px-2 py-1 text-xs capitalize", filter === f ? "bg-foreground text-background" : "bg-muted")}>
-                {f === "all" ? "All" : f === "call" ? "Calls" : f === "note" ? "Notes" : "Activity"}
-              </button>
-            ))}
-          </div>
-          <ol className="space-y-3">
-            {events2.map((e) => (
-              <li key={e._id} className="border-l-2 pl-3" style={{ borderColor: "hsl(var(--border))" }}>
-                <div className="flex items-center gap-1.5">
-                  {e.type === "call" && <Pill tone={e.outcome === "Confirmed" ? "green" : "amber"}>Call</Pill>}
-                  {e.type === "note" && <Pill tone="violet">Note</Pill>}
-                  {e.type === "payment" && <Pill tone="green">Payment</Pill>}
-                  <span className="text-xs text-muted-foreground">{e.byName} · {dateTime(e.at)}</span>
-                </div>
-                <div className="mt-0.5 text-sm">{e.text}</div>
-              </li>
-            ))}
-            {events2.length === 0 && <li className="text-sm text-muted-foreground">Nothing yet.</li>}
-          </ol>
-          {history.length > 0 && (
-            <div className="mt-5 border-t pt-3">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Other orders from this customer</div>
-              {history.map((h) => (
-                <Link key={h._id} to="/order" search={{ id: h._id }} className="flex items-center justify-between py-1 text-sm hover:underline">
-                  <span>{invoice(h.invoiceNo)} · {taka(h.total)}</span>
-                  <StatusPill status={h.status} />
-                </Link>
+          <Card title="Timeline">
+            <form
+              className="mb-3 flex gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (!note.trim()) return
+                await addNote({ id: o._id, text: note })
+                setNote("")
+              }}
+            >
+              <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Write an internal note for the team…" />
+              <Button type="submit" size="sm">Add note</Button>
+            </form>
+            <div className="mb-4 flex gap-1">
+              {(["all", "call", "note", "log"] as const).map((f) => (
+                <button key={f} type="button" onClick={() => setFilter(f)} className={cn("rounded-full px-3 py-1 text-xs font-medium", filter === f ? "bg-foreground text-background" : "bg-muted hover:bg-accent")}>
+                  {f === "all" ? `All (${events.length})` : f === "call" ? "Calls" : f === "note" ? "Notes" : "Activity"}
+                </button>
               ))}
             </div>
+            <ol className="relative space-y-4 border-l pl-5">
+              {events2.map((e) => (
+                <li key={e._id} className="relative">
+                  <span className={cn("absolute -left-[26px] top-1 size-3 rounded-full border-2 border-card",
+                    e.type === "call" ? (e.outcome === "Confirmed" ? "bg-tone-green" : "bg-tone-amber") : e.type === "note" ? "bg-tone-violet" : e.type === "payment" ? "bg-tone-green" : "bg-muted-foreground/40")} />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {e.type === "call" && <Pill tone={e.outcome === "Confirmed" ? "green" : "amber"}>Call{e.outcome ? ` · ${e.outcome}` : ""}</Pill>}
+                    {e.type === "note" && <Pill tone="violet">Note</Pill>}
+                    {e.type === "payment" && <Pill tone="green">Payment</Pill>}
+                    <span className="text-xs text-muted-foreground">{e.byName} · {dateTime(e.at)}</span>
+                  </div>
+                  <div className={cn("mt-1 text-sm", e.type === "note" && "rounded-md bg-tone-violet-bg/50 px-2.5 py-1.5")}>{e.text}</div>
+                </li>
+              ))}
+              {events2.length === 0 && <li className="text-sm text-muted-foreground">Nothing yet.</li>}
+            </ol>
+          </Card>
+        </div>
+
+        {/* ===== Side column ===== */}
+        <div className="space-y-4 lg:col-span-4">
+          <Card title="Customer" action={customer && <Link to="/customer" search={{ id: customer._id }} className="text-xs font-medium text-tone-blue hover:underline">Profile →</Link>}>
+            <div className="flex items-start gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-tone-blue-bg text-sm font-semibold text-tone-blue">
+                {o.customerName.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">{o.customerName}</span>
+                  {customer && <TagPill tag={customer.tag} />}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="font-medium tabular-nums">{o.phone}</span>
+                  <ContactButtons phone={o.phone} onCall={() => setTimeout(() => setCallOpen(true), 400)} />
+                </div>
+                {o.email && <div className="mt-1 truncate text-sm text-muted-foreground">{o.email}</div>}
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Delivery address</div>
+              <div className="mt-1">{o.address}</div>
+              <div className={cn("mt-0.5 text-xs", area ? "text-muted-foreground" : "text-tone-amber")}>{area || "Pathao area not set"}</div>
+            </div>
+          </Card>
+
+          <Card title="Can we trust this order?">
+            {customer && <div className="text-xs font-semibold">With BlackBole</div>}
+            {customer && <CustomerRatio s={data.customerStats} />}
+            <CourierHistory phone={o.phone} />
+          </Card>
+
+          <Card
+            title="Delivery"
+            action={canBook && (
+              <Button
+                size="xs" variant="outline" disabled={booking}
+                onClick={async () => {
+                  setBooking(true)
+                  try { await retryBook({ orderId: o._id }); toast.success("Sent to Pathao") } catch (e) { toast.error(errMsg(e)) } finally { setBooking(false) }
+                }}
+              >
+                <Truck className="size-3.5" /> {o.courierError ? "Retry booking" : "Book now"}
+              </Button>
+            )}
+          >
+            {o.courier === "pickup" ? (
+              <p className="text-sm text-muted-foreground">Customer picks up from the store.</p>
+            ) : (
+              <>
+                <Row k="Courier" v="Pathao" />
+                <Row k="Consignment" v={o.consignmentId ?? "Not booked"} />
+                {o.courierStatus && <Row k="Pathao status" v={o.courierStatus} />}
+                {o.courierFee !== undefined && <Row k="Courier charge" v={taka(o.courierFee)} />}
+                {o.courierError && <div className="mt-2 rounded-md bg-tone-red-bg p-2 text-sm text-tone-red">{o.courierError}</div>}
+                {!o.consignmentId && !o.courierError && (
+                  <p className="mt-2 text-xs text-muted-foreground">Booked automatically when the order reaches Ready To Ship.</p>
+                )}
+              </>
+            )}
+            <div className="mt-2 border-t pt-2">
+              <Row k="Delivery type" v={o.deliveryType === "pickup" ? "Store pickup" : o.deliveryType === "express" ? "Express" : "Regular"} />
+              <Row k="Warehouse" v={data.locationName} />
+              {o.shippingDate && <Row k="Shipped" v={dateTime(o.shippingDate)} />}
+            </div>
+          </Card>
+
+          <Card title="Order details">
+            <Row k="Source" v={<>{o.source}{o.externalName ? ` · ${o.externalName}` : ""}</>} />
+            <Row k="Created" v={dateTime(o.createdAt)} />
+            <Row k="Created by" v={o.createdByName} />
+            <Row k="Payment type" v={paymentType} />
+            <Row k="Calls" v={`${o.callCount}${o.lastCallOutcome ? ` · ${o.lastCallOutcome}` : ""}`} />
+            {o.customerNote && <div className="mt-2 rounded-md bg-tone-amber-bg p-2 text-sm text-tone-amber">Customer note: {o.customerNote}</div>}
+          </Card>
+
+          {history.length > 0 && (
+            <Card title={`Other orders · ${history.length}`}>
+              <div className="-my-1 divide-y">
+                {history.map((h) => (
+                  <Link key={h._id} to="/order" search={{ id: h._id }} className="flex items-center justify-between gap-2 py-2 text-sm hover:text-tone-blue">
+                    <span><span className="font-medium">{invoice(h.invoiceNo)}</span> <span className="text-xs text-muted-foreground">· {taka(h.total)}</span></span>
+                    <StatusPill status={h.status} />
+                  </Link>
+                ))}
+              </div>
+            </Card>
           )}
-        </Card>
+        </div>
       </div>
 
       <StatusDialog ids={[o._id]} options={next as OrderStatus[]} initial={initialStatus} open={statusOpen} onOpenChange={setStatusOpen} label={o.invoiceCode ?? invoice(o.invoiceNo)} from={status} confirmOnly={!!initialStatus} />
@@ -463,7 +559,7 @@ function CustomerRatio({ s }: { s: { orders: number; delivered: number; returned
   const rate = s.successRate
   const tone = rate === null ? "text-muted-foreground" : rate >= 80 ? "text-tone-green" : rate >= 50 ? "text-tone-amber" : "text-tone-red"
   return (
-    <div className="mt-3" data-testid="customer-ratio">
+    <div className="mt-2" data-testid="customer-ratio">
       <div className="grid grid-cols-4 gap-2 text-center text-xs">
         {boxes.map(([k, v, c]) => (
           <div key={k} className={`rounded-md py-1.5 ${c}`}><div className="text-base font-semibold tabular-nums">{v}</div>{k}</div>
