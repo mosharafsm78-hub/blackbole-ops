@@ -9,7 +9,7 @@ import { ORDER_SOURCES, PAYMENT_METHODS, TRANSITIONS, type OrderStatus } from "@
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
-  CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory } from "@/components/order-parts"
+  CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -247,6 +247,8 @@ function OrderPage() {
               </div>
             )}
           </Card>
+
+          {o.consignmentId && o.courier === "pathao" && <PathaoTracking orderId={o._id} consignmentId={o.consignmentId} />}
 
           <Card title="Timeline">
             <form

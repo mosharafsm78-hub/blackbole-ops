@@ -439,6 +439,13 @@ export default defineSchema({
     data: v.any(),
   }).index("by_phone", ["phone", "provider"]),
 
+  // Pathao parcel tracking (timeline + costs), cached per order
+  courierTracking: defineTable({
+    orderId: v.id("orders"),
+    at: v.number(),
+    data: v.any(),
+  }).index("by_order", ["orderId"]),
+
   // Cached Pathao city / zone / area lists
   pathaoPlaces: defineTable({
     kind: v.string(), // city | zone | area

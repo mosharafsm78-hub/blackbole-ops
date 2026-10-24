@@ -495,3 +495,130 @@ export function CourierHistory({ phone, compact }: { phone: string; compact?: bo
     </div>
   )
 }
+
+// ---------- Pathao parcel tracking (timeline + costs, same as the Pathao merchant panel) ----------
+type Track = {
+  consignmentId: string; status: string | null; paymentStatus: string | null
+  events: { stage: string | null; text: string; at: number | null }[]
+  costs: { label: string; amount: number }[]; info: { label: string; value: string }[]
+  trackingUrl: string | null; at: number
+}
+const PATHAO_STAGES = ["Accepted", "Picked", "In Transit", "Ready for Delivery", "Delivered"]
+const stageKey = (s: string | null) => {
+  const x = (s ?? "").toLowerCase().replace(/[_-]+/g, " ")
+  if (/return/.test(x)) return "Returned"
+  if (/deliver(ed|y)?\b/.test(x) && !/ready|for delivery|out/.test(x)) return "Delivered"
+  if (/ready|out for|assigned for delivery/.test(x)) return "Ready for Delivery"
+  if (/transit|dispatch|sorting/.test(x)) return "In Transit"
+  if (/pick/.test(x)) return "Picked"
+  if (/accept|request|pending|confirm/.test(x)) return "Accepted"
+  if (/hold/.test(x)) return "On Hold"
+  if (/cancel/.test(x)) return "Cancelled"
+  return s ? s.replace(/\b\w/g, (m) => m.toUpperCase()) : "Update"
+}
+const when = (t: number | null) => (t ? new Date(t).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) : "")
+
+export function PathaoTracking({ orderId, consignmentId }: { orderId: Id<"orders">; consignmentId: string }) {
+  const run = useAction(api.pathao.tracking)
+  const [data, setData] = useState<Track | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [all, setAll] = useState(false)
+  const load = async (fresh = false) => {
+    setBusy(true); setError(null)
+    try { const r = await run({ orderId, fresh }); if ("error" in r) setError(r.error); else setData(r) } catch (e) { setError(errMsg(e)) } finally { setBusy(false) }
+  }
+  useEffect(() => { void load() }, [orderId, consignmentId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // group events by stage (in the order they happened)
+  const groups: { stage: string; events: Track["events"] }[] = []
+  for (const e of data?.events ?? []) {
+    const k = stageKey(e.stage ?? e.text)
+    const last = groups[groups.length - 1]
+    if (last && last.stage === k) last.events.push(e)
+    else groups.push({ stage: k, events: [e] })
+  }
+  const reached = new Set(groups.map((g) => g.stage))
+  const lastStage = groups[groups.length - 1]?.stage
+  const pending = PATHAO_STAGES.filter((s) => !reached.has(s) && PATHAO_STAGES.indexOf(s) > PATHAO_STAGES.indexOf(lastStage ?? "Accepted") && !["Returned", "Cancelled"].includes(lastStage ?? ""))
+  const shown = all ? groups : groups.slice(-3)
+
+  return (
+    <section className="rounded-xl border bg-card shadow-xs" data-testid="pathao-tracking">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-1 pt-3.5">
+        <h2 className="text-sm font-semibold">Pathao tracking <span className="font-mono text-xs font-normal text-muted-foreground">#{consignmentId}</span></h2>
+        <div className="flex items-center gap-2">
+          {data?.status && <span className="rounded-full bg-tone-cyan-bg px-2 py-0.5 text-[11px] font-semibold text-tone-cyan">{data.status.replace(/[_-]+/g, " ")}</span>}
+          {data?.paymentStatus && <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold capitalize">{data.paymentStatus.replace(/[_-]+/g, " ")}</span>}
+          {data?.trackingUrl && <a href={data.trackingUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-tone-blue hover:underline">Public link</a>}
+          <button type="button" onClick={() => load(true)} disabled={busy} title="Check Pathao again" className="inline-flex size-7 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-50">
+            <svg viewBox="0 0 24 24" className={cn("size-3.5", busy && "animate-spin")} fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+          </button>
+        </div>
+      </div>
+      <div className="grid gap-5 px-4 pb-4 pt-2 md:grid-cols-5">
+        <div className="md:col-span-3">
+          {error ? <p className="text-sm text-muted-foreground">{error}</p> : !data ? <p className="text-sm text-muted-foreground">Loading Pathao timeline…</p> : groups.length === 0 ? <p className="text-sm text-muted-foreground">Pathao has no updates yet.</p> : (
+            <>
+              {groups.length > 3 && (
+                <button type="button" onClick={() => setAll(!all)} className="mb-2 text-xs font-medium text-tone-blue hover:underline">{all ? "Show latest only" : `Show all ${groups.length} steps`}</button>
+              )}
+              <ol className="relative space-y-3">
+                {shown.map((g, gi) => {
+                  const bad = g.stage === "Returned" || g.stage === "Cancelled" || g.stage === "On Hold"
+                  const isLast = gi === shown.length - 1 && pending.length === 0
+                  return (
+                    <li key={gi} className="relative pl-7">
+                      {!isLast && <span className={cn("absolute left-[9px] top-5 h-[calc(100%+4px)] w-0.5", bad ? "bg-tone-red/40" : "bg-tone-green/50")} />}
+                      <span className={cn("absolute left-0 top-0.5 flex size-5 items-center justify-center rounded-full text-[10px] font-bold text-white", bad ? "bg-tone-red" : "bg-tone-green")}>✓</span>
+                      <div className="text-sm font-semibold">{g.stage}</div>
+                      <ul className="mt-1 space-y-1.5">
+                        {g.events.map((e, i) => (
+                          <li key={i} className="text-sm">
+                            <div>{e.text}</div>
+                            <div className="text-[11px] text-muted-foreground">{when(e.at)}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  )
+                })}
+                {pending.map((s, i) => (
+                  <li key={s} className="relative pl-7">
+                    {i < pending.length - 1 && <span className="absolute left-[9px] top-5 h-[calc(100%+4px)] w-0.5 bg-muted" />}
+                    <span className="absolute left-0 top-0.5 size-5 rounded-full border-2 bg-card" />
+                    <div className="text-sm text-muted-foreground">{s}</div>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
+        <div className="space-y-3 md:col-span-2">
+          {data && data.costs.length > 0 && (
+            <div className="rounded-lg bg-muted/40 p-3 text-sm">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pathao charges</div>
+              {data.costs.map((c) => (
+                <div key={c.label} className={cn("flex justify-between py-0.5", c.label === "Total cost" && "mt-1 border-t pt-1.5 font-semibold")}>
+                  <span className={c.label === "Total cost" ? "" : "text-muted-foreground"}>{c.label}</span>
+                  <span className={cn("tabular-nums", c.amount < 0 && "text-tone-green")}>{c.amount < 0 ? `−${taka(-c.amount)}` : taka(c.amount)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {data && data.info.length > 0 && (
+            <div className="text-sm">
+              {data.info.map((r) => (
+                <div key={r.label} className={cn("py-1", r.value.length > 40 ? "" : "flex justify-between gap-3")}>
+                  <span className="text-muted-foreground">{r.label}</span>
+                  <span className={cn(r.value.length > 40 ? "mt-0.5 block text-xs" : "text-right font-medium")}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {data && <div className="text-[11px] text-muted-foreground">Checked {when(data.at)} · updates every 10 min when you open the order</div>}
+        </div>
+      </div>
+    </section>
+  )
+}

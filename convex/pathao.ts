@@ -470,3 +470,146 @@ export const customerHistory = action({
     return { error: "Pathao login failed" }
   },
 })
+
+// ---------- parcel tracking: the same timeline and costs the Pathao merchant panel shows ----------
+export type TrackEvent = { stage: string | null; text: string; at: number | null }
+export type Tracking = {
+  consignmentId: string
+  status: string | null
+  paymentStatus: string | null
+  events: TrackEvent[]
+  costs: { label: string; amount: number }[]
+  info: { label: string; value: string }[]
+  trackingUrl: string | null
+  at: number
+}
+
+const STAGE_WORDS = ["accepted", "picked", "in-transit", "in transit", "ready for delivery", "delivered", "returned", "return", "hold", "cancel", "paid"]
+const TEXT_KEYS = ["message", "description", "log", "text", "remarks", "note", "title", "event", "status_text", "activity"]
+const TIME_KEYS = ["created_at", "time", "date", "updated_at", "timestamp", "event_time", "createdAt"]
+const STAGE_KEYS = ["stage", "group", "status", "order_status", "type", "label", "name"]
+
+const toTime = (x: any): number | null => {
+  if (x == null || x === "") return null
+  if (typeof x === "number") return x < 1e12 ? x * 1000 : x
+  const t = Date.parse(String(x).includes("T") || /[+Z]/.test(String(x)) ? String(x) : `${String(x).replace(" ", "T")}+06:00`)
+  return Number.isFinite(t) ? t : null
+}
+const pick = (o: any, keys: string[]) => { for (const k of keys) if (o && o[k] != null && o[k] !== "") return o[k]; return undefined }
+
+/** Finds timeline entries in Pathao's answer whatever shape it has (flat list or grouped by stage). */
+function readEvents(json: any): TrackEvent[] {
+  const out: TrackEvent[] = []
+  const walk = (node: any, stage: string | null, depth: number) => {
+    if (depth > 6 || node == null) return
+    if (Array.isArray(node)) { for (const n of node) walk(n, stage, depth + 1); return }
+    if (typeof node !== "object") return
+    const text = pick(node, TEXT_KEYS)
+    const time = pick(node, TIME_KEYS)
+    const ownStage = pick(node, STAGE_KEYS)
+    const childArrays = Object.entries(node).filter(([, v]) => Array.isArray(v) && (v as any[]).some((x) => x && typeof x === "object"))
+    if (typeof text === "string" && time != null && childArrays.length === 0) {
+      out.push({ stage: typeof ownStage === "string" && ownStage !== text ? ownStage : stage, text: text.replace(/^\s*-\s*/, "").trim(), at: toTime(time) })
+      return
+    }
+    const nextStage = typeof ownStage === "string" && ownStage.length < 40 ? ownStage : stage
+    for (const [k, v] of Object.entries(node)) {
+      if (v && typeof v === "object") walk(v, STAGE_WORDS.some((w) => k.toLowerCase().includes(w)) ? k : nextStage, depth + 1)
+    }
+  }
+  walk(json?.data ?? json, null, 0)
+  const seen = new Set<string>()
+  return out.filter((e) => { const k = `${e.text}|${e.at}`; if (seen.has(k)) return false; seen.add(k); return true })
+    .sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+}
+
+function readDetails(json: any) {
+  const d = json?.data?.data ?? json?.data ?? json ?? {}
+  const n = (x: any) => (x == null || x === "" ? null : Number(x))
+  const costs: { label: string; amount: number }[] = []
+  const addCost = (label: string, keys: string[], negative = false) => {
+    const v = n(pick(d, keys) ?? pick(d.cost ?? d.charges ?? d.invoice ?? {}, keys))
+    if (v !== null && Number.isFinite(v)) costs.push({ label, amount: negative ? -Math.abs(v) : v })
+  }
+  addCost("Delivery fee", ["delivery_fee", "delivery_charge"])
+  addCost("COD fee", ["cod_fee", "cod_charge"])
+  addCost("Discount", ["discount", "merchant_discount"], true)
+  addCost("Promo discount", ["promo_discount"], true)
+  addCost("Additional charge", ["additional_charge"])
+  addCost("Compensation", ["compensation_cost"])
+  addCost("Total cost", ["total_fee", "total_cost", "total_charge"])
+  const info: { label: string; value: string }[] = []
+  const addInfo = (label: string, keys: string[]) => { const v = pick(d, keys); if (v != null && v !== "" && typeof v !== "object") info.push({ label, value: String(v) }) }
+  addInfo("Amount to collect", ["amount_to_collect", "collectable_amount", "cod_amount"])
+  addInfo("Collected", ["collected_amount"])
+  addInfo("Delivery type", ["delivery_type_name", "delivery_type"])
+  addInfo("Weight", ["item_weight", "weight"])
+  addInfo("Delivery agent", ["delivery_agent_name", "rider_name", "delivery_man_name"])
+  addInfo("Agent phone", ["delivery_agent_phone", "rider_phone", "delivery_man_phone"])
+  addInfo("Hub", ["hub_name", "current_hub"])
+  addInfo("Special instruction", ["special_instruction"])
+  addInfo("Failed reason", ["failed_reason", "return_reason", "hold_reason"])
+  const status = pick(d, ["order_status", "order_status_slug", "status"])
+  const pay = pick(d, ["payment_status", "invoice_status"])
+  const link = pick(d, ["tracking_link", "tracking_url", "public_tracking_url", "share_link"])
+  return { costs, info, status: status != null && typeof status !== "object" ? String(status) : null, paymentStatus: pay != null && typeof pay !== "object" ? String(pay) : null, trackingUrl: link ? String(link) : null }
+}
+
+export const cachedTracking = internalQuery({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => await ctx.db.query("courierTracking").withIndex("by_order", (q) => q.eq("orderId", orderId)).first(),
+})
+
+export const saveTracking = internalMutation({
+  args: { orderId: v.id("orders"), data: v.any() },
+  handler: async (ctx, { orderId, data }) => {
+    const old = await ctx.db.query("courierTracking").withIndex("by_order", (q) => q.eq("orderId", orderId)).first()
+    if (old) await ctx.db.patch(old._id, { data, at: Date.now() })
+    else await ctx.db.insert("courierTracking", { orderId, data, at: Date.now() })
+  },
+})
+
+async function merchantGet(ctx: any, url: string, partnerId?: Id<"deliveryPartners"> | null) {
+  const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, { partnerId: partnerId ?? undefined })
+  if (!creds || creds.env !== "production") throw new ConvexError("Connect Pathao (live) in Settings")
+  let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await http(ctx, url, { method: "GET", headers: { Authorization: `Bearer ${tk.accessToken}`, Accept: "application/json" } })
+    if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
+    return res
+  }
+  throw new ConvexError("Pathao login failed")
+}
+
+/** Pathao timeline + costs for a booked order. Cached 10 minutes unless `fresh`. */
+export const tracking = action({
+  args: { orderId: v.id("orders"), fresh: v.optional(v.boolean()) },
+  handler: async (ctx, { orderId, fresh }): Promise<Tracking | { error: string }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const g = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+    const cid = g?.order.consignmentId
+    if (!g || !cid) return { error: "Not booked with Pathao yet" }
+    const cached = await ctx.runQuery(internal.pathao.cachedTracking, { orderId })
+    if (cached && !fresh && Date.now() - cached.at < 10 * 60000 && cached.data?.consignmentId === cid) return { ...(cached.data as Tracking), at: cached.at }
+
+    const base = `https://merchant.pathao.com/api/v1/orders/${encodeURIComponent(cid)}`
+    const phone = g.order.phone
+    const [det, act] = await Promise.all([
+      merchantGet(ctx, `${base}?archive=0`, g.partnerId),
+      merchantGet(ctx, `${base}/${encodeURIComponent(phone)}/activity?archive=0`, g.partnerId),
+    ])
+    console.log("pathao tracking shapes", det.status, JSON.stringify(det.json).slice(0, 1500), "|||", act.status, JSON.stringify(act.json).slice(0, 2500))
+    if (!det.ok && !act.ok) return { error: `Pathao didn't answer (${act.status})` }
+    const dd = readDetails(det.json)
+    const data: Tracking = {
+      consignmentId: cid,
+      status: dd.status, paymentStatus: dd.paymentStatus,
+      events: act.ok ? readEvents(act.json) : [],
+      costs: dd.costs, info: dd.info,
+      trackingUrl: dd.trackingUrl,
+      at: Date.now(),
+    }
+    await ctx.runMutation(internal.pathao.saveTracking, { orderId, data })
+    return data
+  },
+})
