@@ -551,7 +551,7 @@ function readDetails(json: any) {
   addCost("Total cost", ["total_fee", "total_cost", "total_charge"])
   const info: { label: string; value: string }[] = []
   const addInfo = (label: string, keys: string[], fmt?: (v: any) => string) => { const v = pick(d, keys); if (v != null && v !== "" && v !== "-" && typeof v !== "object") info.push({ label, value: fmt ? fmt(v) : String(v) }) }
-  addInfo("Amount to collect", ["amount_to_collect", "collectable_amount", "cash_on_delivery", "cod_amount"], (v) => `৳${Number(v).toLocaleString("en-IN")}`)
+  addInfo("Amount to collect", ["amount_to_collect", "collectable_amount", "order_amount", "cod_amount"], (v) => (Number.isFinite(Number(v)) ? `৳${Number(v).toLocaleString("en-IN")}` : String(v)))
   addInfo("Collected", ["collected_amount"])
   addInfo("Delivery type", ["delivery_type_name", "delivery_type"], (v) => (String(v) === "48" ? "Normal (48 hours)" : String(v) === "12" ? "On demand (12 hours)" : String(v)))
   addInfo("Weight", ["item_weight", "total_weight", "weight"], (v) => `${v} kg`)
