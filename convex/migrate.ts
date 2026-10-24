@@ -346,20 +346,23 @@ async function nuportSync(ctx: any, rows: NuRow[], dryRun = false) {
   const seen = new Set<string>()
   for (const r of rows) {
     const phone = normPhone(r.phone)
-    const plain = /^BB-(\d+)$/.exec(r.inv)
+    // "BB-11657-FPR" style rows are Nuport's flagged copies of order BB-11657
+    const m = /^BB-(\d+)(-\w+)?$/.exec(r.inv)
+    const suffix = !!m?.[2]
     const cid = r.cid && /^DB/.test(r.cid) ? r.cid : null // only delivery parcels (RB/RE are returns, EB exchanges)
-    let o = plain ? (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify).replace(/\D/g, ""))) || undefined : undefined
-    if (!o) {
+    const byLabel = () => {
       // Invoice numbers drifted between Nuport and this app for newer orders, so an invoice match must be confirmed
       const c = byNo.get(r.inv)
       const shopOk = r.shopify && c?.ext ? c.ext.replace(/\D/g, "") === String(r.shopify).replace(/\D/g, "") : null
       const phoneOk = phone && c ? c.phone === phone : null
-      if (c && shopOk !== false && phoneOk !== false && (shopOk || phoneOk)) o = c
+      return c && shopOk !== false && phoneOk !== false && (shopOk || phoneOk) ? c : undefined
     }
+    const byRef = () => (m && ((cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify).replace(/\D/g, ""))))) || undefined
+    const o = suffix ? byLabel() ?? byRef() : byRef() ?? byLabel()
     if (!o) { unmatched.push(r.inv); continue }
     if (seen.has(o.id)) continue
     seen.add(o.id)
-    if (plain && !o.code && o.no !== Number(plain[1])) renames.push({ id: o.id, from: o.no, to: Number(plain[1]) })
+    if (m && !o.code && o.no !== Number(m[1])) renames.push({ id: o.id, from: o.no, to: Number(m[1]) })
     if (r.status === "keep") { same++; continue }
     if (GROUP[r.status]) {
       if (GROUP[r.status].includes(o.status)) same++
@@ -381,7 +384,7 @@ async function nuportSync(ctx: any, rows: NuRow[], dryRun = false) {
   const finalNo = (o: (typeof ours)[number]) => renamed.get(o.id) ?? o.no
   const taken = new Map<number, string[]>()
   for (const o of ours) if (!o.code) { const n = finalNo(o); taken.set(n, [...(taken.get(n) ?? []), o.id]) }
-  let top = Math.max(0, ...ours.map((o) => o.no), ...renames.map((x) => x.to), ...rows.map((r) => Number(/^BB-(\d+)$/.exec(r.inv)?.[1] ?? 0)))
+  let top = Math.max(0, ...ours.map((o) => o.no), ...renames.map((x) => x.to), ...rows.map((r) => Number(/^BB-(\d+)/.exec(r.inv)?.[1] ?? 0)))
   const moved: { id: string; from: number; to: number }[] = []
   for (const [n, ids] of taken) {
     if (ids.length < 2) continue
