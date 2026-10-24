@@ -284,9 +284,52 @@ export const handler = httpAction(async (ctx, req) => {
         const res = await ctx.runMutation(internal.migrate.writeCounters, { counts, maxInvoice })
         return json({ counts, maxInvoice, ...res })
       }
+      case "nuportSync": return json(await nuportSync(ctx, body.rows ?? []))
       default: return json({ error: "unknown kind" }, 400)
     }
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
   }
 })
+
+type NuRow = { inv: string; shopify?: string | null; phone?: string | null; cid?: string | null; status: string; nuport: string }
+const normPhone = (p?: string | null) => { const d = String(p ?? "").replace(/\D/g, ""); return d.startsWith("880") ? `0${d.slice(3)}` : d.startsWith("88") && d.length === 13 ? d.slice(2) : d }
+
+/** Takes Nuport's current status for a list of orders and makes ours the same (matched by consignment, Shopify number, or invoice + phone). */
+async function nuportSync(ctx: any, rows: NuRow[]) {
+  const from = Date.now() - 150 * 86400000
+  const ours: { id: string; no: number; code: string | null; ext: string | null; phone: string; status: string; cid: string | null }[] = []
+  let cursor: string | null = null
+  for (let i = 0; i < 50; i++) {
+    const r: any = await ctx.runQuery(internal.orders.nuportIndexPage, { from, cursor })
+    ours.push(...r.rows)
+    if (r.isDone) break
+    cursor = r.cursor
+  }
+  const byCid = new Map(ours.filter((o) => o.cid).map((o) => [o.cid!, o]))
+  const byExt = new Map(ours.filter((o) => o.ext).map((o) => [o.ext!.replace(/^#/, ""), o]))
+  const byNo = new Map(ours.map((o) => [o.code ?? `BB-${o.no}`, o]))
+  const apply: { id: string; to: string; cid?: string; nuport: string }[] = []
+  const unmatched: string[] = []
+  let same = 0
+  const seen = new Set<string>()
+  for (const r of rows) {
+    const phone = normPhone(r.phone)
+    let o = (r.cid && byCid.get(r.cid)) || (r.shopify && byExt.get(String(r.shopify))) || undefined
+    if (!o) { const c = byNo.get(r.inv); if (c && (!phone || c.phone === phone)) o = c }
+    if (!o) { unmatched.push(r.inv); continue }
+    if (seen.has(o.id)) continue
+    seen.add(o.id)
+    if (o.status === r.status && (!r.cid || o.cid)) { same++; continue }
+    apply.push({ id: o.id, to: r.status, cid: r.cid ?? undefined, nuport: r.nuport })
+  }
+  let changed = 0, linked = 0
+  const errors: string[] = []
+  for (let i = 0; i < apply.length; i += 40) {
+    const res: any = await ctx.runMutation(internal.orders.nuportApply, { rows: apply.slice(i, i + 40) })
+    changed += res.changed; linked += res.linked; errors.push(...res.errors)
+  }
+  const OPEN = ["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit"]
+  const notSeen = ours.filter((o) => OPEN.includes(o.status) && !seen.has(o.id)).map((o) => ({ inv: o.code ?? `BB-${o.no}`, ext: o.ext, status: o.status }))
+  return { received: rows.length, alreadySame: same, changed, linked, unmatched, errors, notSeen }
+}

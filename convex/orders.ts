@@ -465,10 +465,10 @@ export const get = query({
 })
 
 // ---------- status changes ----------
-async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string) {
+async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean } = {}) {
   const from = order.status as OrderStatus
   if (from === to) return
-  if (!canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
+  if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)
   const now = Date.now()
@@ -492,6 +492,7 @@ async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStat
   await bumpStatusCount(ctx, from, -1)
   await bumpStatusCount(ctx, to, 1)
   await logOrder(ctx, order._id, `Status changed ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}${reason ? ` — ${reason}` : ""}`, byName)
+  if (opts.quiet) return // sync from Nuport: no notifications, webhooks or courier booking (Nuport already did those)
   await notify(ctx, "Order Status Updated.", `Sales Order ${invoiceLabel(order)} was set to ${STATUS_LABEL[to]}.`, order._id)
   await emitOrderEvent(ctx, order._id, to)
 
@@ -1015,5 +1016,40 @@ export const setConsignment = mutation({
       ...(a.courierFee !== undefined ? { courierFee: a.courierFee, courierCost: a.courierFee } : {}), updatedAt: Date.now(),
     })
     await logOrder(ctx, a.id, `Courier ID set to ${a.consignmentId}${a.courierStatus ? ` (${a.courierStatus})` : ""}`, me.staff.name)
+  },
+})
+
+// ---------- Nuport → this app status sync (while the team still works in Nuport) ----------
+export const nuportIndexPage = internalQuery({
+  args: { from: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, cursor }) => {
+    const res = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from)).paginate({ cursor, numItems: 1000 })
+    return {
+      isDone: res.isDone, cursor: res.continueCursor,
+      rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ id: o._id, no: o.invoiceNo, code: o.invoiceCode ?? null, ext: o.externalName ?? null, phone: o.phone, status: o.status, cid: o.consignmentId ?? null })),
+    }
+  },
+})
+
+export const nuportApply = internalMutation({
+  args: { rows: v.array(v.object({ id: v.id("orders"), to: orderStatus, cid: v.optional(v.string()), nuport: v.string() })) },
+  handler: async (ctx, { rows }) => {
+    let changed = 0, linked = 0
+    const errors: string[] = []
+    for (const r of rows) {
+      const o = await ctx.db.get(r.id)
+      if (!o || o.deletedAt) continue
+      if (r.cid && !o.consignmentId) {
+        const other = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", r.cid)).first()
+        if (!other) { await ctx.db.patch(o._id, { consignmentId: r.cid, courier: "pathao", courierLinkedBy: "nuport" }); linked++ }
+      }
+      if (o.status !== r.to) {
+        try {
+          await applyStatus(ctx, (await ctx.db.get(o._id))!, r.to, "Nuport sync", `Same as Nuport (${r.nuport})`, { force: true, quiet: true })
+          changed++
+        } catch (e) { errors.push(`${invoiceLabel(o)}: ${e instanceof Error ? e.message : String(e)}`) }
+      }
+    }
+    return { changed, linked, errors }
   },
 })
