@@ -3,7 +3,8 @@ import { paginationOptsValidator } from "convex/server"
 import { action, httpAction, internalMutation, internalQuery, mutation } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
-import { getSetting, requirePerm, setCounter, setSetting } from "./lib"
+import { getSetting, moveOrderStock, nextCounter, requirePerm, setCounter, setSetting } from "./lib"
+import { bumpStatusCount } from "./orders"
 import { STATUS_TABS } from "./rules"
 
 const cors = {
@@ -174,16 +175,67 @@ export const customers = internalMutation({
 })
 
 // ---------- orders ----------
+type ImportCtx = { locs: Doc<"locations">[]; partners: Doc<"deliveryPartners">[]; variant: (sku: string) => Promise<Doc<"variants"> | null> }
+export async function importCtx(ctx: any): Promise<ImportCtx> {
+  const locs = await ctx.db.query("locations").collect()
+  const partners = await ctx.db.query("deliveryPartners").collect()
+  const cache = new Map<string, Doc<"variants"> | null>()
+  const variant = async (sku: string) => {
+    if (!cache.has(sku)) cache.set(sku, await ctx.db.query("variants").withIndex("by_sku", (q: any) => q.eq("sku", sku)).first())
+    return cache.get(sku)!
+  }
+  return { locs, partners, variant }
+}
+
+/** Builds the item list of a Nuport order (prices, SKUs, weights) and its purchase cost. */
+export async function importItems(ic: ImportCtx, rows: any[]) {
+  const items: Doc<"orders">["items"] = []
+  let purchaseCost = 0
+  for (const i of rows) {
+    const vr = await ic.variant(i.sku)
+    if (vr) purchaseCost += vr.purchasePrice * i.qty
+    items.push({ variantId: vr?._id, sku: i.sku, name: i.name, attrs: i.attrs || undefined, imageUrl: vr?.imageUrl, price: i.price, qty: i.qty, discount: i.discount, weightKg: i.weightKg ?? vr?.weightKg ?? 0.5 })
+  }
+  return { items, purchaseCost }
+}
+
+/** Inserts one order exactly as Nuport has it (customer must already exist). */
+export async function insertNuportOrder(ctx: any, ic: ImportCtx, o: any, customerId: Id<"customers">, note = "imported from Nuport"): Promise<Id<"orders">> {
+  const loc = ic.locs.find((l) => l.name.toLowerCase() === String(o.location).toLowerCase()) ?? ic.locs.find((l) => l.isDefault) ?? ic.locs[0]
+  const partner = ic.partners.find((p) => p.name.toLowerCase() === String(o.partner ?? "").toLowerCase())
+  const { items, purchaseCost } = await importItems(ic, o.items)
+  const delivered = o.status === "delivered_paid" || o.status === "delivered_due"
+  const shipped = !!o.consignmentId
+  const id = await ctx.db.insert("orders", {
+    invoiceNo: o.invoiceNo, invoiceCode: o.invoiceCode || undefined, status: o.status, source: o.source,
+    externalId: undefined, externalName: o.websiteOrderId ? `#${o.websiteOrderId}` : undefined,
+    customerId, customerName: o.customerName, phone: o.phone, address: o.address, cityName: o.city || undefined,
+    areaName: o.area || undefined, locationId: loc._id, deliveryType: o.deliveryType || "regular", items,
+    subtotal: o.subtotal, discount: o.discount, deliveryFee: o.deliveryFee, paidAmount: o.paid, total: o.total, due: o.due,
+    paymentMethod: o.paymentMethod, courier: partner?.provider === "pathao" ? "pathao" : partner ? "manual" : "pickup",
+    deliveryPartnerId: partner?._id, deliveryPartnerName: partner?.name ?? o.partner, consignmentId: o.consignmentId || undefined,
+    courierStatus: o.partnerStatus || undefined, courierFee: shipped ? o.deliveryFee : undefined, customerNote: undefined,
+    additionalInfo: o.additionalNote || undefined, callCount: 0, printedAt: undefined,
+    shippingDate: o.shippingDate || undefined, createdByName: o.entryBy || "Import", createdAt: o.createdAt,
+    updatedAt: o.deliveredAt || o.shippedAt || o.createdAt, statusChangedAt: o.deliveredAt || o.shippedAt || o.shippingDate || o.createdAt,
+    reason: o.reason || undefined, shippedAt: o.shippedAt || undefined, deliveredAt: delivered ? (o.deliveredAt || o.shippedAt || o.createdAt) : undefined,
+    approvedAt: ["pending", "on_hold", "cancelled"].includes(o.status) ? undefined : (o.shippingDate || o.createdAt),
+    isExchange: o.isExchange || undefined, ipAddress: o.ip || undefined, origin: o.origin || undefined, campaignId: o.campaignId || undefined,
+    noteCount: o.notes ? 1 : 0, itemCount: items.reduce((s, i) => s + i.qty, 0), hasUpsell: o.source === "Up Sell" || undefined,
+    returnedQty: o.returnedQty || undefined, purchaseCost,
+    codCost: delivered ? Math.round(o.collected * 1) / 100 : undefined, courierCost: shipped ? o.deliveryFee : undefined,
+    imported: true,
+  })
+  await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Order created by ${o.entryBy || "Import"} from ${o.source} (${note})`, byName: o.entryBy || "Import", at: o.createdAt })
+  if (o.notes) await ctx.db.insert("orderEvents", { orderId: id, type: "note", text: o.notes, byName: o.entryBy || "Import", at: o.createdAt })
+  if (o.paid > 0) await ctx.db.insert("payments", { orderId: id, method: o.paymentMethod, amount: o.paid, reference: o.consignmentId || undefined, byName: "Import", at: o.deliveredAt || o.createdAt })
+  return id
+}
+
 export const orders = internalMutation({
   args: { rows: v.array(v.any()) },
   handler: async (ctx, { rows }) => {
-    const locs = await ctx.db.query("locations").collect()
-    const partners = await ctx.db.query("deliveryPartners").collect()
-    const variantCache = new Map<string, Doc<"variants"> | null>()
-    const variant = async (sku: string) => {
-      if (!variantCache.has(sku)) variantCache.set(sku, await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first())
-      return variantCache.get(sku)!
-    }
+    const ic = await importCtx(ctx)
     let created = 0, skipped = 0
     for (const o of rows) {
       const dupe = o.invoiceCode
@@ -192,40 +244,7 @@ export const orders = internalMutation({
       if (dupe) { skipped++; continue }
       const customer = await ctx.db.query("customers").withIndex("by_phone", (q) => q.eq("phone", o.phone)).unique()
       if (!customer) { skipped++; continue }
-      const loc = locs.find((l) => l.name.toLowerCase() === String(o.location).toLowerCase()) ?? locs.find((l) => l.isDefault) ?? locs[0]
-      const partner = partners.find((p) => p.name.toLowerCase() === String(o.partner ?? "").toLowerCase())
-      const items: Doc<"orders">["items"] = []
-      let purchaseCost = 0
-      for (const i of o.items) {
-        const vr = await variant(i.sku)
-        if (vr) purchaseCost += vr.purchasePrice * i.qty
-        items.push({ variantId: vr?._id, sku: i.sku, name: i.name, attrs: i.attrs || undefined, imageUrl: vr?.imageUrl, price: i.price, qty: i.qty, discount: i.discount, weightKg: i.weightKg ?? vr?.weightKg ?? 0.5 })
-      }
-      const delivered = o.status === "delivered_paid" || o.status === "delivered_due"
-      const shipped = !!o.consignmentId
-      const id = await ctx.db.insert("orders", {
-        invoiceNo: o.invoiceNo, invoiceCode: o.invoiceCode || undefined, status: o.status, source: o.source,
-        externalId: undefined, externalName: o.websiteOrderId ? `#${o.websiteOrderId}` : undefined,
-        customerId: customer._id, customerName: o.customerName, phone: o.phone, address: o.address, cityName: o.city || undefined,
-        areaName: o.area || undefined, locationId: loc._id, deliveryType: o.deliveryType || "regular", items,
-        subtotal: o.subtotal, discount: o.discount, deliveryFee: o.deliveryFee, paidAmount: o.paid, total: o.total, due: o.due,
-        paymentMethod: o.paymentMethod, courier: partner?.provider === "pathao" ? "pathao" : partner ? "manual" : "pickup",
-        deliveryPartnerId: partner?._id, deliveryPartnerName: partner?.name ?? o.partner, consignmentId: o.consignmentId || undefined,
-        courierStatus: o.partnerStatus || undefined, courierFee: shipped ? o.deliveryFee : undefined, customerNote: undefined,
-        additionalInfo: o.additionalNote || undefined, callCount: 0, printedAt: undefined,
-        shippingDate: o.shippingDate || undefined, createdByName: o.entryBy || "Import", createdAt: o.createdAt,
-        updatedAt: o.deliveredAt || o.shippedAt || o.createdAt, statusChangedAt: o.deliveredAt || o.shippedAt || o.shippingDate || o.createdAt,
-        reason: o.reason || undefined, shippedAt: o.shippedAt || undefined, deliveredAt: delivered ? (o.deliveredAt || o.shippedAt || o.createdAt) : undefined,
-        approvedAt: ["pending", "on_hold", "cancelled"].includes(o.status) ? undefined : (o.shippingDate || o.createdAt),
-        isExchange: o.isExchange || undefined, ipAddress: o.ip || undefined, origin: o.origin || undefined, campaignId: o.campaignId || undefined,
-        noteCount: o.notes ? 1 : 0, itemCount: items.reduce((s, i) => s + i.qty, 0), hasUpsell: o.source === "Up Sell" || undefined,
-        returnedQty: o.returnedQty || undefined, purchaseCost,
-        codCost: delivered ? Math.round(o.collected * 1) / 100 : undefined, courierCost: shipped ? o.deliveryFee : undefined,
-        imported: true,
-      })
-      await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Order created by ${o.entryBy || "Import"} from ${o.source} (imported from Nuport)`, byName: o.entryBy || "Import", at: o.createdAt })
-      if (o.notes) await ctx.db.insert("orderEvents", { orderId: id, type: "note", text: o.notes, byName: o.entryBy || "Import", at: o.createdAt })
-      if (o.paid > 0) await ctx.db.insert("payments", { orderId: id, method: o.paymentMethod, amount: o.paid, reference: o.consignmentId || undefined, byName: "Import", at: o.deliveredAt || o.createdAt })
+      await insertNuportOrder(ctx, ic, o, customer._id)
       created++
     }
     return { created, skipped }
@@ -295,7 +314,17 @@ export const handler = httpAction(async (ctx, req) => {
 type NuRow = { inv: string; shopify?: string | null; phone?: string | null; cid?: string | null; status: string; nuport: string }
 const normPhone = (p?: string | null) => { const d = String(p ?? "").replace(/\D/g, ""); return d.startsWith("880") ? `0${d.slice(3)}` : d.startsWith("88") && d.length === 13 ? d.slice(2) : d }
 
-/** Takes Nuport's current status for a list of orders and makes ours the same (matched by consignment, Shopify number, or invoice + phone). */
+const GROUP: Record<string, string[]> = {
+  delivered: ["delivered_due", "delivered_paid"],
+  flagged: ["pending_returned", "returned", "damaged"],
+}
+
+/**
+ * Takes Nuport's current status for a list of orders and makes ours the same (matched by consignment, Shopify number,
+ * or invoice + phone). Also gives our orders the same invoice numbers as Nuport (numbers drift because Nuport also numbers
+ * abandoned checkouts and manual orders). Status "keep" = only match and renumber; "delivered"/"flagged" = report if ours
+ * is not in that group.
+ */
 async function nuportSync(ctx: any, rows: NuRow[]) {
   const from = Date.now() - 150 * 86400000
   const ours: { id: string; no: number; code: string | null; ext: string | null; phone: string; status: string; cid: string | null }[] = []
@@ -307,16 +336,19 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
     cursor = r.cursor
   }
   const byCid = new Map(ours.filter((o) => o.cid).map((o) => [o.cid!, o]))
-  const byExt = new Map(ours.filter((o) => o.ext).map((o) => [o.ext!.replace(/\D/g, ""), o]))
+  const byExt = new Map(ours.filter((o) => o.ext && !o.code).map((o) => [o.ext!.replace(/\D/g, ""), o]))
   const byNo = new Map(ours.map((o) => [o.code ?? `BB-${o.no}`, o]))
   const apply: { id: string; to: string; cid?: string; nuport: string }[] = []
+  const renames: { id: string; from: number; to: number }[] = []
+  const groupMismatch: string[] = []
   const unmatched: string[] = []
   let same = 0
   const seen = new Set<string>()
   for (const r of rows) {
     const phone = normPhone(r.phone)
+    const plain = /^BB-(\d+)$/.exec(r.inv)
     const cid = r.cid && /^DB/.test(r.cid) ? r.cid : null // only delivery parcels (RB/RE are returns, EB exchanges)
-    let o = (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify).replace(/\D/g, ""))) || undefined
+    let o = plain ? (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify).replace(/\D/g, ""))) || undefined : undefined
     if (!o) {
       // Invoice numbers drifted between Nuport and this app for newer orders, so an invoice match must be confirmed
       const c = byNo.get(r.inv)
@@ -327,6 +359,13 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
     if (!o) { unmatched.push(r.inv); continue }
     if (seen.has(o.id)) continue
     seen.add(o.id)
+    if (plain && !o.code && o.no !== Number(plain[1])) renames.push({ id: o.id, from: o.no, to: Number(plain[1]) })
+    if (r.status === "keep") { same++; continue }
+    if (GROUP[r.status]) {
+      if (GROUP[r.status].includes(o.status)) same++
+      else groupMismatch.push(`${r.inv}: Nuport ${r.nuport}, here ${o.status}`)
+      continue
+    }
     if (o.status === r.status && (!cid || o.cid)) { same++; continue }
     apply.push({ id: o.id, to: r.status, cid: cid ?? undefined, nuport: r.nuport })
   }
@@ -336,9 +375,31 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
     const res: any = await ctx.runMutation(internal.orders.nuportApply, { rows: apply.slice(i, i + 40) })
     changed += res.changed; linked += res.linked; errors.push(...res.errors)
   }
+  // Same invoice numbers as Nuport. Any order of ours that would end up sharing a number (one Nuport doesn't have)
+  // moves to a fresh number above everything.
+  const renamed = new Map(renames.map((x) => [x.id, x.to]))
+  const finalNo = (o: (typeof ours)[number]) => renamed.get(o.id) ?? o.no
+  const taken = new Map<number, string[]>()
+  for (const o of ours) if (!o.code) { const n = finalNo(o); taken.set(n, [...(taken.get(n) ?? []), o.id]) }
+  let top = Math.max(0, ...ours.map((o) => o.no), ...renames.map((x) => x.to), ...rows.map((r) => Number(/^BB-(\d+)$/.exec(r.inv)?.[1] ?? 0)))
+  const moved: { id: string; from: number; to: number }[] = []
+  for (const [n, ids] of taken) {
+    if (ids.length < 2) continue
+    for (const id of ids) {
+      if (renamed.has(id) || seen.has(id)) continue // matched to Nuport: keeps Nuport's number
+      const o = ours.find((x) => x.id === id)!
+      moved.push({ id, from: o.no, to: ++top })
+    }
+  }
+  const allRenames = [...renames, ...moved]
+  for (let i = 0; i < allRenames.length; i += 50) await ctx.runMutation(internal.orders.nuportRenumber, { rows: allRenames.slice(i, i + 50), top })
+  if (!allRenames.length) await ctx.runMutation(internal.orders.nuportRenumber, { rows: [], top })
   const OPEN = ["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit"]
-  const notSeen = ours.filter((o) => OPEN.includes(o.status) && !seen.has(o.id)).map((o) => ({ inv: o.code ?? `BB-${o.no}`, ext: o.ext, status: o.status }))
-  return { received: rows.length, alreadySame: same, changed, linked, unmatched, errors, notSeen }
+  const notSeen = ours.filter((o) => OPEN.includes(o.status) && !seen.has(o.id)).map((o) => ({ inv: o.code ?? `BB-${finalNo(o)}`, ext: o.ext, status: o.status }))
+  return {
+    received: rows.length, alreadySame: same, changed, linked, unmatched, errors, notSeen, groupMismatch,
+    renumbered: renames.length, movedAside: moved.map((m) => `BB-${m.from} → BB-${m.to}`),
+  }
 }
 
 /** Same Nuport status sync, run from the Data import page by an admin (no import key needed). */
@@ -346,7 +407,45 @@ export const nuportSyncNow = action({
   args: { rows: v.array(v.object({ inv: v.string(), shopify: v.optional(v.union(v.string(), v.null())), phone: v.optional(v.union(v.string(), v.null())), cid: v.optional(v.union(v.string(), v.null())), status: v.string(), nuport: v.string() })) },
   handler: async (ctx, { rows }): Promise<any> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "team.manage" })
-    const allowed = new Set(["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
+    const allowed = new Set(["keep", "delivered", "flagged", "pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
     return await nuportSync(ctx, rows.filter((r) => allowed.has(r.status)) as NuRow[])
+  },
+})
+
+/** Adds orders that exist only in Nuport (manual orders, abandoned-checkout orders) with Nuport's own invoice number. */
+export const nuportCreateOrders = mutation({
+  args: { rows: v.array(v.any()) },
+  handler: async (ctx, { rows }) => {
+    const me = await requirePerm(ctx, "team.manage")
+    const ic = await importCtx(ctx)
+    const created: string[] = []
+    const skipped: string[] = []
+    for (const o of rows) {
+      const label = o.invoiceCode || `BB-${o.invoiceNo}`
+      const dupe = o.invoiceCode
+        ? await ctx.db.query("orders").withIndex("by_invoice_code", (q) => q.eq("invoiceCode", o.invoiceCode)).first()
+        : await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", o.invoiceNo)).filter((q) => q.eq(q.field("deletedAt"), undefined)).first()
+      if (dupe) { skipped.push(`${label} (number already used)`); continue }
+      let customer = await ctx.db.query("customers").withIndex("by_phone", (q) => q.eq("phone", o.phone)).unique()
+      if (!customer) {
+        const code = await nextCounter(ctx, "customer", 10001)
+        const cid = await ctx.db.insert("customers", {
+          code, name: o.customerName || "Customer", phone: o.phone, address: o.address || undefined, city: o.city || undefined,
+          tag: "NEW", source: o.source, orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0,
+          customerType: "E-Commerce Customer", smsCount: 0, createdAt: o.createdAt,
+        })
+        customer = (await ctx.db.get(cid))!
+      }
+      await ctx.db.patch(customer._id, { orderCount: customer.orderCount + 1, lastOrderAt: Math.max(customer.lastOrderAt ?? 0, o.createdAt) })
+      const id: Id<"orders"> = await insertNuportOrder(ctx, ic, o, customer._id, "copied from Nuport — it was made there")
+      const order = (await ctx.db.get(id))!
+      await moveOrderStock(ctx, order, "cancelled", o.status, me.staff.name) // take the pairs out of free stock like a normal order
+      await bumpStatusCount(ctx, o.status, 1)
+      created.push(label)
+    }
+    const top = Math.max(0, ...rows.map((o: any) => Number(o.invoiceNo) || 0))
+    const inv = await ctx.db.query("counters").withIndex("by_name", (q) => q.eq("name", "invoice")).unique()
+    if (inv && inv.value < top) await ctx.db.patch(inv._id, { value: top })
+    return { created, skipped }
   },
 })

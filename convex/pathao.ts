@@ -674,7 +674,9 @@ const orderNo = (mid: any): number | null => { const m = String(mid ?? "").trim(
 const parcelRow = v.object({
   cid: v.string(), mid: v.optional(v.string()), billing: v.optional(v.string()), invoiceId: v.optional(v.string()),
   billingAt: v.optional(v.number()), fee: v.optional(v.number()), amount: v.optional(v.number()), type: v.optional(v.string()),
+  phone: v.optional(v.string()),
 })
+const last10 = (p?: string | null) => String(p ?? "").replace(/\D/g, "").slice(-10)
 
 /** Links Pathao parcels to our orders (by consignment, then by our order number) and stores billing status. */
 export const applyParcels = internalMutation({
@@ -686,7 +688,9 @@ export const applyParcels = internalMutation({
       if (!o && r.type !== "Return") {
         const n = orderNo(r.mid)
         const cand = n ? await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", n)).first() : null
-        if (cand && !cand.consignmentId && !cand.deletedAt && !["pending", "on_hold", "cancelled"].includes(cand.status)) {
+        // the order number alone is not enough (numbers can differ between systems) — the customer's phone must match too
+        const phoneOk = !!r.phone && !!cand && last10(cand.phone) === last10(r.phone)
+        if (cand && phoneOk && !cand.consignmentId && !cand.deletedAt && !["pending", "on_hold", "cancelled"].includes(cand.status)) {
           await ctx.db.patch(cand._id, { consignmentId: r.cid, courier: "pathao", courierLinkedBy: "order no", courierError: undefined, updatedAt: Date.now() })
           await ctx.db.insert("orderEvents", { orderId: cand._id, type: "log", text: `Linked to Pathao parcel ${r.cid} (same order number on Pathao)`, byName: "Pathao sync", at: Date.now() })
           o = (await ctx.db.get(cand._id))!
@@ -773,6 +777,7 @@ export const syncMoney = internalAction({
         billing: p.billing_status ? String(p.billing_status) : undefined, invoiceId: p.order_invoice_id ? String(p.order_invoice_id) : undefined,
         billingAt: utc(p.billing_date), fee: Number.isFinite(Number(p.total_fee)) ? Number(p.total_fee) : undefined,
         amount: Number.isFinite(Number(p.order_amount)) ? Number(p.order_amount) : undefined, type: p.order_type ? String(p.order_type) : undefined,
+        phone: (p.recipient_phone ?? p.receiver_phone ?? p.customer_phone) ? String(p.recipient_phone ?? p.receiver_phone ?? p.customer_phone) : undefined,
       })).filter((r) => r.cid && r.cid !== "undefined")
       const r = await ctx.runMutation(internal.pathao.applyParcels, { rows })
       parcels += rows.length; linked += r.linked; updated += r.updated

@@ -231,7 +231,9 @@ describe("Pathao money sync", () => {
     const { orderId, invoiceNo } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular" })
     await t.run((ctx) => ctx.db.patch(orderId, { status: "in_transit" }))
     // a pending order with the same number on Pathao must NOT be linked
-    const r1 = await t.mutation(internal.pathao.applyParcels, { rows: [{ cid: "DB241026TEST01", mid: `BB-${invoiceNo}`, billing: "Unpaid", fee: 110, type: "Delivery" }] })
+    const r0 = await t.mutation(internal.pathao.applyParcels, { rows: [{ cid: "DB241026TEST01", mid: `BB-${invoiceNo}`, billing: "Unpaid", fee: 110, type: "Delivery", phone: "01811999999" }] }) // phone differs: not linked
+    const r1 = await t.mutation(internal.pathao.applyParcels, { rows: [{ cid: "DB241026TEST01", mid: `BB-${invoiceNo}`, billing: "Unpaid", fee: 110, type: "Delivery", phone: "+8801711000000" }] })
+    expect(r0).toEqual({ linked: 0, updated: 0 })
     expect(r1).toEqual({ linked: 1, updated: 1 })
     let o = await t.run((ctx) => ctx.db.get(orderId))
     expect(o).toMatchObject({ consignmentId: "DB241026TEST01", courier: "pathao", courierLinkedBy: "order no", courierCost: 110 })
@@ -255,6 +257,30 @@ describe("Pathao money sync", () => {
 })
 
 describe("Nuport status sync", () => {
+  it("gives our orders Nuport's invoice numbers and moves our-only orders out of the way", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const a = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const b = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const d = await as.mutation(api.orders.create, baseOrder(locationId, v41._id)) // only in our app
+    await t.run(async (ctx) => {
+      await ctx.db.patch(a.orderId, { externalName: "#40001" })
+      await ctx.db.patch(b.orderId, { externalName: "#40002" })
+    })
+    const X = a.invoiceNo
+    const res = await as.action(api.migrate.nuportSyncNow, { rows: [
+      { inv: `BB-${X + 2}`, shopify: "40001", phone: null, cid: null, status: "keep", nuport: "Delivered" },
+      { inv: `BB-${X + 3}`, shopify: "40002", phone: null, cid: null, status: "approved", nuport: "Approved" },
+    ] })
+    expect(res).toMatchObject({ renumbered: 2, changed: 1 })
+    const [oa, ob, od] = await t.run(async (ctx) => [await ctx.db.get(a.orderId), await ctx.db.get(b.orderId), await ctx.db.get(d.orderId)]) as any[]
+    expect(oa.invoiceNo).toBe(X + 2)
+    expect(ob.invoiceNo).toBe(X + 3)
+    expect(ob.status).toBe("approved")
+    expect(od.invoiceNo).toBe(X + 4) // was X+2, which now belongs to Nuport's order
+    const next = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    expect(next.invoiceNo).toBe(X + 5)
+  })
+
   it("makes our status the same as Nuport's (by Shopify no or invoice+phone), quietly and without booking", async () => {
     const { t, as, locationId, v41 } = await setup()
     const a = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
@@ -274,11 +300,11 @@ describe("Nuport status sync", () => {
       { inv: `BB-${c.invoiceNo}`, shopify: null, phone: "01799999999", cid: "RB241026RRRR11", status: "returned", nuport: "Returned" },
     ] })
     expect(wrong).toMatchObject({ changed: 0, linked: 0 })
-    expect((await t.run((ctx) => ctx.db.get(c.orderId)))!.status).toBe("pending")
+    expect((await t.run((ctx) => ctx.db.get(c.orderId)) as any)!.status).toBe("pending")
     const oa = await t.run((ctx) => ctx.db.get(a.orderId))
     const ob = await t.run((ctx) => ctx.db.get(b.orderId))
     expect(oa).toMatchObject({ status: "in_transit", consignmentId: "DB241026AAAA11" })
-    expect(ob!.status).toBe("cancelled")
+    expect((ob as any)!.status).toBe("cancelled")
     // running again changes nothing
     const again = await as.action(api.migrate.nuportSyncNow, { rows: [{ inv: "BB-99999", shopify: "29999", phone: null, cid: "DB241026AAAA11", status: "in_transit", nuport: "In-Transit" }] })
     expect(again).toMatchObject({ changed: 0, alreadySame: 1 })

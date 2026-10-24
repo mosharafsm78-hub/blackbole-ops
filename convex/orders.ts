@@ -465,7 +465,7 @@ export const get = query({
 })
 
 // ---------- status changes ----------
-async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean } = {}) {
+export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean } = {}) {
   const from = order.status as OrderStatus
   if (from === to) return
   if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
@@ -1051,5 +1051,21 @@ export const nuportApply = internalMutation({
       }
     }
     return { changed, linked, errors }
+  },
+})
+
+/** Gives orders Nuport's invoice numbers (see migrate.nuportSync) and keeps the invoice counter above all of them. */
+export const nuportRenumber = internalMutation({
+  args: { rows: v.array(v.object({ id: v.id("orders"), from: v.number(), to: v.number() })), top: v.number() },
+  handler: async (ctx, { rows, top }) => {
+    for (const r of rows) {
+      const o = await ctx.db.get(r.id)
+      if (!o || o.invoiceNo === r.to) continue
+      await ctx.db.patch(o._id, { invoiceNo: r.to })
+      await logOrder(ctx, o._id, `Invoice number changed BB-${o.invoiceNo} → BB-${r.to} (same number as in Nuport)`, "Nuport sync")
+    }
+    const inv = await ctx.db.query("counters").withIndex("by_name", (q) => q.eq("name", "invoice")).unique()
+    if (!inv) await ctx.db.insert("counters", { name: "invoice", value: top })
+    else if (inv.value < top) await ctx.db.patch(inv._id, { value: top })
   },
 })

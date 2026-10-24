@@ -111,6 +111,7 @@ function ImportPage() {
 /** Paste the order list read from Nuport; every matching order here gets Nuport's status. */
 function NuportSync() {
   const sync = useAction(api.migrate.nuportSyncNow)
+  const create = useMutation(api.migrate.nuportCreateOrders)
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<any>(null)
@@ -125,6 +126,7 @@ function NuportSync() {
         setBusy(true); setRes(null)
         try {
           const parsed = JSON.parse(text)
+          if (parsed.bbNuportCreate) { setRes(await create({ rows: parsed.bbNuportCreate })); return }
           const rows = (parsed.bbNuportRows ?? parsed).map((r: any) => ({ inv: String(r.inv), shopify: r.shopify ?? null, phone: r.phone ?? null, cid: r.cid ?? null, status: String(r.status), nuport: String(r.nuport ?? "") }))
           setRes(await sync({ rows }))
         } catch (e) { setRes({ error: e instanceof Error ? e.message : String(e) }) } finally { setBusy(false) }
@@ -133,10 +135,14 @@ function NuportSync() {
         <div className="space-y-2 text-sm" data-testid="nuport-sync-result">
           {res.error ? <p className="text-tone-red">{res.error}</p> : (
             <>
-              <p><b>{res.received}</b> orders read from Nuport · <b>{res.alreadySame}</b> already the same · <b className="text-tone-green">{res.changed}</b> status changed · <b>{res.linked}</b> Pathao parcels linked · <b className="text-tone-amber">{res.unmatched?.length ?? 0}</b> not found here · <b className="text-tone-red">{res.errors?.length ?? 0}</b> errors</p>
+              {res.received !== undefined && <p><b>{res.received}</b> orders read from Nuport · <b>{res.alreadySame}</b> already the same · <b className="text-tone-green">{res.changed}</b> status changed · <b>{res.linked}</b> Pathao parcels linked · <b className="text-tone-amber">{res.unmatched?.length ?? 0}</b> not found here · <b className="text-tone-red">{res.errors?.length ?? 0}</b> errors</p>}
               {res.notSeen?.length > 0 && <p className="text-muted-foreground">{res.notSeen.length} open orders here were not in the Nuport list: {res.notSeen.slice(0, 60).map((x: any) => `${x.inv} (${x.status})`).join(", ")}</p>}
               {res.unmatched?.length > 0 && <p className="text-muted-foreground">Not found here: {res.unmatched.slice(0, 60).join(", ")}</p>}
+              {res.renumbered > 0 && <p><b>{res.renumbered}</b> invoice numbers changed to Nuport's number</p>}
+              {res.movedAside?.length > 0 && <p className="text-muted-foreground">Orders only in this app moved to a free number: {res.movedAside.join(", ")}</p>}
+              {res.groupMismatch?.length > 0 && <p className="text-tone-amber">Different from Nuport: {res.groupMismatch.slice(0, 40).join(" · ")}</p>}
               {res.errors?.length > 0 && <p className="text-tone-red">{res.errors.slice(0, 20).join(" · ")}</p>}
+              {res.created && <p>Added from Nuport: <b className="text-tone-green">{res.created.join(", ") || "none"}</b>{res.skipped?.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</p>}
             </>
           )}
         </div>
