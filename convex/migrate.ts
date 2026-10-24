@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
-import { httpAction, internalMutation, internalQuery, mutation } from "./_generated/server"
+import { action, httpAction, internalMutation, internalQuery, mutation } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { getSetting, requirePerm, setCounter, setSetting } from "./lib"
@@ -333,3 +333,13 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
   const notSeen = ours.filter((o) => OPEN.includes(o.status) && !seen.has(o.id)).map((o) => ({ inv: o.code ?? `BB-${o.no}`, ext: o.ext, status: o.status }))
   return { received: rows.length, alreadySame: same, changed, linked, unmatched, errors, notSeen }
 }
+
+/** Same Nuport status sync, run from the Data import page by an admin (no import key needed). */
+export const nuportSyncNow = action({
+  args: { rows: v.array(v.object({ inv: v.string(), shopify: v.optional(v.union(v.string(), v.null())), phone: v.optional(v.union(v.string(), v.null())), cid: v.optional(v.union(v.string(), v.null())), status: v.string(), nuport: v.string() })) },
+  handler: async (ctx, { rows }): Promise<any> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "team.manage" })
+    const allowed = new Set(["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
+    return await nuportSync(ctx, rows.filter((r) => allowed.has(r.status)) as NuRow[])
+  },
+})

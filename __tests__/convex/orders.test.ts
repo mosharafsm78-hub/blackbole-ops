@@ -253,3 +253,28 @@ describe("Pathao money sync", () => {
     expect(events.filter((e) => e.text.startsWith("Pathao paid us")).length).toBe(1)
   })
 })
+
+describe("Nuport status sync", () => {
+  it("makes our status the same as Nuport's (by Shopify no or invoice+phone), quietly and without booking", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const a = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const b = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await t.run((ctx) => ctx.db.patch(a.orderId, { externalName: "#29999" }))
+    const res = await as.action(api.migrate.nuportSyncNow, { rows: [
+      { inv: "BB-99999", shopify: "29999", phone: null, cid: "DB241026AAAA11", status: "in_transit", nuport: "In-Transit" },
+      { inv: `BB-${b.invoiceNo}`, shopify: null, phone: "+8801711000000", cid: null, status: "cancelled", nuport: "Cancelled" },
+      { inv: "BB-1", shopify: null, phone: "01700000000", cid: null, status: "approved", nuport: "Approved" },
+    ] })
+    expect(res).toMatchObject({ received: 3, changed: 2, linked: 1, unmatched: ["BB-1"] })
+    const oa = await t.run((ctx) => ctx.db.get(a.orderId))
+    const ob = await t.run((ctx) => ctx.db.get(b.orderId))
+    expect(oa).toMatchObject({ status: "in_transit", consignmentId: "DB241026AAAA11" })
+    expect(ob!.status).toBe("cancelled")
+    // running again changes nothing
+    const again = await as.action(api.migrate.nuportSyncNow, { rows: [{ inv: "BB-99999", shopify: "29999", phone: null, cid: "DB241026AAAA11", status: "in_transit", nuport: "In-Transit" }] })
+    expect(again).toMatchObject({ changed: 0, alreadySame: 1 })
+    const counts = await as.query(api.orders.counts, {})
+    expect(counts!.in_transit).toBe(1)
+    expect(counts!.cancelled).toBe(1)
+  })
+})

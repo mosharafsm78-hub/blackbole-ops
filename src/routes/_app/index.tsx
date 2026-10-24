@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowDownRight, ArrowUpRight, Minus, Wallet } from "lucide-react"
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
 import { Loading, StatusPill } from "@/components/bits"
-import { dateOnly, startOfDayBD, taka } from "@/lib/format"
+import { startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/")({
@@ -97,29 +97,31 @@ function Dashboard() {
           <div className="grid gap-4 lg:grid-cols-3">
             {/* trend */}
             <section className="rounded-xl border bg-card p-4 lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold">Orders by day — what happened to them</h2>
-                <span className="text-xs text-muted-foreground">{n.totalOrders} orders · {n.cancelled} cancelled</span>
+              <div className="mb-1 flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold">Orders per day</h2>
+                <span className="text-xs text-muted-foreground">{n.totalOrders} orders · {taka(n.totalSales)}</span>
               </div>
-              <div className="h-72">
+              <p className="mb-3 text-xs text-muted-foreground">How many orders came in each day (cancelled not counted). Hover a day to see its sales.</p>
+              <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  {n.daily.length > 1 ? (
-                    <BarChart data={n.daily.map((d: any) => ({ ...d, label: d.day.slice(5) }))} margin={{ left: -18, right: 6 }}>
-                      <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                      <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" interval="preserveStartEnd" />
-                      <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" />
-                      <Tooltip cursor={{ fill: "hsl(var(--muted))" }} contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 12 }} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
-                      <Bar dataKey="delivered" name="Delivered" stackId="a" fill="hsl(var(--tone-green))" />
-                      <Bar dataKey="open" name="Still open" stackId="a" fill="hsl(var(--tone-blue))" />
-                      <Bar dataKey="returned" name="Returned" stackId="a" fill="hsl(var(--tone-red))" />
-                      <Bar dataKey="cancelled" name="Cancelled" stackId="a" fill="hsl(var(--tone-gray))" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  ) : (
-                    <AreaChart data={[{ label: "start", sales: 0 }, { label: "today", sales: n.totalSales }]}>
-                      <Area dataKey="sales" stroke="hsl(var(--tone-blue))" fill="hsl(var(--tone-blue-bg))" />
-                    </AreaChart>
-                  )}
+                  <AreaChart data={n.daily.map((d: any) => ({ ...d, label: new Date(`${d.day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) }))} margin={{ left: -18, right: 8, top: 6 }}>
+                    <defs>
+                      <linearGradient id="ordersFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(var(--tone-blue))" stopOpacity={0.35} />
+                        <stop offset="100%" stopColor="hsl(var(--tone-blue))" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" interval="preserveStartEnd" minTickGap={24} />
+                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" />
+                    <Tooltip
+                      contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 12 }}
+                      formatter={(val: any, name: any) => (name === "orders" ? [`${val} orders`, "Orders"] : [taka(Number(val)), "Sales"])}
+                      labelFormatter={(l: any) => l}
+                    />
+                    <Area type="monotone" dataKey="orders" stroke="hsl(var(--tone-blue))" strokeWidth={2.5} fill="url(#ordersFill)" dot={n.daily.length <= 14 ? { r: 3, fill: "hsl(var(--tone-blue))" } : false} activeDot={{ r: 5 }} />
+                    <Area type="monotone" dataKey="sales" stroke="none" fill="none" />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             </section>
@@ -159,14 +161,6 @@ function Dashboard() {
               })()}
             </section>
           </div>
-
-          {/* money */}
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Money label="Pathao paid us" value={taka(m?.paidToUs ?? 0)} sub={`${m?.invoices ?? 0} invoices in these dates`} tone="green" />
-            <Money label="Waiting from Pathao" value={taka(Math.max(0, m?.waitingAmount ?? 0))} sub={`${m?.waitingCount ?? 0} delivered parcels not paid yet`} tone="amber" />
-            <Money label="Pathao fees" value={taka(m?.fees ?? 0)} sub={m?.collected ? `${pct(m.fees, m.collected)}% of ${taka(m.collected)} collected` : "delivery + COD fees"} tone="red" />
-            <Money label="Last payout" value={m?.lastInvoice ? taka(m.lastInvoice.amount) : "—"} sub={m?.lastInvoice ? `${dateOnly(m.lastInvoice.at)} · ${m.lastInvoice.status}` : "Sync in Pathao payments"} tone="blue" link />
-          </section>
 
           <MonthlySummary />
 
@@ -256,19 +250,6 @@ function Gauge({ label, value, sub, good }: { label: string; value: number | nul
   )
 }
 
-const MONEY: Record<string, string> = { green: "border-l-tone-green text-tone-green", amber: "border-l-tone-amber text-tone-amber", red: "border-l-tone-red text-tone-red", blue: "border-l-tone-blue text-tone-blue" }
-function Money({ label, value, sub, tone, link }: { label: string; value: string; sub: string; tone: string; link?: boolean }) {
-  const [border, text] = MONEY[tone].split(" ")
-  const body = (
-    <div className={cn("h-full rounded-xl border border-l-4 bg-card p-4 transition", border, link && "hover:shadow-md")}>
-      <div className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground"><Wallet className="size-3.5" />{label}</div>
-      <div className={cn("mt-1 text-2xl font-bold tabular-nums", text)}>{value}</div>
-      <div className="mt-0.5 text-xs capitalize-first text-muted-foreground">{sub}</div>
-    </div>
-  )
-  return link ? <Link to="/courier-payments">{body}</Link> : body
-}
-
 function Delta({ v }: { v: number }) {
   const Icon = v > 0 ? ArrowUpRight : v < 0 ? ArrowDownRight : Minus
   return <span className={cn("mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold", v > 0 ? "text-tone-green" : v < 0 ? "text-tone-red" : "text-muted-foreground")}><Icon className="size-3.5" />{Math.abs(v)}% vs yesterday</span>
@@ -303,7 +284,6 @@ function MonthlySummary() {
                 <th className="px-3 py-2.5 text-right font-medium text-tone-red">Returned</th>
                 <th className="px-3 py-2.5 text-right font-medium">Cancelled</th>
                 <th className="px-3 py-2.5 text-right font-medium">Delivery %</th>
-                <th className="px-4 py-2.5 text-right font-medium">Pathao paid us</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -326,12 +306,11 @@ function MonthlySummary() {
                       <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", r.deliveryRate >= 80 ? "bg-tone-green-bg text-tone-green" : r.deliveryRate >= 65 ? "bg-tone-amber-bg text-tone-amber" : "bg-tone-red-bg text-tone-red")}>{r.deliveryRate}%</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{r.pathaoPaid ? taka(r.pathaoPaid) : <span className="text-muted-foreground">—</span>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="px-4 py-2 text-[11px] text-muted-foreground">Orders and sales exclude cancelled. Delivery % = delivered ÷ (delivered + returned). “Pathao paid us” comes from synced Pathao invoices (last 60 days synced so far).</p>
+          <p className="px-4 py-2 text-[11px] text-muted-foreground">Orders and sales exclude cancelled. Delivery % = delivered ÷ (delivered + returned).</p>
         </div>
       )}
     </section>

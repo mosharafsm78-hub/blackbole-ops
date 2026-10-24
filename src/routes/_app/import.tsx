@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { useMutation } from "convex/react"
+import { useAction, useMutation } from "convex/react"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
 import { PageHeader } from "@/components/bits"
@@ -103,6 +103,44 @@ function ImportPage() {
         </div>
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs" data-testid="import-log">{log.join("\n")}</pre>
       </div>
+      <NuportSync />
+    </div>
+  )
+}
+
+/** Paste the order list read from Nuport; every matching order here gets Nuport's status. */
+function NuportSync() {
+  const sync = useAction(api.migrate.nuportSyncNow)
+  const [text, setText] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<any>(null)
+  return (
+    <div className="mt-5 space-y-3 rounded-lg border bg-card p-5" data-testid="nuport-sync">
+      <div>
+        <h2 className="font-semibold">Sync statuses from Nuport</h2>
+        <p className="text-sm text-muted-foreground">While the team still works in Nuport, this makes our order statuses the same as Nuport's. Paste the Nuport order list (JSON) and press Sync.</p>
+      </div>
+      <textarea className="h-24 w-full rounded-md border bg-background p-2 font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} placeholder='{"bbNuportRows":[...]}' data-testid="nuport-sync-input" />
+      <Button disabled={busy || !text.trim()} data-testid="nuport-sync-run" onClick={async () => {
+        setBusy(true); setRes(null)
+        try {
+          const parsed = JSON.parse(text)
+          const rows = (parsed.bbNuportRows ?? parsed).map((r: any) => ({ inv: String(r.inv), shopify: r.shopify ?? null, phone: r.phone ?? null, cid: r.cid ?? null, status: String(r.status), nuport: String(r.nuport ?? "") }))
+          setRes(await sync({ rows }))
+        } catch (e) { setRes({ error: e instanceof Error ? e.message : String(e) }) } finally { setBusy(false) }
+      }}>{busy ? "Syncing…" : "Sync"}</Button>
+      {res && (
+        <div className="space-y-2 text-sm" data-testid="nuport-sync-result">
+          {res.error ? <p className="text-tone-red">{res.error}</p> : (
+            <>
+              <p><b>{res.received}</b> orders read from Nuport · <b>{res.alreadySame}</b> already the same · <b className="text-tone-green">{res.changed}</b> status changed · <b>{res.linked}</b> Pathao parcels linked · <b className="text-tone-amber">{res.unmatched?.length ?? 0}</b> not found here · <b className="text-tone-red">{res.errors?.length ?? 0}</b> errors</p>
+              {res.notSeen?.length > 0 && <p className="text-muted-foreground">{res.notSeen.length} open orders here were not in the Nuport list: {res.notSeen.slice(0, 60).map((x: any) => `${x.inv} (${x.status})`).join(", ")}</p>}
+              {res.unmatched?.length > 0 && <p className="text-muted-foreground">Not found here: {res.unmatched.slice(0, 60).join(", ")}</p>}
+              {res.errors?.length > 0 && <p className="text-tone-red">{res.errors.slice(0, 20).join(" · ")}</p>}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
