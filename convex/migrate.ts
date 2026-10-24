@@ -325,7 +325,7 @@ const GROUP: Record<string, string[]> = {
  * abandoned checkouts and manual orders). Status "keep" = only match and renumber; "delivered"/"flagged" = report if ours
  * is not in that group.
  */
-async function nuportSync(ctx: any, rows: NuRow[]) {
+async function nuportSync(ctx: any, rows: NuRow[], dryRun = false) {
   const from = Date.now() - 150 * 86400000
   const ours: { id: string; no: number; code: string | null; ext: string | null; phone: string; status: string; cid: string | null }[] = []
   let cursor: string | null = null
@@ -371,7 +371,7 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
   }
   let changed = 0, linked = 0
   const errors: string[] = []
-  for (let i = 0; i < apply.length; i += 40) {
+  for (let i = 0; i < (dryRun ? 0 : apply.length); i += 40) {
     const res: any = await ctx.runMutation(internal.orders.nuportApply, { rows: apply.slice(i, i + 40) })
     changed += res.changed; linked += res.linked; errors.push(...res.errors)
   }
@@ -392,6 +392,14 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
     }
   }
   const allRenames = [...renames, ...moved]
+  if (dryRun) {
+    const label = (id: string) => { const o = ours.find((x) => x.id === id)!; return o.code ?? `BB-${o.no}` }
+    return {
+      dryRun: true, received: rows.length, alreadySame: same, unmatched, groupMismatch, movedAside: moved.map((m) => `BB-${m.from} → BB-${m.to}`),
+      statusChanges: apply.map((a) => `${label(a.id)} ${ours.find((x) => x.id === a.id)!.status} → ${a.to}${a.cid ? ` +${a.cid}` : ""}`),
+      renames: renames.map((r) => `BB-${r.from} → BB-${r.to}`), top,
+    }
+  }
   for (let i = 0; i < allRenames.length; i += 50) await ctx.runMutation(internal.orders.nuportRenumber, { rows: allRenames.slice(i, i + 50), top })
   if (!allRenames.length) await ctx.runMutation(internal.orders.nuportRenumber, { rows: [], top })
   const OPEN = ["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit"]
@@ -404,11 +412,11 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
 
 /** Same Nuport status sync, run from the Data import page by an admin (no import key needed). */
 export const nuportSyncNow = action({
-  args: { rows: v.array(v.object({ inv: v.string(), shopify: v.optional(v.union(v.string(), v.null())), phone: v.optional(v.union(v.string(), v.null())), cid: v.optional(v.union(v.string(), v.null())), status: v.string(), nuport: v.string() })) },
-  handler: async (ctx, { rows }): Promise<any> => {
+  args: { rows: v.array(v.object({ inv: v.string(), shopify: v.optional(v.union(v.string(), v.null())), phone: v.optional(v.union(v.string(), v.null())), cid: v.optional(v.union(v.string(), v.null())), status: v.string(), nuport: v.string() })), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { rows, dryRun }): Promise<any> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "team.manage" })
     const allowed = new Set(["keep", "delivered", "flagged", "pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
-    return await nuportSync(ctx, rows.filter((r) => allowed.has(r.status)) as NuRow[])
+    return await nuportSync(ctx, rows.filter((r) => allowed.has(r.status)) as NuRow[], !!dryRun)
   },
 })
 
