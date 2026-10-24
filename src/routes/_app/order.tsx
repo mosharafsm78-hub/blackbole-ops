@@ -207,7 +207,7 @@ function OrderPage() {
           <Tile
             label="Courier"
             value={o.courier === "pickup" ? "Store pickup" : o.consignmentId ? <span className="text-base">{o.consignmentId}</span> : "Not booked"}
-            hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus.replace(/[_-]+/g, " ")}` : o.courierError ? "Booking failed — see Delivery" : shippedNoParcel ? "Shipped, but not linked to a Pathao parcel" : "Pathao · books at Ready To Ship"}
+            hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus.replace(/[_-]+/g, " ")}` : o.courierError ? "Booking failed — see Delivery" : shippedNoParcel ? "Shipped, but not linked to a Pathao parcel" : o.consignmentId ? "Booked on Pathao" : "Pathao · books at Ready To Ship"}
             tone={o.courierError || shippedNoParcel ? "red" : o.consignmentId ? "violet" : "gray"}
           />
         )}
