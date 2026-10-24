@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as LabelsRouteImport } from './routes/labels'
 import { Route as PrintRouteImport } from './routes/print'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppCourierPaymentsRouteImport } from './routes/_app/courier-payments'
 import { Route as AppCustomerRouteImport } from './routes/_app/customer'
 import { Route as AppCustomersRouteImport } from './routes/_app/customers'
 import { Route as AppDeliveryPartnersRouteImport } from './routes/_app/delivery-partners'
@@ -49,6 +50,11 @@ const PrintRoute = PrintRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCourierPaymentsRoute = AppCourierPaymentsRouteImport.update({
+  id: '/courier-payments',
+  path: '/courier-payments',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCustomerRoute = AppCustomerRouteImport.update({
@@ -146,6 +152,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
+  '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
   '/delivery-partners': typeof AppDeliveryPartnersRoute
@@ -168,6 +175,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
+  '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
   '/delivery-partners': typeof AppDeliveryPartnersRoute
@@ -193,6 +201,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
+  '/_app/courier-payments': typeof AppCourierPaymentsRoute
   '/_app/customer': typeof AppCustomerRoute
   '/_app/customers': typeof AppCustomersRoute
   '/_app/delivery-partners': typeof AppDeliveryPartnersRoute
@@ -219,6 +228,7 @@ export interface FileRouteTypes {
     | '/'
     | '/labels'
     | '/print'
+    | '/courier-payments'
     | '/customer'
     | '/customers'
     | '/delivery-partners'
@@ -241,6 +251,7 @@ export interface FileRouteTypes {
   to:
     | '/labels'
     | '/print'
+    | '/courier-payments'
     | '/customer'
     | '/customers'
     | '/delivery-partners'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/labels'
     | '/print'
+    | '/_app/courier-payments'
     | '/_app/customer'
     | '/_app/customers'
     | '/_app/delivery-partners'
@@ -321,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/courier-payments': {
+      id: '/_app/courier-payments'
+      path: '/courier-payments'
+      fullPath: '/courier-payments'
+      preLoaderRoute: typeof AppCourierPaymentsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/customer': {
@@ -453,6 +472,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppCourierPaymentsRoute: typeof AppCourierPaymentsRoute
   AppCustomerRoute: typeof AppCustomerRoute
   AppCustomersRoute: typeof AppCustomersRoute
   AppDeliveryPartnersRoute: typeof AppDeliveryPartnersRoute
@@ -474,6 +494,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppCourierPaymentsRoute: AppCourierPaymentsRoute,
   AppCustomerRoute: AppCustomerRoute,
   AppCustomersRoute: AppCustomersRoute,
   AppDeliveryPartnersRoute: AppDeliveryPartnersRoute,

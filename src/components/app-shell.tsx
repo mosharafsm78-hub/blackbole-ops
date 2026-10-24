@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
 import {
-  BarChart3, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -37,6 +37,7 @@ const NAV = [
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view", color: "bg-tone-teal-bg text-tone-teal", group: "Stock" },
   { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
   { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },
+  { to: "/courier-payments", label: "Pathao payments", icon: Wallet, perm: "orders.view", color: "bg-tone-green-bg text-tone-green", group: "Insights" },
   { to: "/delivery-partners", label: "Delivery partners", icon: Truck, perm: "partners.manage", color: "bg-tone-red-bg text-tone-red", group: "Setup" },
   { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage", color: "bg-tone-gray-bg text-tone-gray", group: "Setup" },
   { to: "/import", label: "Data import", icon: Upload, perm: "team.manage", color: "bg-tone-gray-bg text-tone-gray", group: "Setup" },

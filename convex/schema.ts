@@ -315,6 +315,13 @@ export default defineSchema({
     imported: v.optional(v.boolean()),
     lastNote: v.optional(v.string()),
     lastNoteBy: v.optional(v.string()),
+    // ---- Pathao money (synced from Pathao invoices) ----
+    courierPaid: v.optional(v.boolean()), // Pathao has paid this parcel's money to us
+    courierInvoiceId: v.optional(v.string()),
+    courierPaidAt: v.optional(v.number()),
+    courierCollected: v.optional(v.number()), // cash Pathao collected from the customer
+    courierPayout: v.optional(v.number()), // what Pathao paid us for this parcel (collected - fees)
+    courierLinkedBy: v.optional(v.string()), // how we found the Pathao parcel: order no / manual
   })
     .index("by_status", ["status", "createdAt"])
     .index("by_status_changed", ["status", "statusChangedAt"])
@@ -328,7 +335,8 @@ export default defineSchema({
     .index("by_external", ["externalId"])
     .index("by_customer", ["customerId", "createdAt"])
     .index("by_phone", ["phone"])
-    .index("by_consignment", ["consignmentId"]),
+    .index("by_consignment", ["consignmentId"])
+    .index("by_courier_invoice", ["courierInvoiceId"]),
 
   // Order timeline: system logs, internal notes and customer-care calls
   orderEvents: defineTable({
@@ -438,6 +446,22 @@ export default defineSchema({
     at: v.number(),
     data: v.any(),
   }).index("by_phone", ["phone", "provider"]),
+
+  // Pathao payout invoices (what Pathao collected and paid us)
+  pathaoInvoices: defineTable({
+    invoiceId: v.string(),
+    createdAt: v.number(),
+    collected: v.number(),
+    deliveryFee: v.number(),
+    codFee: v.number(),
+    discount: v.number(),
+    totalFee: v.number(),
+    receivable: v.number(),
+    status: v.string(), // paid | unpaid
+    parcels: v.number(),
+    matched: v.number(),
+    syncedAt: v.number(),
+  }).index("by_invoice", ["invoiceId"]).index("by_created", ["createdAt"]),
 
   // Pathao parcel tracking (timeline + costs), cached per order
   courierTracking: defineTable({

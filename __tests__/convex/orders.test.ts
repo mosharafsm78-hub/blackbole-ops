@@ -224,3 +224,32 @@ describe("order search box", () => {
     expect(delivered!.rows).toEqual([])
   })
 })
+
+describe("Pathao money sync", () => {
+  it("links a parcel by order number, then marks Pathao payout from the invoice", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId, invoiceNo } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular" })
+    await t.run((ctx) => ctx.db.patch(orderId, { status: "in_transit" }))
+    // a pending order with the same number on Pathao must NOT be linked
+    const r1 = await t.mutation(internal.pathao.applyParcels, { rows: [{ cid: "DB241026TEST01", mid: `BB-${invoiceNo}`, billing: "Unpaid", fee: 110, type: "Delivery" }] })
+    expect(r1).toEqual({ linked: 1, updated: 1 })
+    let o = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o).toMatchObject({ consignmentId: "DB241026TEST01", courier: "pathao", courierLinkedBy: "order no", courierCost: 110 })
+    expect(o!.courierPaid).toBeUndefined()
+    const toPaid = await t.mutation(internal.pathao.applyInvoice, {
+      inv: { invoiceId: "241026TESTINV", createdAt: Date.now(), collected: 2960, deliveryFee: 110, codFee: 29.6, discount: 15, totalFee: 124.6, receivable: 2835.4, status: "paid" },
+      lines: [{ cid: "DB241026TEST01", type: "delivery", collected: 2960, payout: 2835.4, fee: 124.6 }],
+    })
+    expect(toPaid.map((x) => x.id)).toEqual([orderId])
+    o = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o).toMatchObject({ courierPaid: true, courierInvoiceId: "241026TESTINV", courierCollected: 2960, courierPayout: 2835.4 })
+    // running the same invoice again changes nothing
+    const again = await t.mutation(internal.pathao.applyInvoice, {
+      inv: { invoiceId: "241026TESTINV", createdAt: Date.now(), collected: 2960, deliveryFee: 110, codFee: 29.6, discount: 15, totalFee: 124.6, receivable: 2835.4, status: "paid" },
+      lines: [{ cid: "DB241026TEST01", type: "delivery", collected: 2960, payout: 2835.4, fee: 124.6 }],
+    })
+    expect(again.length).toBe(1)
+    const events = await t.run((ctx) => ctx.db.query("orderEvents").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect())
+    expect(events.filter((e) => e.text.startsWith("Pathao paid us")).length).toBe(1)
+  })
+})

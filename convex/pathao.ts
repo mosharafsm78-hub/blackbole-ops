@@ -1,7 +1,7 @@
 import { v, ConvexError } from "convex/values"
-import { action, httpAction, internalAction, internalMutation, internalQuery } from "./_generated/server"
+import { action, httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
 import { internal } from "./_generated/api"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import { getSetting, requirePerm, setSetting } from "./lib"
 import { canTransition, type OrderStatus } from "./rules"
 
@@ -604,7 +604,7 @@ export const tracking = action({
     const cid = g?.order.consignmentId
     if (!g || !cid) return { error: "Not booked with Pathao yet" }
     const cached = await ctx.runQuery(internal.pathao.cachedTracking, { orderId })
-    if (cached && !fresh && Date.now() - cached.at < 10 * 60000 && cached.data?.consignmentId === cid) return { ...(cached.data as Tracking), at: cached.at }
+    if (cached && !fresh && Date.now() - cached.at < 10 * 60000 && cached.data?.consignmentId === cid && cached.data?.v === 2) return { ...(cached.data as Tracking), at: cached.at }
 
     const base = `https://merchant.pathao.com/api/v1/orders/${encodeURIComponent(cid)}`
     const phone = g.order.phone
@@ -615,7 +615,8 @@ export const tracking = action({
     console.log("pathao tracking shapes", det.status, JSON.stringify(det.json).slice(0, 1500), "|||", act.status, JSON.stringify(act.json).slice(0, 2500))
     if (!det.ok && !act.ok) return { error: `Pathao didn't answer (${act.status})` }
     const dd = readDetails(det.json)
-    const data: Tracking = {
+    const data: Tracking & { v: number } = {
+      v: 2,
       consignmentId: cid,
       status: dd.status, paymentStatus: dd.paymentStatus,
       events: act.ok ? readEvents(act.json) : [],
@@ -660,5 +661,243 @@ export const debugMoney = internalAction({
       invoices: JSON.stringify(inv.json).slice(0, 1500),
       breakdown: br ? JSON.stringify(br.json).slice(0, 2000) : null,
     }
+  },
+})
+
+// =====================================================================================
+// Pathao money sync: link parcels to our orders, and record what Pathao collected & paid us
+// =====================================================================================
+const MB = "https://merchant.pathao.com/api/v1"
+const utc = (s: any): number | undefined => { if (!s) return undefined; const t = Date.parse(`${String(s).replace(" ", "T")}Z`); return Number.isFinite(t) ? t : undefined }
+const orderNo = (mid: any): number | null => { const m = String(mid ?? "").trim().match(/^BB-?(\d+)$/i); return m ? Number(m[1]) : null }
+
+const parcelRow = v.object({
+  cid: v.string(), mid: v.optional(v.string()), billing: v.optional(v.string()), invoiceId: v.optional(v.string()),
+  billingAt: v.optional(v.number()), fee: v.optional(v.number()), amount: v.optional(v.number()), type: v.optional(v.string()),
+})
+
+/** Links Pathao parcels to our orders (by consignment, then by our order number) and stores billing status. */
+export const applyParcels = internalMutation({
+  args: { rows: v.array(parcelRow) },
+  handler: async (ctx, { rows }) => {
+    let linked = 0, updated = 0
+    for (const r of rows) {
+      let o = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", r.cid)).first()
+      if (!o && r.type !== "Return") {
+        const n = orderNo(r.mid)
+        const cand = n ? await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", n)).first() : null
+        if (cand && !cand.consignmentId && !cand.deletedAt && !["pending", "on_hold", "cancelled"].includes(cand.status)) {
+          await ctx.db.patch(cand._id, { consignmentId: r.cid, courier: "pathao", courierLinkedBy: "order no", courierError: undefined, updatedAt: Date.now() })
+          await ctx.db.insert("orderEvents", { orderId: cand._id, type: "log", text: `Linked to Pathao parcel ${r.cid} (same order number on Pathao)`, byName: "Pathao sync", at: Date.now() })
+          o = (await ctx.db.get(cand._id))!
+          linked++
+        }
+      }
+      if (!o) continue
+      const paid = r.billing?.toLowerCase() === "paid"
+      const patch: Partial<Doc<"orders">> = {}
+      if (r.fee !== undefined && o.courierCost !== r.fee) patch.courierCost = r.fee
+      if (paid && !o.courierPaid) { patch.courierPaid = true; patch.courierPaidAt = r.billingAt ?? Date.now() }
+      if (r.invoiceId && o.courierInvoiceId !== r.invoiceId) patch.courierInvoiceId = r.invoiceId
+      if (Object.keys(patch).length) { await ctx.db.patch(o._id, patch); updated++ }
+    }
+    return { linked, updated }
+  },
+})
+
+const invoiceLine = v.object({ cid: v.string(), mid: v.optional(v.string()), type: v.string(), collected: v.number(), payout: v.number(), fee: v.number() })
+
+/** Stores one Pathao invoice and marks its parcels as paid by Pathao. Returns orders that should now be Delivered · Paid. */
+export const applyInvoice = internalMutation({
+  args: {
+    inv: v.object({ invoiceId: v.string(), createdAt: v.number(), collected: v.number(), deliveryFee: v.number(), codFee: v.number(), discount: v.number(), totalFee: v.number(), receivable: v.number(), status: v.string() }),
+    lines: v.array(invoiceLine),
+  },
+  handler: async (ctx, { inv, lines }) => {
+    const toPaid: { id: Id<"orders">; status: string }[] = []
+    let matched = 0
+    const paid = inv.status.toLowerCase() === "paid"
+    for (const l of lines) {
+      const o = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", l.cid)).first()
+      if (!o) continue
+      matched++
+      if (l.type !== "delivery") { if (l.fee && o.courierCost === undefined) await ctx.db.patch(o._id, { courierCost: l.fee }); continue }
+      const patch: Partial<Doc<"orders">> = { courierInvoiceId: inv.invoiceId, courierCollected: l.collected, courierPayout: l.payout, courierCost: l.fee }
+      if (paid) { patch.courierPaid = true; patch.courierPaidAt = o.courierPaidAt ?? inv.createdAt }
+      const changed = Object.entries(patch).some(([k, val]) => (o as any)[k] !== val)
+      if (changed) {
+        await ctx.db.patch(o._id, patch)
+        if (paid && !o.courierPaid) await ctx.db.insert("orderEvents", { orderId: o._id, type: "log", text: `Pathao paid us ৳${l.payout} for this parcel (collected ৳${l.collected}, fee ৳${l.fee}) — invoice ${inv.invoiceId}`, byName: "Pathao sync", at: Date.now() })
+      }
+      if (paid && l.collected > 0 && ["ready_to_ship", "in_transit", "delivered_due"].includes(o.status)) toPaid.push({ id: o._id, status: o.status })
+    }
+    const old = await ctx.db.query("pathaoInvoices").withIndex("by_invoice", (q) => q.eq("invoiceId", inv.invoiceId)).first()
+    const row = { ...inv, parcels: lines.length, matched, syncedAt: Date.now() }
+    if (old) await ctx.db.patch(old._id, row)
+    else await ctx.db.insert("pathaoInvoices", row)
+    return toPaid
+  },
+})
+
+export const knownInvoices = internalQuery({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, { ids }) => {
+    const out: Record<string, string> = {}
+    for (const id of ids) {
+      const r = await ctx.db.query("pathaoInvoices").withIndex("by_invoice", (q) => q.eq("invoiceId", id)).first()
+      if (r) out[id] = r.status
+    }
+    return out
+  },
+})
+
+export const saveMoneySync = internalMutation({
+  args: { result: v.any() },
+  handler: async (ctx, { result }) => { await setSetting(ctx, "pathaoMoneySync", { ...result, at: Date.now() }) },
+})
+
+/** Runs the whole money sync. `days` = how far back to look at parcels and invoices. */
+export const syncMoney = internalAction({
+  args: { days: v.optional(v.number()) },
+  handler: async (ctx, { days = 20 }): Promise<any> => {
+    const since = Date.now() - days * 86400000
+    let parcels = 0, linked = 0, updated = 0, invoices = 0, paidMoved = 0
+    // 1) parcels: link to orders, billing status
+    for (let page = 1; page <= 60; page++) {
+      const res = await merchantGet(ctx, `${MB}/orders/all?transfer_status=4&archive=0&page=${page}&limit=100`)
+      const d = res.json?.data
+      const list: any[] = d?.data ?? []
+      if (!res.ok || list.length === 0) break
+      const rows = list.map((p) => ({
+        cid: String(p.order_consignment_id), mid: p.merchant_order_id ? String(p.merchant_order_id) : undefined,
+        billing: p.billing_status ? String(p.billing_status) : undefined, invoiceId: p.order_invoice_id ? String(p.order_invoice_id) : undefined,
+        billingAt: utc(p.billing_date), fee: Number.isFinite(Number(p.total_fee)) ? Number(p.total_fee) : undefined,
+        amount: Number.isFinite(Number(p.order_amount)) ? Number(p.order_amount) : undefined, type: p.order_type ? String(p.order_type) : undefined,
+      })).filter((r) => r.cid && r.cid !== "undefined")
+      const r = await ctx.runMutation(internal.pathao.applyParcels, { rows })
+      parcels += rows.length; linked += r.linked; updated += r.updated
+      const oldest = Math.min(...list.map((p) => utc(p.order_created_at) ?? Date.now()))
+      if (oldest < since || page >= Number(d?.last_page ?? page)) break
+    }
+    // 2) invoices: what Pathao collected and paid us, per parcel
+    let knownStreak = 0
+    for (let page = 1; page <= 40 && knownStreak < 25; page++) {
+      const res = await merchantGet(ctx, `${MB}/monetary/invoices/receivable?page=${page}&limit=20`)
+      const list: any[] = res.json?.data?.data ?? []
+      if (!res.ok || list.length === 0) break
+      const known = await ctx.runQuery(internal.pathao.knownInvoices, { ids: list.map((i) => String(i.order_invoice_id)) })
+      let tooOld = false
+      for (const i of list) {
+        const id = String(i.order_invoice_id)
+        const createdAt = utc(i.invoice_created_at) ?? Date.now()
+        if (createdAt < since) { tooOld = true; break }
+        const status = String(i.status ?? "")
+        if (known[id] && known[id] === status && status.toLowerCase() === "paid") { knownStreak++; continue }
+        knownStreak = 0
+        const br = await merchantGet(ctx, `${MB}/monetary/invoices/${encodeURIComponent(id)}/breakdown`)
+        const lines = (br.json?.data ?? []).map((l: any) => ({
+          cid: String(l.consignment_id), mid: l.merchant_order_id ? String(l.merchant_order_id) : undefined, type: String(l.invoice_type ?? ""),
+          collected: Number(l.collected_amount) || 0, payout: Number(l.payout) || 0, fee: Number(l.final_fee) || 0,
+        }))
+        const toPaid: { id: Id<"orders">; status: string }[] = await ctx.runMutation(internal.pathao.applyInvoice, {
+          inv: {
+            invoiceId: id, createdAt, collected: Number(i.collected_amount) || 0, deliveryFee: Number(i.delivery_fee) || 0, codFee: Number(i.cod_fee) || 0,
+            discount: Number(i.discount) || 0, totalFee: Number(i.total_fee) || 0, receivable: Number(i.receivable_amount) || 0, status,
+          },
+          lines,
+        })
+        invoices++
+        for (const o of toPaid) if (await moveTo(ctx, o.id, o.status as OrderStatus, "delivered_paid", `Pathao paid (invoice ${id})`)) paidMoved++
+      }
+      if (tooOld) break
+    }
+    const result = { parcels, linked, updated, invoices, paidMoved, days }
+    await ctx.runMutation(internal.pathao.saveMoneySync, { result })
+    return result
+  },
+})
+
+export const syncMoneyNow = action({
+  args: { days: v.optional(v.number()) },
+  handler: async (ctx, { days }): Promise<any> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    return await ctx.runAction(internal.pathao.syncMoney, { days: days ?? 20 })
+  },
+})
+
+/** Live totals from Pathao (collected, receivable, received, fees). */
+export const moneyStats = action({
+  args: {},
+  handler: async (ctx): Promise<any> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const res = await merchantGet(ctx, `${MB}/monetary/stats/invoice?type=all`)
+    const d = res.json?.data ?? {}
+    return { raw: d }
+  },
+})
+
+/** Pathao parcels for this customer's phone — to link an order that was booked under another number. */
+export const parcelsForOrder = action({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }): Promise<any[]> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const g = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+    if (!g) return []
+    const res = await merchantGet(ctx, `${MB}/orders/all?receiver_phone=${encodeURIComponent(g.order.phone)}&transfer_status=4&archive=0&page=1&limit=20`)
+    const list: any[] = res.json?.data?.data ?? []
+    const used = await ctx.runQuery(internal.pathao.usedConsignments, { ids: list.map((p) => String(p.order_consignment_id)) })
+    return list.map((p) => ({
+      cid: String(p.order_consignment_id), mid: p.merchant_order_id ?? null, status: p.order_status ?? null, type: p.order_type ?? null,
+      amount: Number(p.order_amount) || 0, createdAt: utc(p.order_created_at) ?? null, billing: p.billing_status ?? null,
+      usedBy: used[String(p.order_consignment_id)] ?? null,
+    }))
+  },
+})
+
+export const usedConsignments = internalQuery({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, { ids }) => {
+    const out: Record<string, string> = {}
+    for (const id of ids) {
+      const o = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", id)).first()
+      if (o) out[id] = o.invoiceCode ?? `BB-${o.invoiceNo}`
+    }
+    return out
+  },
+})
+
+/** Link an order to a Pathao parcel by hand (when it was booked on Pathao under another order number). */
+export const linkParcel = mutation({
+  args: { orderId: v.id("orders"), consignmentId: v.string() },
+  handler: async (ctx, { orderId, consignmentId }) => {
+    const me = await requirePerm(ctx, "courier.book")
+    const cid = consignmentId.trim().toUpperCase()
+    if (!/^[A-Z]{2}\d{6}[A-Z0-9]{4,}$/.test(cid)) throw new ConvexError("That doesn't look like a Pathao consignment ID")
+    const other = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", cid)).first()
+    if (other && other._id !== orderId) throw new ConvexError(`Already linked to ${other.invoiceCode ?? `BB-${other.invoiceNo}`}`)
+    const o = await ctx.db.get(orderId)
+    if (!o) throw new ConvexError("Order not found")
+    await ctx.db.patch(orderId, { consignmentId: cid, courier: "pathao", courierLinkedBy: "manual", courierError: undefined, updatedAt: Date.now() })
+    await ctx.db.insert("orderEvents", { orderId, type: "log", text: `Linked to Pathao parcel ${cid}${o.consignmentId ? ` (was ${o.consignmentId})` : ""}`, byName: me.staff.name, at: Date.now() })
+  },
+})
+
+/** Courier payments page: Pathao invoices we've synced, and the sync status. */
+export const moneyOverview = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    await requirePerm(ctx, "orders.view")
+    const invoices = await ctx.db.query("pathaoInvoices").withIndex("by_created").order("desc").take(limit ?? 60)
+    const sync = await getSetting<any>(ctx, "pathaoMoneySync")
+    return { invoices, sync: sync ?? null }
+  },
+})
+
+export const invoiceOrders = query({
+  args: { invoiceId: v.string() },
+  handler: async (ctx, { invoiceId }) => {
+    await requirePerm(ctx, "orders.view")
+    const rows = await ctx.db.query("orders").withIndex("by_courier_invoice", (q) => q.eq("courierInvoiceId", invoiceId)).collect()
+    return rows.map((o) => ({ _id: o._id, invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, customer: o.customerName, status: o.status, total: o.total, collected: o.courierCollected ?? null, payout: o.courierPayout ?? null, fee: o.courierCost ?? null, consignmentId: o.consignmentId ?? null }))
   },
 })

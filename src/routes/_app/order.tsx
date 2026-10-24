@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { ChevronLeft, ChevronRight, Lock, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
+import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { ORDER_SOURCES, PAYMENT_METHODS, TRANSITIONS, type OrderStatus } from "@/convex/rules"
+import { ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { dateTime, errMsg, invoice, taka } from "@/lib/format"
+import { STATUS_TONE, TONE_CLASS, dateTime, errMsg, invoice, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/order")({
@@ -127,6 +127,7 @@ function OrderPage() {
   const itemCount = o.items.reduce((s, i) => s + i.qty, 0)
   const itemDiscount = o.items.reduce((s, i) => s + i.discount, 0)
   const area = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
+  const shippedNoParcel = o.courier !== "pickup" && !o.consignmentId && ["ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned"].includes(status)
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -170,15 +171,20 @@ function OrderPage() {
         {/* Move to: every allowed next step; moves this person isn't allowed are shown locked */}
         {TRANSITIONS[status].length > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-t px-5 py-3 text-sm">
-            <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Move to</span>
-            {TRANSITIONS[status].map((s) => next.includes(s) ? (
-              <button key={s} type="button" onClick={() => { setInitialStatus(s); setStatusOpen(true) }}
-                className="rounded-full border bg-background p-0.5 transition hover:-translate-y-px hover:border-foreground/30 hover:shadow-sm">
-                <StatusPill status={s} />
-              </button>
-            ) : (
-              <span key={s} title="Locked for you — ask your admin" className="inline-flex cursor-not-allowed items-center gap-1 rounded-full p-0.5 opacity-45"><Lock className="size-3" /><StatusPill status={s} /></span>
-            ))}
+            <span className="mr-1 w-full text-xs font-medium uppercase tracking-wide text-muted-foreground sm:w-auto">Move to</span>
+            {TRANSITIONS[status].map((s) => {
+              const tone = STATUS_TONE[s] ?? "gray"
+              return next.includes(s) ? (
+                <button key={s} type="button" onClick={() => { setInitialStatus(s); setStatusOpen(true) }} data-testid={`move-${s}`}
+                  className={cn("inline-flex items-center gap-1.5 rounded-lg border-2 px-3.5 py-2 text-sm font-semibold shadow-xs transition hover:-translate-y-0.5 hover:shadow-md active:translate-y-0", TONE_CLASS[tone], "border-current/25")}>
+                  <ArrowRight className="size-3.5" />{STATUS_LABEL[s]}
+                </button>
+              ) : (
+                <span key={s} title="Locked for you — ask your admin" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border-2 border-dashed px-3.5 py-2 text-sm font-medium text-muted-foreground opacity-60">
+                  <Lock className="size-3.5" />{STATUS_LABEL[s]}
+                </span>
+              )
+            })}
           </div>
         )}
       </section>
@@ -188,12 +194,23 @@ function OrderPage() {
         <Tile label="Order total" value={taka(o.total)} hint={`${itemCount} item${itemCount === 1 ? "" : "s"} · delivery ${taka(o.deliveryFee)}`} tone="blue" />
         <Tile label="Paid" value={taka(o.paidAmount)} hint={payments.length ? `${payments.length} payment${payments.length === 1 ? "" : "s"}` : "Nothing paid yet"} tone="green" />
         <Tile label={isDelivered(status) ? "Still due" : "Collect on delivery"} value={taka(o.due)} hint={paymentType} tone={o.due > 0 ? "amber" : "green"} />
-        <Tile
-          label="Courier"
-          value={o.courier === "pickup" ? "Store pickup" : o.consignmentId ? <span className="text-base">{o.consignmentId}</span> : "Not booked"}
-          hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus}` : o.courierError ? "Booking failed — see Delivery" : "Pathao · books at Ready To Ship"}
-          tone={o.courierError ? "red" : o.consignmentId ? "violet" : "gray"}
-        />
+        {o.courier !== "pickup" && o.consignmentId && isDelivered(status) ? (
+          <Tile
+            label="Pathao payment"
+            value={o.courierPaid ? <span className="text-tone-green">Paid to us</span> : <span className="text-tone-amber">Not paid yet</span>}
+            hint={o.courierPaid
+              ? `${o.courierPayout !== undefined ? `${taka(o.courierPayout)} received` : "Received"}${o.courierPaidAt ? ` · ${dateTime(o.courierPaidAt)}` : ""}${o.courierInvoiceId ? ` · Inv ${o.courierInvoiceId}` : ""}`
+              : `Pathao will pay${o.courierCollected ? ` ${taka(o.courierCollected - (o.courierCost ?? 0))}` : ""} in its next invoice`}
+            tone={o.courierPaid ? "green" : "amber"}
+          />
+        ) : (
+          <Tile
+            label="Courier"
+            value={o.courier === "pickup" ? "Store pickup" : o.consignmentId ? <span className="text-base">{o.consignmentId}</span> : "Not booked"}
+            hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus.replace(/[_-]+/g, " ")}` : o.courierError ? "Booking failed — see Delivery" : shippedNoParcel ? "Shipped, but not linked to a Pathao parcel" : "Pathao · books at Ready To Ship"}
+            tone={o.courierError || shippedNoParcel ? "red" : o.consignmentId ? "violet" : "gray"}
+          />
+        )}
       </div>
 
       <div className="grid items-start gap-4 lg:grid-cols-12">
@@ -249,6 +266,7 @@ function OrderPage() {
           </Card>
 
           {o.consignmentId && o.courier === "pathao" && <PathaoTracking orderId={o._id} consignmentId={o.consignmentId} />}
+          {shippedNoParcel && <FindParcel orderId={o._id} phone={o.phone} />}
 
           <Card title="Timeline">
             <form
@@ -342,7 +360,11 @@ function OrderPage() {
                 <Row k="Courier" v="Pathao" />
                 <Row k="Consignment" v={o.consignmentId ?? "Not booked"} />
                 {o.courierStatus && <Row k="Pathao status" v={o.courierStatus} />}
-                {o.courierFee !== undefined && <Row k="Courier charge" v={taka(o.courierFee)} />}
+                {o.courierFee !== undefined && <Row k="Courier charge" v={taka(o.courierCost ?? o.courierFee)} />}
+                {o.courierCollected !== undefined && <Row k="Pathao collected" v={taka(o.courierCollected)} />}
+                {o.consignmentId && <Row k="Pathao paid us" v={o.courierPaid ? <span className="text-tone-green">Yes{o.courierPayout !== undefined ? ` · ${taka(o.courierPayout)}` : ""}</span> : <span className="text-tone-amber">Not yet</span>} />}
+                {o.courierInvoiceId && <Row k="Pathao invoice" v={<span className="font-mono text-xs">{o.courierInvoiceId}</span>} />}
+                {o.courierLinkedBy && <Row k="Linked" v={o.courierLinkedBy === "manual" ? "By hand" : "Same order no. on Pathao"} />}
                 {o.courierError && <div className="mt-2 rounded-md bg-tone-red-bg p-2 text-sm text-tone-red">{o.courierError}</div>}
                 {!o.consignmentId && !o.courierError && (
                   <p className="mt-2 text-xs text-muted-foreground">Booked automatically when the order reaches Ready To Ship.</p>
@@ -575,5 +597,53 @@ function CustomerRatio({ s }: { s: { orders: number; delivered: number; returned
         <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-tone-red-bg"><div className="h-full rounded-full bg-tone-green" style={{ width: `${rate}%` }} /></div>
       )}
     </div>
+  )
+}
+
+
+/** For orders shipped outside this app (e.g. booked on Pathao under another order number): pick the right Pathao parcel. */
+function FindParcel({ orderId, phone }: { orderId: Id<"orders">; phone: string }) {
+  const find = useAction(api.pathao.parcelsForOrder)
+  const link = useMutation(api.pathao.linkParcel)
+  const [rows, setRows] = useState<any[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [manual, setManual] = useState("")
+  const search = async () => {
+    setBusy(true)
+    try { setRows(await find({ orderId })) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  const doLink = async (cid: string) => {
+    try { await link({ orderId, consignmentId: cid }); toast.success(`Linked to ${cid}`) } catch (e) { toast.error(errMsg(e)) }
+  }
+  return (
+    <section className="rounded-xl border-2 border-dashed border-tone-amber/60 bg-tone-amber-bg/30 p-4" data-testid="find-parcel">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">This order isn't linked to a Pathao parcel</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">It was probably booked on Pathao under another order number (for example an exchange). Find the parcel by the customer's phone and link it — then tracking and Pathao payments show here.</p>
+        </div>
+        <Button size="sm" onClick={search} disabled={busy}><Link2 className="size-4" /> {busy ? "Searching…" : `Find parcels for ${phone}`}</Button>
+      </div>
+      {rows && (
+        rows.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">Pathao has no parcels for this phone in the last 90 days.</p> : (
+          <div className="mt-3 divide-y rounded-lg border bg-card">
+            {rows.map((r) => (
+              <div key={r.cid} className="flex flex-wrap items-center gap-3 px-3 py-2.5 text-sm">
+                <span className="font-mono font-semibold">{r.cid}</span>
+                <span className="text-muted-foreground">{r.mid ?? "—"}{r.type ? ` · ${r.type}` : ""}</span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">{r.status}</span>
+                <span className="tabular-nums">{taka(r.amount)}</span>
+                {r.createdAt && <span className="text-xs text-muted-foreground">{dateTime(r.createdAt)}</span>}
+                <span className="ml-auto">{r.usedBy ? <span className="text-xs text-muted-foreground">Linked to {r.usedBy}</span> : <Button size="xs" variant="outline" onClick={() => doLink(r.cid)}>Link this parcel</Button>}</span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+      <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (manual.trim()) void doLink(manual) }}>
+        <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="…or paste a consignment ID (e.g. DB241026VTAQZ3)" className="h-8 bg-card" />
+        <Button type="submit" size="sm" variant="outline" disabled={!manual.trim()}>Link</Button>
+      </form>
+    </section>
   )
 }
