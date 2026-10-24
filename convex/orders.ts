@@ -4,6 +4,7 @@ import { internal } from "./_generated/api"
 import { internalMutation, internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
+import { statsForPhone } from "./customerStats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
   moveOrderStock, nextCounter, notify, requirePerm,
@@ -432,9 +433,10 @@ export const get = query({
     const newer = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", order.status).gt("createdAt", order.createdAt)).order("asc").first()
     const older = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", order.status).lt("createdAt", order.createdAt)).order("desc").first()
     const exchangeOf = order.exchangeOfId ? await ctx.db.get(order.exchangeOfId) : null
+    const customerStats = await statsForPhone(ctx, order.phone, customer)
     return {
       missing: false as const,
-      order, events, payments, customer, locationName: location?.name ?? "",
+      order, events, payments, customer, customerStats, locationName: location?.name ?? "",
       partner: partner ? { _id: partner._id, name: partner.name, provider: partner.provider } : null,
       history: history.filter((h) => h._id !== id && !h.deletedAt).map((h) => ({ _id: h._id, invoiceNo: h.invoiceNo, invoiceCode: h.invoiceCode, status: h.status, total: h.total, createdAt: h.createdAt })),
       next, newerId: newer?._id ?? null, olderId: older?._id ?? null,

@@ -3,7 +3,7 @@ import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
 import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
 import {
-  LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
+  BarChart3, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -28,17 +28,18 @@ export function useCan() {
 }
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view" },
-  { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view" },
-  { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create" },
-  { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view" },
-  { to: "/products", label: "Products", icon: Package, perm: "orders.view" },
-  { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view" },
-  { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive" },
-  { to: "/customers", label: "Customers", icon: Users, perm: "orders.view" },
-  { to: "/delivery-partners", label: "Delivery partners", icon: Truck, perm: "partners.manage" },
-  { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage" },
-  { to: "/import", label: "Data import", icon: Upload, perm: "team.manage" },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view", color: "bg-tone-blue-bg text-tone-blue", group: "" },
+  { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
+  { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
+  { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Orders" },
+  { to: "/customers", label: "Customers", icon: Users, perm: "orders.view", color: "bg-tone-pink-bg text-tone-pink", group: "Orders" },
+  { to: "/products", label: "Products", icon: Package, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
+  { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view", color: "bg-tone-teal-bg text-tone-teal", group: "Stock" },
+  { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
+  { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },
+  { to: "/delivery-partners", label: "Delivery partners", icon: Truck, perm: "partners.manage", color: "bg-tone-red-bg text-tone-red", group: "Setup" },
+  { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage", color: "bg-tone-gray-bg text-tone-gray", group: "Setup" },
+  { to: "/import", label: "Data import", icon: Upload, perm: "team.manage", color: "bg-tone-gray-bg text-tone-gray", group: "Setup" },
 ] as const
 
 function Brand() {
@@ -149,30 +150,33 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
   return (
     <nav className="space-y-0.5">
-      {NAV.map((n) => {
+      {NAV.map((n, i) => {
         const Icon = n.icon
+        const heading = n.group && n.group !== NAV[i - 1]?.group
+          ? <div key={`g-${n.group}`} className="px-2.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{n.group}</div>
+          : null
         if (!hasPerm(me.perms, n.perm)) {
-          return (
-            <div key={n.to} title="Locked — ask your admin for access" className="flex cursor-not-allowed items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground/50">
-              <Icon className="size-4" />{n.label}<Lock className="ml-auto size-3.5" />
+          return [heading, (
+            <div key={n.to} title="Locked — ask your admin for access" className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground/50">
+              <span className="flex size-7 items-center justify-center rounded-md bg-muted"><Icon className="size-4" /></span>{n.label}<Lock className="ml-auto size-3.5" />
             </div>
-          )
+          )]
         }
         const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|supplier|stock-in)/.test(path))
-        return (
+        return [heading, (
           <Link
             key={n.to}
             to={n.to}
             onClick={onNavigate}
             className={cn(
-              "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-              active && "bg-accent text-foreground",
+              "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+              active && "bg-accent font-semibold text-foreground",
             )}
           >
-            <Icon className="size-4" />
+            <span className={cn("flex size-7 items-center justify-center rounded-md", n.color)}><Icon className="size-4" /></span>
             {n.label}
           </Link>
-        )
+        )]
       })}
     </nav>
   )

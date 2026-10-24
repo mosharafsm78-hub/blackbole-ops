@@ -38,7 +38,7 @@ function Dashboard() {
     { tab: "on_hold", label: "On hold", tone: "text-tone-orange" },
     { tab: "approved", label: "Approved — to pack", tone: "text-tone-blue" },
     { tab: "processing", label: "Processing", tone: "text-tone-violet" },
-    { tab: "ready_to_ship", label: "Ready to ship", tone: "text-tone-cyan" },
+    { tab: "ready_to_ship", label: "Ready to ship", tone: "text-tone-indigo" },
     { tab: "in_transit", label: "With courier", tone: "text-tone-cyan" },
   ]
 

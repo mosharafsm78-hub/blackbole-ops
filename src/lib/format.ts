@@ -11,20 +11,20 @@ export const dateTime = (t?: number) =>
 export const dateOnly = (t?: number) =>
   t ? new Date(t).toLocaleDateString("en-GB", { timeZone: tz, day: "2-digit", month: "short", year: "numeric" }) : "—"
 
-export type Tone = "gray" | "amber" | "blue" | "violet" | "cyan" | "green" | "red" | "orange"
+export type Tone = "gray" | "amber" | "blue" | "violet" | "cyan" | "green" | "red" | "orange" | "pink" | "indigo" | "teal"
 
 export const STATUS_TONE: Record<OrderStatus, Tone> = {
   pending: "amber",
   on_hold: "orange",
   approved: "blue",
   processing: "violet",
-  ready_to_ship: "cyan",
+  ready_to_ship: "indigo",
   in_transit: "cyan",
-  delivered_due: "green",
+  delivered_due: "teal",
   delivered_paid: "green",
-  pending_returned: "red",
+  pending_returned: "pink",
   returned: "red",
-  damaged: "red",
+  damaged: "orange",
   cancelled: "gray",
 }
 
@@ -37,6 +37,16 @@ export const TONE_CLASS: Record<Tone, string> = {
   green: "bg-tone-green-bg text-tone-green",
   red: "bg-tone-red-bg text-tone-red",
   orange: "bg-tone-orange-bg text-tone-orange",
+  pink: "bg-tone-pink-bg text-tone-pink",
+  indigo: "bg-tone-indigo-bg text-tone-indigo",
+  teal: "bg-tone-teal-bg text-tone-teal",
+}
+
+/** Solid colours for active tabs / dots, per tone. */
+export const TONE_SOLID: Record<Tone, string> = {
+  gray: "bg-tone-gray text-white", amber: "bg-tone-amber text-white", blue: "bg-tone-blue text-white", violet: "bg-tone-violet text-white",
+  cyan: "bg-tone-cyan text-white", green: "bg-tone-green text-white", red: "bg-tone-red text-white", orange: "bg-tone-orange text-white",
+  pink: "bg-tone-pink text-white", indigo: "bg-tone-indigo text-white", teal: "bg-tone-teal text-white",
 }
 
 export const TAG_TONE: Record<string, Tone> = { NEW: "amber", REGULAR: "blue", VIP: "violet", RISKY: "red" }
@@ -57,4 +67,10 @@ export function startOfDayBD(d = new Date()) {
   const bd = new Date(d.getTime() + 6 * 3600000)
   bd.setUTCHours(0, 0, 0, 0)
   return bd.getTime() - 6 * 3600000
+}
+
+/** Colour for each order-list tab (matches the status colours). */
+export const TAB_TONE: Record<string, Tone> = {
+  all: "gray", pending: "amber", on_hold: "orange", approved: "blue", processing: "violet", ready_to_ship: "indigo",
+  in_transit: "cyan", delivered: "green", flagged: "red", cancelled: "gray",
 }

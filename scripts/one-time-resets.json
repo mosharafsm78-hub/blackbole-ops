@@ -1,3 +1,3 @@
 [
-  { "id": "2026-10-19-saju-login", "email": "sajudas536@gmail.com" }
+  { "id": "2026-10-24-customer-stats", "fn": "customerStats:recomputeAll", "args": {} }
 ]

@@ -24,6 +24,7 @@ import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
 import { Route as AppPurchaseRouteImport } from './routes/_app/purchase'
 import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
+import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppScanRouteImport } from './routes/_app/scan'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
@@ -105,6 +106,11 @@ const AppPurchasesRoute = AppPurchasesRouteImport.update({
   path: '/purchases',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportsRoute = AppReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppScanRoute = AppScanRouteImport.update({
   id: '/scan',
   path: '/scan',
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof AppProductsRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
+  '/reports': typeof AppReportsRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByTo {
   '/products': typeof AppProductsRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
+  '/reports': typeof AppReportsRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-in': typeof AppStockInRoute
@@ -196,6 +204,7 @@ export interface FileRoutesById {
   '/_app/products': typeof AppProductsRoute
   '/_app/purchase': typeof AppPurchaseRoute
   '/_app/purchases': typeof AppPurchasesRoute
+  '/_app/reports': typeof AppReportsRoute
   '/_app/scan': typeof AppScanRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/stock-in': typeof AppStockInRoute
@@ -221,6 +230,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/purchase'
     | '/purchases'
+    | '/reports'
     | '/scan'
     | '/settings'
     | '/stock-in'
@@ -242,6 +252,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/purchase'
     | '/purchases'
+    | '/reports'
     | '/scan'
     | '/settings'
     | '/stock-in'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/_app/products'
     | '/_app/purchase'
     | '/_app/purchases'
+    | '/_app/reports'
     | '/_app/scan'
     | '/_app/settings'
     | '/_app/stock-in'
@@ -388,6 +400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPurchasesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/reports': {
+      id: '/_app/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/scan': {
       id: '/_app/scan'
       path: '/scan'
@@ -445,6 +464,7 @@ interface AppRouteChildren {
   AppProductsRoute: typeof AppProductsRoute
   AppPurchaseRoute: typeof AppPurchaseRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
+  AppReportsRoute: typeof AppReportsRoute
   AppScanRoute: typeof AppScanRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockInRoute: typeof AppStockInRoute
@@ -465,6 +485,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppProductsRoute: AppProductsRoute,
   AppPurchaseRoute: AppPurchaseRoute,
   AppPurchasesRoute: AppPurchasesRoute,
+  AppReportsRoute: AppReportsRoute,
   AppScanRoute: AppScanRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockInRoute: AppStockInRoute,

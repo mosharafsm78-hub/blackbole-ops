@@ -80,6 +80,12 @@
   --tone-red-bg: 0 90% 95%;
   --tone-orange: 21 90% 40%;
   --tone-orange-bg: 34 100% 92%;
+  --tone-pink: 330 70% 42%;
+  --tone-pink-bg: 327 85% 94%;
+  --tone-indigo: 239 60% 50%;
+  --tone-indigo-bg: 230 90% 94%;
+  --tone-teal: 174 80% 26%;
+  --tone-teal-bg: 168 70% 90%;
 }
 
 .dark {
@@ -155,6 +161,12 @@
   --tone-red-bg: 0 50% 18%;
   --tone-orange: 34 100% 65%;
   --tone-orange-bg: 21 50% 17%;
+  --tone-pink: 327 85% 75%;
+  --tone-pink-bg: 330 45% 18%;
+  --tone-indigo: 230 90% 78%;
+  --tone-indigo-bg: 239 40% 20%;
+  --tone-teal: 168 70% 60%;
+  --tone-teal-bg: 174 50% 14%;
 }
 
 @theme inline {
@@ -213,6 +225,12 @@
   --color-tone-red-bg: hsl(var(--tone-red-bg));
   --color-tone-orange: hsl(var(--tone-orange));
   --color-tone-orange-bg: hsl(var(--tone-orange-bg));
+  --color-tone-pink: hsl(var(--tone-pink));
+  --color-tone-pink-bg: hsl(var(--tone-pink-bg));
+  --color-tone-indigo: hsl(var(--tone-indigo));
+  --color-tone-indigo-bg: hsl(var(--tone-indigo-bg));
+  --color-tone-teal: hsl(var(--tone-teal));
+  --color-tone-teal-bg: hsl(var(--tone-teal-bg));
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 }
 

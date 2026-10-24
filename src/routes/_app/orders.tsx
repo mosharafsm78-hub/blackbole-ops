@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
+import { TAB_TONE, TONE_CLASS, TONE_SOLID, dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string }
@@ -112,22 +112,27 @@ function OrdersPage() {
       </PageHeader>
 
       {/* Status tabs */}
-      <div className="mb-3 flex gap-1 overflow-x-auto rounded-lg border bg-card p-1">
-        {[{ key: "all", label: "All" }, ...STATUS_TABS].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => set({ tab: t.key })}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-accent",
-              search.tab === t.key && "bg-foreground text-background hover:bg-foreground",
-            )}
-          >
-            {t.label}
-            <span className={cn("rounded px-1.5 text-xs tabular-nums", search.tab === t.key ? "bg-background/20" : "bg-muted")}>
-              {counts?.[t.key] ?? "·"}
-            </span>
-          </button>
-        ))}
+      <div className="mb-4 flex gap-2 overflow-x-auto rounded-xl border bg-card p-2">
+        {[{ key: "all", label: "All" }, ...STATUS_TABS].map((t) => {
+          const tone = TAB_TONE[t.key] ?? "gray"
+          const active = search.tab === t.key
+          return (
+            <button
+              key={t.key}
+              onClick={() => set({ tab: t.key })}
+              data-testid={`tab-${t.key}`}
+              className={cn(
+                "flex shrink-0 items-center gap-2 rounded-lg border border-transparent px-3.5 py-2 text-sm font-semibold transition",
+                active ? cn(TONE_SOLID[tone], "shadow-sm") : cn(TONE_CLASS[tone], "hover:border-current/30 hover:brightness-95"),
+              )}
+            >
+              {t.label}
+              <span className={cn("min-w-6 rounded-md px-1.5 py-0.5 text-center text-xs tabular-nums", active ? "bg-white/25" : "bg-background/70")}>
+                {counts?.[t.key] ?? "·"}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Filters + bulk actions */}

@@ -132,13 +132,7 @@ function OrderPage() {
           {o.email && <div className="mt-1 text-sm text-muted-foreground">{o.email}</div>}
           <div className="mt-3 text-sm">{o.address}</div>
           <div className="text-sm text-muted-foreground">{[o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ") || "Pathao area not set"}</div>
-          {customer && (
-            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
-              {[["Orders", customer.orderCount], ["Delivered", customer.deliveredCount], ["Returned", customer.returnedCount], ["Cancelled", customer.cancelledCount]].map(([k, v]) => (
-                <div key={k} className="rounded-md bg-muted py-1.5"><div className="text-base font-semibold">{v}</div>{k}</div>
-              ))}
-            </div>
-          )}
+          {customer && <CustomerRatio s={data.customerStats} />}
         </Card>
 
         <Card title="Order">
@@ -458,3 +452,30 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
   )
 }
 
+
+function CustomerRatio({ s }: { s: { orders: number; delivered: number; returned: number; cancelled: number; open: number; successRate: number | null } }) {
+  const boxes: [string, number, string][] = [
+    ["Orders", s.orders, "bg-tone-blue-bg text-tone-blue"],
+    ["Delivered", s.delivered, "bg-tone-green-bg text-tone-green"],
+    ["Returned", s.returned, "bg-tone-red-bg text-tone-red"],
+    ["Cancelled", s.cancelled, "bg-tone-gray-bg text-tone-gray"],
+  ]
+  const rate = s.successRate
+  const tone = rate === null ? "text-muted-foreground" : rate >= 80 ? "text-tone-green" : rate >= 50 ? "text-tone-amber" : "text-tone-red"
+  return (
+    <div className="mt-3" data-testid="customer-ratio">
+      <div className="grid grid-cols-4 gap-2 text-center text-xs">
+        {boxes.map(([k, v, c]) => (
+          <div key={k} className={`rounded-md py-1.5 ${c}`}><div className="text-base font-semibold tabular-nums">{v}</div>{k}</div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs">
+        <span className="text-muted-foreground">{s.open > 0 ? `${s.open} open now` : "No other open orders"}</span>
+        <span className={`font-semibold ${tone}`}>{rate === null ? "First delivery — no history yet" : `${rate}% delivery success`}</span>
+      </div>
+      {rate !== null && (
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-tone-red-bg"><div className="h-full rounded-full bg-tone-green" style={{ width: `${rate}%` }} /></div>
+      )}
+    </div>
+  )
+}
