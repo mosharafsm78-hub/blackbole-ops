@@ -307,7 +307,7 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
     cursor = r.cursor
   }
   const byCid = new Map(ours.filter((o) => o.cid).map((o) => [o.cid!, o]))
-  const byExt = new Map(ours.filter((o) => o.ext).map((o) => [o.ext!.replace(/^#/, ""), o]))
+  const byExt = new Map(ours.filter((o) => o.ext).map((o) => [o.ext!.replace(/\D/g, ""), o]))
   const byNo = new Map(ours.map((o) => [o.code ?? `BB-${o.no}`, o]))
   const apply: { id: string; to: string; cid?: string; nuport: string }[] = []
   const unmatched: string[] = []
@@ -316,11 +316,11 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
   for (const r of rows) {
     const phone = normPhone(r.phone)
     const cid = r.cid && /^DB/.test(r.cid) ? r.cid : null // only delivery parcels (RB/RE are returns, EB exchanges)
-    let o = (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify))) || undefined
+    let o = (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify).replace(/\D/g, ""))) || undefined
     if (!o) {
       // Invoice numbers drifted between Nuport and this app for newer orders, so an invoice match must be confirmed
       const c = byNo.get(r.inv)
-      const shopOk = r.shopify && c?.ext ? c.ext.replace(/^#/, "") === String(r.shopify) : null
+      const shopOk = r.shopify && c?.ext ? c.ext.replace(/\D/g, "") === String(r.shopify).replace(/\D/g, "") : null
       const phoneOk = phone && c ? c.phone === phone : null
       if (c && shopOk !== false && phoneOk !== false && (shopOk || phoneOk)) o = c
     }
