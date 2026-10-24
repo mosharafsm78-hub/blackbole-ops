@@ -431,3 +431,67 @@ export function useTotals(cart: CartLine[], discount: number, deliveryFee: numbe
     return { subtotal, itemDiscount, total, due: Math.max(0, total - paid) }
   }, [cart, discount, deliveryFee, paid])
 }
+
+// ---------- Courier history (Pathao network-wide record for this phone) ----------
+type CourierHist = { processed: number; delivered: number; returned: number; successRate: number | null; rating: string | null; message: string | null; at: number }
+
+export function CourierHistory({ phone, compact }: { phone: string; compact?: boolean }) {
+  const run = useAction(api.pathao.customerHistory)
+  const [data, setData] = useState<CourierHist | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = async (fresh = false) => {
+    setBusy(true); setError(null)
+    try {
+      const r = await run({ phone, fresh })
+      if ("error" in r) { setError(r.error); setData(null) } else setData(r)
+    } catch (e) { setError(errMsg(e)) } finally { setBusy(false) }
+  }
+  useEffect(() => {
+    setData(null); setError(null)
+    if (/^01\d{9}$/.test(phone)) void load()
+  }, [phone]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!/^01\d{9}$/.test(phone)) return null
+  const rate = data?.successRate ?? null
+  const level = !data ? null : data.processed === 0 ? "new" : rate === null ? "new" : rate >= 90 ? "excellent" : rate >= 75 ? "good" : rate >= 50 ? "average" : "risky"
+  const LEVEL: Record<string, { label: string; text: string; bar: string; filled: number; note: string }> = {
+    excellent: { label: "Excellent", text: "text-tone-green", bar: "bg-tone-green", filled: 4, note: "This customer seems to have a very clean track record." },
+    good: { label: "Good", text: "text-tone-teal", bar: "bg-tone-teal", filled: 3, note: "Mostly receives parcels — a few returns." },
+    average: { label: "Average", text: "text-tone-amber", bar: "bg-tone-amber", filled: 2, note: "Returns quite often — confirm by phone before shipping." },
+    risky: { label: "Risky", text: "text-tone-red", bar: "bg-tone-red", filled: 1, note: "Returns most parcels — take an advance or confirm carefully." },
+    new: { label: "New customer", text: "text-muted-foreground", bar: "bg-muted-foreground/40", filled: 0, note: "No parcels with any Pathao merchant yet." },
+  }
+  const lv = level ? LEVEL[level] : null
+  return (
+    <div className={cn("rounded-lg border bg-card", compact ? "p-2.5" : "mt-3 p-3")} data-testid="courier-history">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold">Courier history <span className="font-normal text-muted-foreground">· Pathao, all merchants</span></span>
+        <button type="button" onClick={() => load(true)} disabled={busy} title="Check again" className="inline-flex size-6 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-50">
+          <svg viewBox="0 0 24 24" className={cn("size-3.5", busy && "animate-spin")} fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></svg>
+        </button>
+      </div>
+      {error ? <p className="text-xs text-muted-foreground">{error}</p> : !data ? <p className="text-xs text-muted-foreground">Checking Pathao…</p> : (
+        <>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="inline-flex items-center gap-2 rounded-md bg-muted px-2.5 py-1">Processed <b className="tabular-nums">{data.processed}</b></span>
+            <span className="inline-flex items-center gap-2 rounded-md bg-tone-green-bg px-2.5 py-1 text-tone-green">Delivered <b className="tabular-nums">{data.delivered}</b></span>
+            <span className="inline-flex items-center gap-2 rounded-md bg-tone-orange-bg px-2.5 py-1 text-tone-orange">Returned <b className="tabular-nums">{data.returned}</b></span>
+          </div>
+          {lv && (
+            <div className="mt-2.5 border-t pt-2.5">
+              <div className="flex items-center justify-between text-sm">
+                <span>Customer rating: <span className={cn("font-semibold", lv.text)}>{data.rating || lv.label}</span></span>
+                {rate !== null && <span className={cn("text-xs font-semibold", lv.text)}>{rate}% delivered</span>}
+              </div>
+              <div className="mt-1.5 grid grid-cols-4 gap-1.5">
+                {[0, 1, 2, 3].map((i) => <div key={i} className={cn("h-1.5 rounded-full", i < lv.filled ? lv.bar : "bg-muted")} />)}
+              </div>
+              <p className="mt-2 rounded-md bg-muted/60 px-2 py-1.5 text-xs">{data.message || lv.note}</p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

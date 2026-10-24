@@ -9,8 +9,7 @@ import { ORDER_SOURCES, PAYMENT_METHODS, TRANSITIONS, type OrderStatus } from "@
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
-  CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place,
-} from "@/components/order-parts"
+  CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -133,6 +132,7 @@ function OrderPage() {
           <div className="mt-3 text-sm">{o.address}</div>
           <div className="text-sm text-muted-foreground">{[o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ") || "Pathao area not set"}</div>
           {customer && <CustomerRatio s={data.customerStats} />}
+          <CourierHistory phone={o.phone} />
         </Card>
 
         <Card title="Order">

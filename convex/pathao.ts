@@ -388,3 +388,85 @@ export const detectOpenOrders = action({
     return { checked: ids.length, found }
   },
 })
+
+// ---------- customer's delivery record across all Pathao merchants (same check the Pathao panel shows) ----------
+export type CourierHistory = {
+  provider: "pathao"
+  processed: number
+  delivered: number
+  returned: number
+  successRate: number | null
+  rating: string | null // e.g. "Excellent", "Good", "Risky", "New"
+  message: string | null
+  at: number
+}
+
+const num = (x: any) => (Number.isFinite(Number(x)) ? Number(x) : 0)
+
+/** Reads Pathao's response whatever shape it comes in. */
+function readHistory(json: any): Omit<CourierHistory, "provider" | "at" | "successRate"> | null {
+  const d = json?.data ?? json
+  if (!d || typeof d !== "object") return null
+  const c = d.customer ?? d.data?.customer ?? d
+  const processed = num(c.total_delivery ?? c.total_parcel ?? c.total ?? c.processed ?? c.total_order)
+  const delivered = num(c.successful_delivery ?? c.success ?? c.delivered ?? c.total_delivered)
+  let returned = num(c.returned ?? c.total_return ?? c.failed_delivery ?? c.cancelled)
+  if (!returned && processed >= delivered) returned = processed - delivered
+  const r = d.customer_rating ?? c.customer_rating ?? c.rating ?? d.rating
+  const rating = typeof r === "string" ? r.replace(/_/g, " ").replace(/\b\w/g, (m: string) => m.toUpperCase()) : r?.label ?? r?.name ?? null
+  const message = d.message_text ?? d.remarks ?? c.message ?? (typeof d.message === "string" && !/success/i.test(d.message) ? d.message : null)
+  return { processed, delivered, returned, rating: rating ? String(rating) : null, message: message ? String(message) : null }
+}
+
+export const cachedHistory = internalQuery({
+  args: { phone: v.string() },
+  handler: async (ctx, { phone }) => await ctx.db.query("courierChecks").withIndex("by_phone", (q) => q.eq("phone", phone).eq("provider", "pathao")).first(),
+})
+
+export const saveHistory = internalMutation({
+  args: { phone: v.string(), data: v.any() },
+  handler: async (ctx, { phone, data }) => {
+    const old = await ctx.db.query("courierChecks").withIndex("by_phone", (q) => q.eq("phone", phone).eq("provider", "pathao")).first()
+    if (old) await ctx.db.patch(old._id, { data, at: Date.now() })
+    else await ctx.db.insert("courierChecks", { phone, provider: "pathao", data, at: Date.now() })
+  },
+})
+
+/** Customer's delivery record on Pathao (all merchants). Cached for 12 hours unless `fresh`. */
+export const customerHistory = action({
+  args: { phone: v.string(), fresh: v.optional(v.boolean()) },
+  handler: async (ctx, { phone, fresh }): Promise<CourierHistory | { error: string }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const p = phone.replace(/\D/g, "").replace(/^88/, "")
+    if (!/^01\d{9}$/.test(p)) return { error: "Phone number looks wrong" }
+    const cached = await ctx.runQuery(internal.pathao.cachedHistory, { phone: p })
+    if (cached && !fresh && Date.now() - cached.at < 12 * 3600000) return { ...(cached.data as CourierHistory), at: cached.at }
+
+    const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, {})
+    if (!creds || creds.env !== "production") return { error: "Connect Pathao (live) in Settings to see courier history" }
+    let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await http(ctx, "https://merchant.pathao.com/api/v1/user/success", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tk.accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ phone: p }),
+      })
+      if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
+      if (!res.ok) {
+        console.log("pathao user/success", res.status, JSON.stringify(res.json).slice(0, 500))
+        return { error: `Pathao didn't answer (${res.status})` }
+      }
+      const h = readHistory(res.json)
+      if (!h) {
+        console.log("pathao user/success unknown shape", JSON.stringify(res.json).slice(0, 800))
+        return { error: "Couldn't read Pathao's answer" }
+      }
+      const done = h.delivered + h.returned
+      const data: CourierHistory = { provider: "pathao", ...h, successRate: done ? Math.round((h.delivered / done) * 100) : null, at: Date.now() }
+      console.log("pathao user/success shape", JSON.stringify(res.json).slice(0, 800))
+      await ctx.runMutation(internal.pathao.saveHistory, { phone: p, data })
+      return data
+    }
+    return { error: "Pathao login failed" }
+  },
+})

@@ -3,7 +3,7 @@ import { PROXY_SECRET } from "@/server/proxy-secret"
 
 // Convex's servers can't resolve Pathao's API host, so Convex sends Pathao calls
 // here (Vercel, Singapore) and this forwards them. Only Pathao hosts are allowed.
-const ALLOWED = ["https://merchant.pathao.com/api/v1/address-parser", "https://api-hermes.pathao.com/", "https://courier-api.pathao.com/", "https://courier-api-sandbox.pathao.com/"]
+const ALLOWED = ["https://merchant.pathao.com/api/v1/address-parser", "https://merchant.pathao.com/api/v1/user/success", "https://api-hermes.pathao.com/", "https://courier-api.pathao.com/", "https://courier-api-sandbox.pathao.com/"]
 
 export const Route = createFileRoute("/api/pathao-proxy")({
   server: {

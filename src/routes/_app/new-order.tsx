@@ -8,8 +8,7 @@ import { ORDER_SOURCES, PAYMENT_METHODS, hasPerm, moveKey, normalizePhone } from
 import { Guard, useMe } from "@/components/app-shell"
 import { PageHeader, TagPill } from "@/components/bits"
 import {
-  CartEditor, PathaoAddress, ProductSearch, addToCart, suggestFee, useGeneralSettings, useTotals, type CartLine, type Place,
-} from "@/components/order-parts"
+  CartEditor, PathaoAddress, ProductSearch, addToCart, suggestFee, useGeneralSettings, useTotals, type CartLine, type Place, CourierHistory } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -121,6 +120,7 @@ function NewOrder() {
                 <span>{existing.orderCount} orders · {existing.deliveredCount} delivered · {existing.returnedCount} returned · {existing.cancelledCount} cancelled</span>
               </div>
             )}
+            {validPhone && <CourierHistory phone={normalized} compact />}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5"><Label>Name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>

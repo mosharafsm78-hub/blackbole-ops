@@ -431,6 +431,14 @@ export default defineSchema({
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
 
+  // Courier-wide delivery history for a phone number (Pathao merchant network), cached
+  courierChecks: defineTable({
+    phone: v.string(),
+    provider: v.string(), // pathao
+    at: v.number(),
+    data: v.any(),
+  }).index("by_phone", ["phone", "provider"]),
+
   // Cached Pathao city / zone / area lists
   pathaoPlaces: defineTable({
     kind: v.string(), // city | zone | area
