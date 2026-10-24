@@ -183,10 +183,10 @@ function PartnerDialog({ partner, onClose }: { partner: Partner | null; onClose:
                   <select className="h-9 rounded-md border bg-background px-2 text-sm" value={f.env} onChange={(e) => set("env", e.target.value)}>
                     <option value="production">Production</option><option value="sandbox">Sandbox</option>
                   </select>
-                  <Input placeholder="Client ID" value={f.clientId} onChange={(e) => set("clientId", e.target.value)} />
-                  <Input placeholder="Client secret" type="password" value={f.clientSecret} onChange={(e) => set("clientSecret", e.target.value)} />
-                  <Input placeholder="Username (email)" value={f.username} onChange={(e) => set("username", e.target.value)} />
-                  <Input placeholder="Password" type="password" value={f.password} onChange={(e) => set("password", e.target.value)} />
+                  <Input placeholder="Client ID" autoComplete="off" data-1p-ignore value={f.clientId} onChange={(e) => set("clientId", e.target.value)} />
+                  <Input placeholder="Client secret" type="password" autoComplete="new-password" data-1p-ignore value={f.clientSecret} onChange={(e) => set("clientSecret", e.target.value)} />
+                  <Input placeholder="Username (email)" autoComplete="off" data-1p-ignore value={f.username} onChange={(e) => set("username", e.target.value)} />
+                  <Input placeholder="Password" type="password" autoComplete="new-password" data-1p-ignore value={f.password} onChange={(e) => set("password", e.target.value)} />
                 </div>
               )}
             </>

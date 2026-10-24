@@ -106,7 +106,7 @@ function ShopifyTab() {
           <li>Shopify shows a line “Your webhooks will be signed with …”. Copy that signing key and paste it below.</li>
         </ol>
         <div className="mt-4 flex max-w-2xl gap-2">
-          <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={info.shopifyConnected ? "Saved — paste a new key to replace it" : "Webhook signing key"} />
+          <Input type="password" autoComplete="new-password" data-1p-ignore value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={info.shopifyConnected ? "Saved — paste a new key to replace it" : "Webhook signing key"} />
           <Button disabled={!secret.trim()} onClick={async () => { try { await save({ secret }); setSecret(""); toast.success("Signing key saved") } catch (e) { toast.error(errMsg(e)) } }}>Save key</Button>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">Products are matched by SKU. Keep the same SKUs in Shopify and here so stock moves automatically.</p>
@@ -158,10 +158,10 @@ function PathaoTab() {
               <SelectContent><SelectItem value="production">Live (real parcels)</SelectItem><SelectItem value="sandbox">Sandbox (testing)</SelectItem></SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5"><Label>Client ID</Label><Input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={saved ? `Saved (${info.pathao!.clientIdHint})` : ""} /></div>
-          <div className="space-y-1.5"><Label>Client secret</Label><Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
-          <div className="space-y-1.5"><Label>Merchant email</Label><Input value={username} onChange={(e) => setUsername(e.target.value)} /></div>
-          <div className="space-y-1.5"><Label>Merchant password</Label><Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
+          <div className="space-y-1.5"><Label>Client ID</Label><Input name="pathao-client-id" autoComplete="off" data-1p-ignore data-lpignore="true" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={saved ? `Saved (${info.pathao!.clientIdHint})` : ""} /></div>
+          <div className="space-y-1.5"><Label>Client secret</Label><Input type="password" name="pathao-client-secret" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
+          <div className="space-y-1.5"><Label>Merchant email</Label><Input name="pathao-merchant-email" autoComplete="off" data-1p-ignore data-lpignore="true" value={username} onChange={(e) => setUsername(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>Merchant password</Label><Input type="password" name="pathao-merchant-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
         </div>
         <div className="mt-4 flex gap-2">
           <Button
