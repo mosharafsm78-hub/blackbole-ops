@@ -492,6 +492,8 @@ const STAGE_KEYS = ["stage", "group", "status", "order_status", "type", "label",
 const toTime = (x: any): number | null => {
   if (x == null || x === "") return null
   if (typeof x === "number") return x < 1e12 ? x * 1000 : x
+  // Pathao panel format: "Oct 24, 2026 2:59 PM" (Dhaka time)
+  if (/^[A-Z][a-z]{2} \d{1,2}, \d{4} \d{1,2}:\d{2} [AP]M$/.test(String(x))) { const t = Date.parse(`${x} GMT+0600`); return Number.isFinite(t) ? t : null }
   const t = Date.parse(String(x).includes("T") || /[+Z]/.test(String(x)) ? String(x) : `${String(x).replace(" ", "T")}+06:00`)
   return Number.isFinite(t) ? t : null
 }
@@ -499,6 +501,15 @@ const pick = (o: any, keys: string[]) => { for (const k of keys) if (o && o[k] !
 
 /** Finds timeline entries in Pathao's answer whatever shape it has (flat list or grouped by stage). */
 function readEvents(json: any): TrackEvent[] {
+  // Known shape: { data: { state: { name }, log: [{ desc, created_at, grouped_status: [stage, ...], notes }] } }
+  const log = json?.data?.log
+  if (Array.isArray(log)) {
+    return log.map((l: any) => ({
+      stage: Array.isArray(l.grouped_status) && l.grouped_status[0] ? String(l.grouped_status[0]) : null,
+      text: `${String(l.desc ?? "").trim()}${l.notes ? ` — ${String(l.notes).trim()}` : ""}`,
+      at: toTime(l.created_at),
+    })).filter((e: TrackEvent) => e.text).sort((a: TrackEvent, b: TrackEvent) => (a.at ?? 0) - (b.at ?? 0))
+  }
   const out: TrackEvent[] = []
   const walk = (node: any, stage: string | null, depth: number) => {
     if (depth > 6 || node == null) return
@@ -539,19 +550,22 @@ function readDetails(json: any) {
   addCost("Compensation", ["compensation_cost"])
   addCost("Total cost", ["total_fee", "total_cost", "total_charge"])
   const info: { label: string; value: string }[] = []
-  const addInfo = (label: string, keys: string[]) => { const v = pick(d, keys); if (v != null && v !== "" && typeof v !== "object") info.push({ label, value: String(v) }) }
-  addInfo("Amount to collect", ["amount_to_collect", "collectable_amount", "cod_amount"])
+  const addInfo = (label: string, keys: string[], fmt?: (v: any) => string) => { const v = pick(d, keys); if (v != null && v !== "" && v !== "-" && typeof v !== "object") info.push({ label, value: fmt ? fmt(v) : String(v) }) }
+  addInfo("Amount to collect", ["amount_to_collect", "collectable_amount", "cash_on_delivery", "cod_amount"], (v) => `৳${Number(v).toLocaleString("en-IN")}`)
   addInfo("Collected", ["collected_amount"])
-  addInfo("Delivery type", ["delivery_type_name", "delivery_type"])
-  addInfo("Weight", ["item_weight", "weight"])
+  addInfo("Delivery type", ["delivery_type_name", "delivery_type"], (v) => (String(v) === "48" ? "Normal (48 hours)" : String(v) === "12" ? "On demand (12 hours)" : String(v)))
+  addInfo("Weight", ["item_weight", "total_weight", "weight"], (v) => `${v} kg`)
+  addInfo("Area (Pathao)", ["zone_name"], (v) => [d.area_name, v, d.city_name].filter((x: any) => x && x !== "N/A").join(", "))
   addInfo("Delivery agent", ["delivery_agent_name", "rider_name", "delivery_man_name"])
   addInfo("Agent phone", ["delivery_agent_phone", "rider_phone", "delivery_man_phone"])
   addInfo("Hub", ["hub_name", "current_hub"])
-  addInfo("Special instruction", ["special_instruction"])
-  addInfo("Failed reason", ["failed_reason", "return_reason", "hold_reason"])
+  addInfo("Failed / hold reason", ["failed_reason", "return_reason", "hold_reason"])
+  addInfo("Modification notes", ["modification_notes"])
+  addInfo("Product description", ["item_description", "order_description"])
+  addInfo("Special instruction", ["special_instruction", "delivery_instruction"])
   const status = pick(d, ["order_status", "order_status_slug", "status"])
-  const pay = pick(d, ["payment_status", "invoice_status"])
-  const link = pick(d, ["tracking_link", "tracking_url", "public_tracking_url", "share_link"])
+  const pay = pick(d, ["billing_status", "payment_status", "invoice_status"])
+  const link = pick(d, ["short_link", "tracking_link", "tracking_url", "public_tracking_url", "share_link"])
   return { costs, info, status: status != null && typeof status !== "object" ? String(status) : null, paymentStatus: pay != null && typeof pay !== "object" ? String(pay) : null, trackingUrl: link ? String(link) : null }
 }
 
