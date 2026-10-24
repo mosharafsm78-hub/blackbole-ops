@@ -344,6 +344,11 @@ export const list = query({
     if (!s) return null
     const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag }
     const limit = Math.min(a.limit, 2000)
+    // Search box: look the order up directly (invoice, phone, consignment, name…), across every status.
+    if (a.search?.trim()) {
+      const found = await findOrders(ctx, a.search)
+      return { rows: found.slice(0, limit), hasMore: false }
+    }
     const tab = STATUS_TABS.find((t) => t.key === f.tab)
     let rows: Doc<"orders">[] = []
     // Fast path: plain tab with no extra filters — read only the newest `limit` orders, not thousands.
@@ -395,34 +400,37 @@ export const queue = query({
 })
 
 /** Direct lookup: invoice, phone, name, consignment, website order no, SKU. */
+async function findOrders(ctx: QueryCtx, term: string) {
+  const t = term.trim()
+  if (!t) return []
+  let rows: Doc<"orders">[] = []
+  const phone = normalizePhone(t)
+  const num = Number(t.replace(/^bb-?/i, "").replace(/^#/, ""))
+  if (/^01\d{9}$/.test(phone)) rows = await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", phone)).collect()
+  else if (/^so-?\d+$/i.test(t)) rows = await ctx.db.query("orders").withIndex("by_invoice_code", (q) => q.eq("invoiceCode", t.toUpperCase().replace(/^SO-?/, "SO-"))).collect()
+  else if (Number.isFinite(num) && num > 0) {
+    rows = await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", num)).collect()
+    if (!rows.length) rows = (await ctx.db.query("orders").withIndex("by_created").order("desc").take(4000)).filter((o) => o.externalName === `#${num}` || o.externalName === String(num))
+  }
+  if (!rows.length) {
+    const byConsignment = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", t)).collect()
+    if (byConsignment.length) rows = byConsignment
+  }
+  if (!rows.length) {
+    const low = t.toLowerCase()
+    rows = (await ctx.db.query("orders").withIndex("by_created").order("desc").take(4000)).filter(
+      (o) => o.customerName.toLowerCase().includes(low) || o.items.some((i) => i.sku.toLowerCase() === low) || (o.consignmentId ?? "").toLowerCase().includes(low),
+    )
+  }
+  return rows.filter((o) => !o.deletedAt).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100)
+}
+
 export const search = query({
   args: { term: v.string() },
   handler: async (ctx, { term }) => {
     const s = await currentStaff(ctx)
     if (!s) return []
-    const t = term.trim()
-    if (!t) return []
-    let rows: Doc<"orders">[] = []
-    const phone = normalizePhone(t)
-    const num = Number(t.replace(/^bb-?/i, "").replace(/^#/, ""))
-    if (/^01\d{9}$/.test(phone)) rows = await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", phone)).collect()
-    else if (/^so-?\d+$/i.test(t)) rows = await ctx.db.query("orders").withIndex("by_invoice_code", (q) => q.eq("invoiceCode", t.toUpperCase().replace(/^SO-?/, "SO-"))).collect()
-    else if (Number.isFinite(num) && num > 0) {
-      rows = await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", num)).collect()
-      if (!rows.length) rows = (await ctx.db.query("orders").withIndex("by_created").order("desc").take(4000)).filter((o) => o.externalName === `#${num}` || o.externalName === String(num))
-    }
-    if (!rows.length) {
-      const byConsignment = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", t)).collect()
-      if (byConsignment.length) rows = byConsignment
-    }
-    if (!rows.length) {
-      const low = t.toLowerCase()
-      rows = (await ctx.db.query("orders").withIndex("by_created").order("desc").take(4000)).filter(
-        (o) => o.customerName.toLowerCase().includes(low) || o.items.some((i) => i.sku.toLowerCase() === low) || (o.consignmentId ?? "").toLowerCase().includes(low),
-      )
-    }
-    rows = rows.filter((o) => !o.deletedAt).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100)
-    return await withDupes(ctx, rows)
+    return await withDupes(ctx, await findOrders(ctx, term))
   },
 })
 

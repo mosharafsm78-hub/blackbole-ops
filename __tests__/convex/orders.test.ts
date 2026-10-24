@@ -207,3 +207,20 @@ describe("shopify ingest", () => {
     expect(events.some((e) => e.text.includes("UNKNOWN-1"))).toBe(true)
   })
 })
+
+describe("order search box", () => {
+  it("finds an order by phone and invoice from any tab, and the plain list stays per tab", async () => {
+    const { as, locationId, v41 } = await setup()
+    const { orderId: id, invoiceNo } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const byPhone = await as.query(api.orders.list, { tab: "all", search: "01711000000", limit: 50 })
+    expect(byPhone!.rows.map((r) => r._id)).toEqual([id])
+    const byInvoice = await as.query(api.orders.list, { tab: "delivered", search: String(invoiceNo), limit: 50 })
+    expect(byInvoice!.rows.map((r) => r._id)).toEqual([id])
+    const none = await as.query(api.orders.list, { tab: "all", search: "01799999999", limit: 50 })
+    expect(none!.rows).toEqual([])
+    const pending = await as.query(api.orders.list, { tab: "pending", limit: 50 })
+    expect(pending!.rows.map((r) => r._id)).toContain(id)
+    const delivered = await as.query(api.orders.list, { tab: "delivered", limit: 50 })
+    expect(delivered!.rows).toEqual([])
+  })
+})
