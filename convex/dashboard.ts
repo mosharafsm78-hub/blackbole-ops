@@ -17,15 +17,20 @@ export const statsData = internalQuery({
       .collect()
     const live = orders.filter((o) => o.status !== "cancelled")
 
-    const days = new Map<string, { day: string; orders: number; sales: number }>()
+    const days = new Map<string, { day: string; orders: number; sales: number; delivered: number; returned: number; cancelled: number; open: number }>()
     for (let t = from; t <= to; t += DAY) {
       const key = new Date(t + BD_OFFSET).toISOString().slice(0, 10)
-      days.set(key, { day: key, orders: 0, sales: 0 })
+      days.set(key, { day: key, orders: 0, sales: 0, delivered: 0, returned: 0, cancelled: 0, open: 0 })
     }
-    for (const o of live) {
+    for (const o of orders) {
       const key = new Date(o.createdAt + BD_OFFSET).toISOString().slice(0, 10)
       const d = days.get(key)
-      if (d) { d.orders++; d.sales += o.total }
+      if (!d) continue
+      if (o.status === "cancelled") { d.cancelled++; continue }
+      d.orders++; d.sales += o.total
+      if (o.status === "delivered_due" || o.status === "delivered_paid") d.delivered++
+      else if (["pending_returned", "returned", "damaged"].includes(o.status)) d.returned++
+      else d.open++
     }
 
     const byStatus: Record<string, number> = {}
@@ -50,6 +55,9 @@ export const statsData = internalQuery({
     const resolved = delivered + returned
 
     return {
+      returned,
+      delivered,
+      deliveredValue: orders.filter((o) => o.status === "delivered_due" || o.status === "delivered_paid").reduce((t, o) => t + o.total, 0),
       totalOrders: live.length,
       totalSales: live.reduce((sum, o) => sum + o.total, 0),
       avgOrder: live.length ? Math.round(live.reduce((sum, o) => sum + o.total, 0) / live.length) : 0,
@@ -68,4 +76,43 @@ export const statsData = internalQuery({
 export const stats = action({
   args: { from: v.number(), to: v.number() },
   handler: async (ctx, args): Promise<any> => await ctx.runQuery(internal.dashboard.statsData, args),
+})
+
+/** Money side from Pathao for the dashboard: what Pathao paid us in these dates and what is still waiting. */
+export const moneyData = internalQuery({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const inv = await ctx.db.query("pathaoInvoices").withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to)).collect()
+    const paidInv = inv.filter((i) => i.status.toLowerCase() === "paid")
+    const last = await ctx.db.query("pathaoInvoices").withIndex("by_created").order("desc").first()
+    // delivered with Pathao in the last 60 days but Pathao hasn't paid us yet
+    const recent = await ctx.db.query("orders").withIndex("by_delivered", (q) => q.gte("deliveredAt", Date.now() - 60 * DAY)).collect()
+    const waiting = recent.filter((o) => o.consignmentId && o.courier === "pathao" && !o.courierPaid && !o.deletedAt && (o.status === "delivered_due" || o.status === "delivered_paid"))
+    return {
+      paidToUs: paidInv.reduce((t, i) => t + i.receivable, 0),
+      collected: inv.reduce((t, i) => t + i.collected, 0),
+      fees: inv.reduce((t, i) => t + i.totalFee, 0),
+      invoices: inv.length,
+      lastInvoice: last ? { id: last.invoiceId, at: last.createdAt, amount: last.receivable, status: last.status } : null,
+      waitingCount: waiting.length,
+      waitingAmount: waiting.reduce((t, o) => t + (o.courierCollected ?? o.total) - (o.courierCost ?? o.courierFee ?? 0), 0),
+    }
+  },
+})
+
+/** Everything the dashboard shows, in one call: this period, the period before, Pathao's delivery outcome and money. */
+export const overview = action({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }): Promise<any> => {
+    const span = to - from + 1
+    const [now, prev, money, pathao] = await Promise.all([
+      ctx.runQuery(internal.dashboard.statsData, { from, to }),
+      ctx.runQuery(internal.dashboard.statsData, { from: from - span, to: from - 1 }),
+      ctx.runQuery(internal.dashboard.moneyData, { from, to }),
+      ctx.runAction(internal.pathao.dashboardStats, { from, to }).catch(() => null),
+    ])
+    return { now, prev, money, pathao }
+  },
 })

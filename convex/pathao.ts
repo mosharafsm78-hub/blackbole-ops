@@ -912,3 +912,41 @@ export const debugGet = internalAction({
     return { status: res.status, body: JSON.stringify(res.json).slice(0, 6000) }
   },
 })
+
+/** Pathao's own delivery outcome for a date range (same numbers as the Pathao merchant dashboard). Cached 15 minutes. */
+export const dashboardStats = internalAction({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }): Promise<any> => {
+    const d = (t: number) => new Date(t + 6 * 3600000).toISOString().slice(0, 10)
+    const key = `pathaoDash:${d(from)}:${d(to)}`
+    const cached = await ctx.runQuery(internal.pathao.getCache, { key })
+    if (cached && Date.now() - cached.at < 15 * 60000) return cached.data
+    const res = await merchantGet(ctx, `${MB}/oms/orders/stats?type=dashboard&from_date=${d(from)}&to_date=${d(to)}`)
+    const x = res.json?.data
+    if (!res.ok || !x) return null
+    const c = (k: any) => ({ count: Number(k?.count) || 0, amount: Number(k?.amount) || 0, pct: Number(String(k?.percentage ?? "0").replace("%", "")) || 0 })
+    const rb = x.return_breakdown ?? {}
+    const data = {
+      total: c(x.total_orders),
+      delivered: c(x.delivered),
+      returned: c(x.returned),
+      returns: { regular: c(rb.return), paid: c(rb.paid_return), partial: c(rb.partial_delivery), exchange: c(rb.exchange) },
+      moving: {
+        atDeliveryHub: c(x.at_delivery_hub), assigned: c(x.delivery_assigned), inTransit: c(x.delivery_in_transit), onHold: c(x.delivery_on_hold),
+        returnInTransit: c(x.return_in_transit), returnAssigned: c(x.return_assigned), atReturnHub: c(x.at_return_hub),
+      },
+      cachedAt: x.cached_at ? Date.parse(x.cached_at) : Date.now(),
+    }
+    await ctx.runMutation(internal.pathao.setCache, { key, data })
+    return data
+  },
+})
+
+export const getCache = internalQuery({
+  args: { key: v.string() },
+  handler: async (ctx, { key }) => (await getSetting<any>(ctx, key)) ?? null,
+})
+export const setCache = internalMutation({
+  args: { key: v.string(), data: v.any() },
+  handler: async (ctx, { key, data }) => { await setSetting(ctx, key, { data, at: Date.now() }) },
+})
