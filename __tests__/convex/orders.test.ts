@@ -235,7 +235,7 @@ describe("Pathao money sync", () => {
     expect(r1).toEqual({ linked: 1, updated: 1 })
     let o = await t.run((ctx) => ctx.db.get(orderId))
     expect(o).toMatchObject({ consignmentId: "DB241026TEST01", courier: "pathao", courierLinkedBy: "order no", courierCost: 110 })
-    expect(o!.courierPaid).toBeUndefined()
+    expect((o as any).courierPaid).toBeUndefined()
     const toPaid = await t.mutation(internal.pathao.applyInvoice, {
       inv: { invoiceId: "241026TESTINV", createdAt: Date.now(), collected: 2960, deliveryFee: 110, codFee: 29.6, discount: 15, totalFee: 124.6, receivable: 2835.4, status: "paid" },
       lines: [{ cid: "DB241026TEST01", type: "delivery", collected: 2960, payout: 2835.4, fee: 124.6 }],
