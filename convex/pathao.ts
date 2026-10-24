@@ -613,3 +613,18 @@ export const tracking = action({
     return data
   },
 })
+
+/** Admin check from the Convex dashboard: how a consignment's tracking reads (parsed + raw sample). */
+export const debugTracking = internalAction({
+  args: { consignmentId: v.string(), phone: v.string() },
+  handler: async (ctx, { consignmentId, phone }) => {
+    const base = `https://merchant.pathao.com/api/v1/orders/${encodeURIComponent(consignmentId)}`
+    const [det, act] = await Promise.all([merchantGet(ctx, `${base}?archive=0`), merchantGet(ctx, `${base}/${encodeURIComponent(phone)}/activity?archive=0`)])
+    return {
+      detailsStatus: det.status, activityStatus: act.status,
+      parsed: { ...readDetails(det.json), events: readEvents(act.json) },
+      rawActivity: JSON.stringify(act.json).slice(0, 3000),
+      rawDetailsKeys: Object.keys(det.json?.data ?? det.json ?? {}),
+    }
+  },
+})
