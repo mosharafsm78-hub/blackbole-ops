@@ -653,7 +653,9 @@ export const debugMoney = internalAction({
     const inv = await merchantGet(ctx, `${B}/monetary/invoices/receivable?page=1&limit=2`)
     const br = invoiceId ? await merchantGet(ctx, `${B}/monetary/invoices/${invoiceId}/breakdown`) : null
     return {
-      list: JSON.stringify(list.json).slice(0, 2500),
+      listKeys: Object.keys(list.json?.data?.data?.[0] ?? {}),
+      listFirst: Object.fromEntries(Object.entries(list.json?.data?.data?.[0] ?? {}).filter(([k]) => !/address|description|instruction|name/.test(k))),
+      listPaging: Object.fromEntries(Object.entries(list.json?.data ?? {}).filter(([k]) => k !== "data")),
       stats: JSON.stringify(stats.json).slice(0, 600),
       invoices: JSON.stringify(inv.json).slice(0, 1500),
       breakdown: br ? JSON.stringify(br.json).slice(0, 2000) : null,
