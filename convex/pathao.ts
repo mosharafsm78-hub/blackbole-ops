@@ -781,7 +781,9 @@ export const syncMoney = internalAction({
     }
     // 2) invoices: what Pathao collected and paid us, per parcel
     let knownStreak = 0
-    for (let page = 1; page <= 40 && knownStreak < 25; page++) {
+    // quick runs stop after a long run of invoices we already have; deep runs (more than 20 days) read everything in range
+    const stopAfterKnown = days > 20 ? Infinity : 25
+    for (let page = 1; page <= 60 && knownStreak < stopAfterKnown; page++) {
       const res = await merchantGet(ctx, `${MB}/monetary/invoices/receivable?page=${page}&limit=20`)
       const list: any[] = res.json?.data?.data ?? []
       if (!res.ok || list.length === 0) break
