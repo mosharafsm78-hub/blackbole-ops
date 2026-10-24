@@ -266,6 +266,15 @@ describe("Nuport status sync", () => {
       { inv: "BB-1", shopify: null, phone: "01700000000", cid: null, status: "approved", nuport: "Approved" },
     ] })
     expect(res).toMatchObject({ received: 3, changed: 2, linked: 1, unmatched: ["BB-1"] })
+    // same invoice number but a different Shopify order / phone must NOT match
+    const c = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await t.run((ctx) => ctx.db.patch(c.orderId, { externalName: "#30001" }))
+    const wrong = await as.action(api.migrate.nuportSyncNow, { rows: [
+      { inv: `BB-${c.invoiceNo}`, shopify: "30555", phone: null, cid: null, status: "cancelled", nuport: "Cancelled" },
+      { inv: `BB-${c.invoiceNo}`, shopify: null, phone: "01799999999", cid: "RB241026RRRR11", status: "returned", nuport: "Returned" },
+    ] })
+    expect(wrong).toMatchObject({ changed: 0, linked: 0 })
+    expect((await t.run((ctx) => ctx.db.get(c.orderId)))!.status).toBe("pending")
     const oa = await t.run((ctx) => ctx.db.get(a.orderId))
     const ob = await t.run((ctx) => ctx.db.get(b.orderId))
     expect(oa).toMatchObject({ status: "in_transit", consignmentId: "DB241026AAAA11" })

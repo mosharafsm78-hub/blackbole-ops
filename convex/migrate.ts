@@ -315,13 +315,20 @@ async function nuportSync(ctx: any, rows: NuRow[]) {
   const seen = new Set<string>()
   for (const r of rows) {
     const phone = normPhone(r.phone)
-    let o = (r.cid && byCid.get(r.cid)) || (r.shopify && byExt.get(String(r.shopify))) || undefined
-    if (!o) { const c = byNo.get(r.inv); if (c && (!phone || c.phone === phone)) o = c }
+    const cid = r.cid && /^DB/.test(r.cid) ? r.cid : null // only delivery parcels (RB/RE are returns, EB exchanges)
+    let o = (cid && byCid.get(cid)) || (r.shopify && byExt.get(String(r.shopify))) || undefined
+    if (!o) {
+      // Invoice numbers drifted between Nuport and this app for newer orders, so an invoice match must be confirmed
+      const c = byNo.get(r.inv)
+      const shopOk = r.shopify && c?.ext ? c.ext.replace(/^#/, "") === String(r.shopify) : null
+      const phoneOk = phone && c ? c.phone === phone : null
+      if (c && shopOk !== false && phoneOk !== false && (shopOk || phoneOk)) o = c
+    }
     if (!o) { unmatched.push(r.inv); continue }
     if (seen.has(o.id)) continue
     seen.add(o.id)
-    if (o.status === r.status && (!r.cid || o.cid)) { same++; continue }
-    apply.push({ id: o.id, to: r.status, cid: r.cid ?? undefined, nuport: r.nuport })
+    if (o.status === r.status && (!cid || o.cid)) { same++; continue }
+    apply.push({ id: o.id, to: r.status, cid: cid ?? undefined, nuport: r.nuport })
   }
   let changed = 0, linked = 0
   const errors: string[] = []
