@@ -903,3 +903,12 @@ export const invoiceOrders = query({
     return rows.map((o) => ({ _id: o._id, invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, customer: o.customerName, status: o.status, total: o.total, collected: o.courierCollected ?? null, payout: o.courierPayout ?? null, fee: o.courierCost ?? null, consignmentId: o.consignmentId ?? null }))
   },
 })
+
+/** Admin check from the Convex dashboard: raw answer of any Pathao merchant-panel GET path (e.g. "oms/orders/stats?type=dashboard"). */
+export const debugGet = internalAction({
+  args: { path: v.string() },
+  handler: async (ctx, { path }) => {
+    const res = await merchantGet(ctx, `${MB}/${path.replace(/^\//, "")}`)
+    return { status: res.status, body: JSON.stringify(res.json).slice(0, 6000) }
+  },
+})
