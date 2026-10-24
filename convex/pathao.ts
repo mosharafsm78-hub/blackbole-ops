@@ -642,3 +642,21 @@ export const debugTracking = internalAction({
     }
   },
 })
+
+/** Admin check from the Convex dashboard: raw shapes of Pathao's parcel list and invoices. */
+export const debugMoney = internalAction({
+  args: { phone: v.optional(v.string()), invoiceId: v.optional(v.string()) },
+  handler: async (ctx, { phone, invoiceId }) => {
+    const B = "https://merchant.pathao.com/api/v1"
+    const list = await merchantGet(ctx, `${B}/orders/all?${phone ? `receiver_phone=${phone}&` : ""}transfer_status=4&archive=0&page=1&limit=3`)
+    const stats = await merchantGet(ctx, `${B}/monetary/stats/invoice?type=all`)
+    const inv = await merchantGet(ctx, `${B}/monetary/invoices/receivable?page=1&limit=2`)
+    const br = invoiceId ? await merchantGet(ctx, `${B}/monetary/invoices/${invoiceId}/breakdown`) : null
+    return {
+      list: JSON.stringify(list.json).slice(0, 2500),
+      stats: JSON.stringify(stats.json).slice(0, 600),
+      invoices: JSON.stringify(inv.json).slice(0, 1500),
+      breakdown: br ? JSON.stringify(br.json).slice(0, 2000) : null,
+    }
+  },
+})
