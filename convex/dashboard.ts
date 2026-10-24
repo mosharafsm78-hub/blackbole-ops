@@ -107,12 +107,72 @@ export const overview = action({
   args: { from: v.number(), to: v.number() },
   handler: async (ctx, { from, to }): Promise<any> => {
     const span = to - from + 1
-    const [now, prev, money, pathao] = await Promise.all([
+    const bd = new Date(Date.now() + BD_OFFSET); bd.setUTCHours(0, 0, 0, 0)
+    const todayStart = bd.getTime() - BD_OFFSET
+    const [now, prev, money, pathao, today, yesterday] = await Promise.all([
       ctx.runQuery(internal.dashboard.statsData, { from, to }),
       ctx.runQuery(internal.dashboard.statsData, { from: from - span, to: from - 1 }),
       ctx.runQuery(internal.dashboard.moneyData, { from, to }),
       ctx.runAction(internal.pathao.dashboardStats, { from, to }).catch(() => null),
+      ctx.runQuery(internal.dashboard.statsData, { from: todayStart, to: todayStart + DAY - 1 }),
+      ctx.runQuery(internal.dashboard.statsData, { from: todayStart - DAY, to: Date.now() - DAY }),
     ])
-    return { now, prev, money, pathao }
+    return { now, prev, money, pathao, today, yesterday }
+  },
+})
+
+/** One page of compact orders for the monthly summary. */
+export const monthPage = internalQuery({
+  args: { from: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, cursor }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return { rows: [], isDone: true, cursor: "" }
+    const res = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from)).paginate({ cursor, numItems: 500 })
+    return {
+      isDone: res.isDone, cursor: res.continueCursor,
+      rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ at: o.createdAt, status: o.status, total: o.total, items: o.itemCount ?? o.items.reduce((t, i) => t + i.qty, 0) })),
+    }
+  },
+})
+
+export const monthMoney = internalQuery({
+  args: { from: v.number() },
+  handler: async (ctx, { from }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return []
+    return (await ctx.db.query("pathaoInvoices").withIndex("by_created", (q) => q.gte("createdAt", from)).collect()).map((i) => ({ at: i.createdAt, paid: i.status.toLowerCase() === "paid" ? i.receivable : 0, fees: i.totalFee }))
+  },
+})
+
+/** Month by month: orders, sales, delivered, returned, cancelled, delivery %, Pathao paid us. */
+export const monthly = action({
+  args: { months: v.optional(v.number()) },
+  handler: async (ctx, { months = 6 }): Promise<any[]> => {
+    const nowBD = new Date(Date.now() + BD_OFFSET)
+    const start = Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1), 1) - BD_OFFSET
+    const key = (t: number) => new Date(t + BD_OFFSET).toISOString().slice(0, 7)
+    const out = new Map<string, any>()
+    for (let i = 0; i < months; i++) {
+      const k = new Date(Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1) + i, 1)).toISOString().slice(0, 7)
+      out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, cancelled: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
+    }
+    let cursor: string | null = null
+    for (let i = 0; i < 200; i++) {
+      const res: { isDone: boolean; cursor: string; rows: { at: number; status: string; total: number; items: number }[] } = await ctx.runQuery(internal.dashboard.monthPage, { from: start, cursor })
+      for (const r of res.rows) {
+        const m = out.get(key(r.at)); if (!m) continue
+        if (r.status === "cancelled") { m.cancelled++; continue }
+        m.orders++; m.sales += r.total; m.items += r.items
+        if (r.status === "delivered_due" || r.status === "delivered_paid") { m.delivered++; m.deliveredValue += r.total }
+        else if (["pending_returned", "returned", "damaged"].includes(r.status)) m.returned++
+        else m.open++
+      }
+      if (res.isDone) break
+      cursor = res.cursor
+    }
+    for (const i of await ctx.runQuery(internal.dashboard.monthMoney, { from: start })) {
+      const m = out.get(key(i.at)); if (m) { m.pathaoPaid += i.paid; m.pathaoFees += i.fees }
+    }
+    return [...out.values()].reverse().map((m) => ({ ...m, deliveryRate: m.delivered + m.returned ? Math.round((m.delivered / (m.delivered + m.returned)) * 100) : null }))
   },
 })

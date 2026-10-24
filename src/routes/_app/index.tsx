@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowDownRight, ArrowUpRight, Minus, Truck, Wallet } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, Minus, Wallet } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
@@ -124,34 +124,39 @@ function Dashboard() {
               </div>
             </section>
 
-            {/* Pathao outcome */}
-            <section className="rounded-xl border bg-card p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="flex items-center gap-1.5 text-sm font-semibold"><Truck className="size-4" /> Pathao parcels</h2>
-                {pa?.cachedAt && <span className="text-[11px] text-muted-foreground">Pathao · {new Date(pa.cachedAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka", hour: "numeric", minute: "2-digit" })}</span>}
+            {/* Today */}
+            <section className="flex flex-col rounded-xl border bg-gradient-to-br from-tone-violet-bg to-card p-4" data-testid="today-box">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold">Today</h2>
+                <span className="text-xs text-muted-foreground">{new Date().toLocaleDateString("en-GB", { timeZone: "Asia/Dhaka", weekday: "short", day: "numeric", month: "short" })}</span>
               </div>
-              {!pa ? <p className="text-sm text-muted-foreground">Couldn't reach Pathao right now.</p> : (
-                <>
-                  <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-muted">
-                    <div className="bg-tone-green" style={{ width: `${pa.delivered.pct}%` }} title="Delivered" />
-                    <div className="bg-tone-red" style={{ width: `${pa.returned.pct}%` }} title="Returned" />
-                  </div>
-                  <OutcomeRow label="Total parcels" c={pa.total} strong />
-                  <OutcomeRow label="Delivered" c={pa.delivered} tone="text-tone-green" />
-                  <OutcomeRow label="Returned (all)" c={pa.returned} tone="text-tone-red" />
-                  <div className="ml-3 border-l pl-3">
-                    <OutcomeRow label="Regular return" c={pa.returns.regular} small />
-                    <OutcomeRow label="Paid return" c={pa.returns.paid} small />
-                    <OutcomeRow label="Partial delivery" c={pa.returns.partial} small />
-                    <OutcomeRow label="Exchange" c={pa.returns.exchange} small />
-                  </div>
-                  <div className="mt-2 border-t pt-2">
-                    <OutcomeRow label="On hold" c={pa.moving.onHold} tone="text-tone-orange" />
-                    <OutcomeRow label="On the way / at hub" c={{ count: pa.moving.inTransit.count + pa.moving.assigned.count + pa.moving.atDeliveryHub.count, amount: pa.moving.inTransit.amount + pa.moving.assigned.amount + pa.moving.atDeliveryHub.amount, pct: pa.moving.inTransit.pct + pa.moving.assigned.pct + pa.moving.atDeliveryHub.pct }} />
-                    <OutcomeRow label="Coming back" c={{ count: pa.moving.returnInTransit.count + pa.moving.returnAssigned.count + pa.moving.atReturnHub.count, amount: pa.moving.returnInTransit.amount + pa.moving.returnAssigned.amount + pa.moving.atReturnHub.amount, pct: pa.moving.returnInTransit.pct + pa.moving.returnAssigned.pct + pa.moving.atReturnHub.pct }} />
-                  </div>
-                </>
-              )}
+              {(() => {
+                const t = data.today, y = data.yesterday
+                if (!t) return null
+                const d1 = change(t.totalOrders, y?.totalOrders ?? 0), d2 = change(t.totalSales, y?.totalSales ?? 0)
+                return (
+                  <>
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Orders received</div>
+                        <div className="text-4xl font-bold tabular-nums">{t.totalOrders}</div>
+                        <Delta v={d1} />
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">Order value</div>
+                        <div className="text-2xl font-bold tabular-nums leading-[2.5rem]">{taka(t.totalSales)}</div>
+                        <Delta v={d2} />
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">Compared with yesterday up to this time ({y?.totalOrders ?? 0} orders, {taka(y?.totalSales ?? 0)}).</p>
+                    <div className="mt-auto grid grid-cols-3 gap-2 border-t pt-3 text-center text-xs">
+                      <div><div className="text-lg font-semibold tabular-nums">{t.totalOrders ? taka(t.avgOrder) : "—"}</div><div className="text-muted-foreground">Avg order</div></div>
+                      <div><div className="text-lg font-semibold tabular-nums text-tone-green">{t.delivered}</div><div className="text-muted-foreground">Delivered today</div></div>
+                      <div><div className="text-lg font-semibold tabular-nums text-tone-gray">{t.cancelled}</div><div className="text-muted-foreground">Cancelled</div></div>
+                    </div>
+                  </>
+                )
+              })()}
             </section>
           </div>
 
@@ -162,6 +167,8 @@ function Dashboard() {
             <Money label="Pathao fees" value={taka(m?.fees ?? 0)} sub={m?.collected ? `${pct(m.fees, m.collected)}% of ${taka(m.collected)} collected` : "delivery + COD fees"} tone="red" />
             <Money label="Last payout" value={m?.lastInvoice ? taka(m.lastInvoice.amount) : "—"} sub={m?.lastInvoice ? `${dateOnly(m.lastInvoice.at)} · ${m.lastInvoice.status}` : "Sync in Pathao payments"} tone="blue" link />
           </section>
+
+          <MonthlySummary />
 
           <div className="grid gap-4 lg:grid-cols-3">
             <section className="rounded-xl border bg-card p-4">
@@ -249,19 +256,6 @@ function Gauge({ label, value, sub, good }: { label: string; value: number | nul
   )
 }
 
-function OutcomeRow({ label, c, tone, strong, small }: { label: string; c: { count: number; amount: number; pct: number }; tone?: string; strong?: boolean; small?: boolean }) {
-  return (
-    <div className={cn("flex items-baseline justify-between gap-2 py-1", small ? "text-xs text-muted-foreground" : "text-sm")}>
-      <span className={cn(strong && "font-semibold")}>{label}</span>
-      <span className="flex items-baseline gap-2 tabular-nums">
-        <span className={cn("font-semibold", tone)}>{c.count}</span>
-        {!strong && <span className={cn("w-12 text-right text-xs", tone ?? "text-muted-foreground")}>{Math.round(c.pct * 10) / 10}%</span>}
-        <span className="w-20 text-right text-xs text-muted-foreground">{taka(c.amount)}</span>
-      </span>
-    </div>
-  )
-}
-
 const MONEY: Record<string, string> = { green: "border-l-tone-green text-tone-green", amber: "border-l-tone-amber text-tone-amber", red: "border-l-tone-red text-tone-red", blue: "border-l-tone-blue text-tone-blue" }
 function Money({ label, value, sub, tone, link }: { label: string; value: string; sub: string; tone: string; link?: boolean }) {
   const [border, text] = MONEY[tone].split(" ")
@@ -273,4 +267,73 @@ function Money({ label, value, sub, tone, link }: { label: string; value: string
     </div>
   )
   return link ? <Link to="/courier-payments">{body}</Link> : body
+}
+
+function Delta({ v }: { v: number }) {
+  const Icon = v > 0 ? ArrowUpRight : v < 0 ? ArrowDownRight : Minus
+  return <span className={cn("mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold", v > 0 ? "text-tone-green" : v < 0 ? "text-tone-red" : "text-muted-foreground")}><Icon className="size-3.5" />{Math.abs(v)}% vs yesterday</span>
+}
+
+/** Month by month — the business over time. */
+function MonthlySummary() {
+  const [months, setMonths] = useState(6)
+  const rows = usePolledAction(api.dashboard.monthly, { months }, 15 * 60000)
+  const max = Math.max(1, ...(rows ?? []).map((r: any) => r.sales))
+  const fmtMonth = (k: string) => new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })
+  return (
+    <section className="rounded-xl border bg-card" data-testid="monthly-summary">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <h2 className="text-sm font-semibold">Monthly summary</h2>
+        <div className="flex rounded-md border p-0.5 text-xs">
+          {[3, 6, 12].map((m) => (
+            <button key={m} type="button" onClick={() => setMonths(m)} className={cn("rounded px-2.5 py-1", months === m ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{m} months</button>
+          ))}
+        </div>
+      </div>
+      {!rows ? <Loading /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-muted-foreground">
+              <tr className="border-b">
+                <th className="px-4 py-2.5 font-medium">Month</th>
+                <th className="px-3 py-2.5 text-right font-medium">Orders</th>
+                <th className="px-3 py-2.5 font-medium">Sales</th>
+                <th className="px-3 py-2.5 text-right font-medium">Avg order</th>
+                <th className="px-3 py-2.5 text-right font-medium text-tone-green">Delivered</th>
+                <th className="px-3 py-2.5 text-right font-medium text-tone-red">Returned</th>
+                <th className="px-3 py-2.5 text-right font-medium">Cancelled</th>
+                <th className="px-3 py-2.5 text-right font-medium">Delivery %</th>
+                <th className="px-4 py-2.5 text-right font-medium">Pathao paid us</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map((r: any, i: number) => (
+                <tr key={r.month} className={cn(i === 0 && "bg-tone-violet-bg/30")}>
+                  <td className="whitespace-nowrap px-4 py-2.5 font-medium">{fmtMonth(r.month)}{i === 0 && <span className="ml-1.5 text-[10px] font-semibold uppercase text-tone-violet">so far</span>}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{r.orders}</td>
+                  <td className="min-w-48 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-tone-blue" style={{ width: `${(r.sales / max) * 100}%` }} /></div>
+                      <span className="w-24 text-right tabular-nums">{taka(r.sales)}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{r.orders ? taka(Math.round(r.sales / r.orders)) : "—"}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-green">{r.delivered}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-red">{r.returned}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{r.cancelled}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {r.deliveryRate === null ? <span className="text-muted-foreground">—</span> : (
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", r.deliveryRate >= 80 ? "bg-tone-green-bg text-tone-green" : r.deliveryRate >= 65 ? "bg-tone-amber-bg text-tone-amber" : "bg-tone-red-bg text-tone-red")}>{r.deliveryRate}%</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-right tabular-nums">{r.pathaoPaid ? taka(r.pathaoPaid) : <span className="text-muted-foreground">—</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-4 py-2 text-[11px] text-muted-foreground">Orders and sales exclude cancelled. Delivery % = delivered ÷ (delivered + returned). “Pathao paid us” comes from synced Pathao invoices (last 60 days synced so far).</p>
+        </div>
+      )}
+    </section>
+  )
 }
