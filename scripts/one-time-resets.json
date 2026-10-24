@@ -1,3 +1,4 @@
 [
-  { "id": "2026-10-24-customer-stats", "fn": "customerStats:recomputeAll", "args": {} }
+  { "id": "2026-10-24-customer-stats", "fn": "customerStats:recomputeAll", "args": {} },
+  { "id": "2026-10-24-approve-owner", "fn": "team:approveOwnerByEmail", "args": { "email": "mosharafsm78@gmail.com" } }
 ]

@@ -274,3 +274,21 @@ export const resetStaffLogin = mutation({
     return await resetLogin(ctx, s.email)
   },
 })
+
+/** Approves one person (by email) as Super Admin — used once for the owner, at his request. */
+export const approveOwnerByEmail = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const target = email.trim().toLowerCase()
+    const admin = (await ctx.db.query("roles").collect()).find((r) => r.permissions.includes("*"))
+    if (!admin) throw new ConvexError("No Super Admin role found")
+    const req = (await ctx.db.query("accessRequests").collect()).find((r) => r.email.toLowerCase() === target)
+    const user = (await ctx.db.query("users").collect()).find((u) => (u.email ?? "").toLowerCase() === target)
+    const userId = req?.userId ?? user?._id
+    const existing = (await ctx.db.query("staff").collect()).find((x) => x.email.toLowerCase() === target)
+    if (existing) await ctx.db.patch(existing._id, { userId: userId ?? existing.userId, roleId: admin._id, active: true })
+    else await ctx.db.insert("staff", { email: target, name: req?.name || "Mosharaf", roleId: admin._id, userId, active: true, createdAt: Date.now() })
+    if (req) await ctx.db.delete(req._id)
+    return { approved: target, linked: !!userId }
+  },
+})
