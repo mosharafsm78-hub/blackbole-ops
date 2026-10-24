@@ -76,4 +76,22 @@ describe("purchases", () => {
     expect(m[1]?.sku).toBe("BB-SH-HSS-BLACK-41")
     expect(m[2]).toBeNull()
   })
+
+  it("supplier summary shows pairs, shoes, paid and due for the dates", async () => {
+    const { as, locationId, supplierId, v41, v42 } = await setup()
+    const id = await as.mutation(api.purchasing.savePO, {
+      supplierId, locationId, lines: [{ variantId: v41, orderedQty: 12, unitCost: 500 }, { variantId: v42, orderedQty: 8, unitCost: 500 }],
+      discount: 0, shippingCost: 0, otherCost: 0, status: "ordered",
+    })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 3000, method: "bKash", reference: "TRX1" })
+    const day = 86400000
+    const sum = (await as.query(api.purchasing.summary, { from: Date.now() - day, to: Date.now() + day }))!
+    expect(sum.totals).toMatchObject({ purchases: 1, pairs: 20, received: 0, value: 10000, paid: 3000, dueNow: 7000 })
+    expect(sum.purchases[0]).toMatchObject({ pairs: 20, paid: 3000, due: 7000 })
+    expect(sum.products[0]).toMatchObject({ ordered: 20, sizes: "41: 12, 42: 8" })
+    expect(sum.payments[0]).toMatchObject({ amount: 3000, method: "bKash", supplier: "Guangzhou Factory" })
+    // outside the dates: nothing ordered or paid, but what we owe stays visible
+    const old = (await as.query(api.purchasing.summary, { from: 0, to: Date.now() - 10 * day }))!
+    expect(old.totals).toMatchObject({ purchases: 0, pairs: 0, paid: 0, dueNow: 7000 })
+  })
 })

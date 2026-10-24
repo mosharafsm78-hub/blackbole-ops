@@ -481,3 +481,73 @@ export const labelData = query({
     return rows
   },
 })
+
+// ---------------- Supplier summary (one view, date-wise) ----------------
+/** Everything for a date range in one place: what we ordered (which shoes, how many pairs), what we paid, what we still owe. */
+export const summary = query({
+  args: { from: v.number(), to: v.number(), supplierId: v.optional(v.id("suppliers")) },
+  handler: async (ctx, { from, to, supplierId }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const code = (n: number) => `PO-${String(n).padStart(4, "0")}`
+    const allPOs = supplierId
+      ? await ctx.db.query("purchaseOrders").withIndex("by_supplier", (q) => q.eq("supplierId", supplierId)).collect()
+      : await ctx.db.query("purchaseOrders").collect()
+    const when = (p: Doc<"purchaseOrders">) => p.orderedAt ?? p.createdAt
+    const pos = allPOs.filter((p) => p.status !== "cancelled" && when(p) >= from && when(p) <= to).sort((a, b) => when(b) - when(a))
+    const allPays = supplierId
+      ? await ctx.db.query("supplierPayments").withIndex("by_supplier", (q) => q.eq("supplierId", supplierId)).collect()
+      : await ctx.db.query("supplierPayments").collect()
+    const pays = allPays.filter((p) => p.at >= from && p.at <= to).sort((a, b) => b.at - a.at)
+    const poById = new Map(allPOs.map((p) => [p._id as string, p]))
+    const suppliers = supplierId ? [await ctx.db.get(supplierId)].filter(Boolean) as Doc<"suppliers">[] : await ctx.db.query("suppliers").collect()
+    const nameOf = new Map(suppliers.map((sp) => [sp._id as string, sp.name]))
+
+    // per product (base name), sizes listed
+    const products = new Map<string, { name: string; ordered: number; received: number; value: number; sizes: Map<string, number> }>()
+    for (const p of pos) for (const i of p.items) {
+      const r = products.get(i.name) ?? { name: i.name, ordered: 0, received: 0, value: 0, sizes: new Map() }
+      r.ordered += i.orderedQty; r.received += i.receivedQty; r.value += i.orderedQty * i.unitCost
+      r.sizes.set(i.title, (r.sizes.get(i.title) ?? 0) + i.orderedQty)
+      products.set(i.name, r)
+    }
+
+    // per supplier: in this period + what we owe now (all time)
+    const bySupplier = await Promise.all(suppliers.map(async (sp) => {
+      const mine = pos.filter((p) => p.supplierId === sp._id)
+      const paidInRange = pays.filter((p) => p.supplierId === sp._id).reduce((t, p) => t + p.amount, 0)
+      const acc = await supplierAccount(ctx, sp)
+      return {
+        _id: sp._id, name: sp.name, purchases: mine.length,
+        pairs: mine.reduce((t, p) => t + p.items.reduce((u, i) => u + i.orderedQty, 0), 0),
+        received: mine.reduce((t, p) => t + p.items.reduce((u, i) => u + i.receivedQty, 0), 0),
+        value: mine.reduce((t, p) => t + p.total, 0),
+        paid: paidInRange,
+        dueNow: acc.due,
+      }
+    }))
+
+    return {
+      totals: {
+        purchases: pos.length,
+        pairs: pos.reduce((t, p) => t + p.items.reduce((u, i) => u + i.orderedQty, 0), 0),
+        received: pos.reduce((t, p) => t + p.items.reduce((u, i) => u + i.receivedQty, 0), 0),
+        value: pos.reduce((t, p) => t + p.total, 0),
+        paid: pays.reduce((t, p) => t + p.amount, 0),
+        dueNow: bySupplier.reduce((t, x) => t + Math.max(0, x.dueNow), 0),
+      },
+      suppliers: bySupplier.filter((x) => x.purchases > 0 || x.paid > 0 || x.dueNow !== 0).sort((a, b) => b.dueNow - a.dueNow),
+      purchases: pos.map((p) => ({
+        _id: p._id, code: code(p.code), at: when(p), status: p.status, supplier: p.supplierName, ref: p.supplierRef,
+        lines: p.items.map((i) => ({ name: i.name, size: i.title, ordered: i.orderedQty, received: i.receivedQty, unitCost: i.unitCost })),
+        pairs: p.items.reduce((t, i) => t + i.orderedQty, 0), received: p.items.reduce((t, i) => t + i.receivedQty, 0),
+        total: p.total, paid: p.paid, due: p.status === "draft" ? 0 : p.due,
+      })),
+      payments: pays.map((p) => {
+        const po = p.poId ? poById.get(p.poId) : undefined
+        return { _id: p._id, at: p.at, supplier: (p.supplierId && nameOf.get(p.supplierId)) || po?.supplierName || "—", amount: p.amount, method: p.method, reference: p.reference, note: p.note, by: p.byName, po: po ? code(po.code) : null, poId: po?._id ?? null }
+      }),
+      products: [...products.values()].map((r) => ({ name: r.name, ordered: r.ordered, received: r.received, value: r.value, sizes: [...r.sizes.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })).map(([k, n]) => `${k}: ${n}`).join(", ") })).sort((a, b) => b.ordered - a.ordered),
+    }
+  },
+})

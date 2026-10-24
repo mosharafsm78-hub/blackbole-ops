@@ -48,6 +48,10 @@ function Editor({ data }: { data: Data | null }) {
   const po = data?.po
   const save = useMutation(api.purchasing.savePO)
   const setStatus = useMutation(api.purchasing.setPOStatus)
+  const addPayment = useMutation(api.purchasing.addSupplierPayment)
+  const [payAmt, setPayAmt] = useState(0)
+  const [payMethod, setPayMethod] = useState("Cash")
+  const [payRef, setPayRef] = useState("")
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
 
@@ -104,7 +108,11 @@ function Editor({ data }: { data: Data | null }) {
         discount, shippingCost: shipping, otherCost: other, status: nextStatus,
       })
       setDirty(false)
-      toast.success(nextStatus === "ordered" ? "Purchase placed (Ordered)" : "Saved")
+      if (payAmt > 0 && can("purchases.pay")) {
+        await addPayment({ id: newId, amount: payAmt, method: payMethod, reference: payRef || undefined })
+        setPayAmt(0); setPayRef("")
+      }
+      toast.success((nextStatus === "ordered" ? "Purchase placed (Ordered)" : "Saved") + (payAmt > 0 && can("purchases.pay") ? ` · payment ${taka(payAmt)} recorded` : ""))
       if (!po) navigate({ to: "/purchase", search: { id: newId } })
     } catch (e) {
       toast.error(errMsg(e))
@@ -223,7 +231,28 @@ function Editor({ data }: { data: Data | null }) {
             <label className="flex items-center justify-between gap-2"><span>Customs / other</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable} value={other} onChange={(e) => { setOther(Number(e.target.value) || 0); touch() }} /></label>
             <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span className="tabular-nums">{taka(total)}</span></div>
             <div className="flex justify-between text-tone-green"><span>Paid</span><span className="tabular-nums">{taka(paid)}</span></div>
-            <div className="flex justify-between font-semibold"><span>Due to supplier</span><span className={cn("tabular-nums", total - paid > 0 && "text-tone-red")}>{taka(Math.max(0, total - paid))}</span></div>
+            <div className="flex justify-between font-semibold"><span>Due to supplier</span><span className={cn("tabular-nums", total - paid - payAmt > 0 && "text-tone-red")}>{taka(Math.max(0, total - paid - payAmt))}</span></div>
+            {status !== "cancelled" && can("purchases.pay") && (
+              <div className="space-y-2 rounded-md border border-dashed border-tone-green/50 bg-tone-green-bg/40 p-2.5" data-testid="pay-now">
+                <div className="text-xs font-semibold text-tone-green">Pay supplier now (advance / payment)</div>
+                <div className="flex gap-2">
+                  <Input type="number" className="h-8 w-28 text-right" placeholder="Amount" value={payAmt || ""} onChange={(e) => setPayAmt(Math.max(0, Number(e.target.value) || 0))} />
+                  <Select value={payMethod} onValueChange={setPayMethod}>
+                    <SelectTrigger size="sm" className="h-8 flex-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>{SUPPLIER_PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <Input className="h-8" placeholder="Reference / TrxID / cheque no. (optional)" value={payRef} onChange={(e) => setPayRef(e.target.value)} />
+                {po && !dirty ? (
+                  <Button size="sm" className="w-full" disabled={payAmt <= 0 || busy} onClick={async () => {
+                    setBusy(true)
+                    try { await addPayment({ id: po._id, amount: payAmt, method: payMethod, reference: payRef || undefined }); toast.success(`Payment ${taka(payAmt)} recorded`); setPayAmt(0); setPayRef("") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+                  }}>Save payment</Button>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">{payAmt > 0 ? "Saved together when you click Save / Place order." : "Leave empty if you haven't paid yet."}</p>
+                )}
+              </div>
+            )}
             <p className="pt-1 text-xs text-muted-foreground">Shipping, customs and discount are spread over the products by value ("landed cost"). When goods are received, each product's purchase price is updated to the average cost.</p>
           </section>
           {po && <Files po={po} />}

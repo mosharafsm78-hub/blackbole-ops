@@ -7,6 +7,7 @@ import { PO_STATUS_LABEL } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Stat } from "@/components/bits"
 import { POStatus, poCode } from "@/components/purchase-parts"
+import { SupplierSummary } from "@/components/supplier-summary"
 import { Button } from "@/components/ui/button"
 import { dateOnly, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -34,6 +35,7 @@ function Purchases() {
   const can = useCan()
   const navigate = useNavigate()
   const [tab, setTab] = useState("open")
+  const [mode, setMode] = useState<"list" | "summary">("list")
   const rows = useQuery(api.purchasing.listPOs, { status: tab || undefined })
   const all = useQuery(api.purchasing.listPOs, {})
   const open = (all ?? []).filter((p) => ["ordered", "shipped", "partial"].includes(p.status))
@@ -47,6 +49,14 @@ function Purchases() {
         {<Perm perm="purchases.manage"><Button size="sm" onClick={() => navigate({ to: "/purchase", search: { id: "new" } })}><Plus className="size-4" /> New purchase</Button></Perm>}
       </PageHeader>
 
+      <div className="mb-4 flex w-fit rounded-lg border bg-card p-1" data-testid="purchases-mode">
+        {([["list", "Purchases"], ["summary", "Supplier summary (date-wise)"]] as const).map(([k, l]) => (
+          <button key={k} type="button" onClick={() => setMode(k)}
+            className={cn("rounded-md px-4 py-1.5 text-sm font-medium", mode === k ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{l}</button>
+        ))}
+      </div>
+
+      {mode === "summary" ? <SupplierSummary /> : <>
       <div className="mb-4 grid gap-3 sm:grid-cols-4">
         <Stat label="Open purchases" value={open.length} />
         <Stat label="On the way" value={<span className="inline-flex items-center gap-1.5"><Truck className="size-4" />{onTheWay.reduce((t, p) => t + p.orderedUnits - p.receivedUnits - p.damagedUnits, 0)} pcs</span>} hint={`${onTheWay.length} shipments`} />
@@ -101,6 +111,7 @@ function Purchases() {
           </table>
         </div>
       )}
+      </>}
     </div>
   )
 }
