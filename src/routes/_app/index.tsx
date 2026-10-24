@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
+import { usePolledAction } from "@/lib/use-polled-action"
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
@@ -30,7 +31,7 @@ function Dashboard() {
     const start = startOfDayBD() - (days - 1) * 86400000
     return { from: start, to: startOfDayBD() + 86400000 - 1 }
   }, [days])
-  const stats = useQuery(api.dashboard.stats, { from, to })
+  const stats = usePolledAction(api.dashboard.stats, { from, to }, 60000)
   const counts = useQuery(api.orders.counts)
 
   const queue = [

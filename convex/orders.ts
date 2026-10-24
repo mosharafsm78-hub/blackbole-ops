@@ -346,6 +346,16 @@ export const list = query({
     const limit = Math.min(a.limit, 2000)
     const tab = STATUS_TABS.find((t) => t.key === f.tab)
     let rows: Doc<"orders">[] = []
+    // Fast path: plain tab with no extra filters — read only the newest `limit` orders, not thousands.
+    const { tab: _t, ...extra } = f
+    const plain = Object.values(extra).every((x) => x === undefined || (Array.isArray(x) && x.length === 0))
+    if (plain) {
+      const take = limit + 25 // a little extra to cover deleted orders
+      if (tab) for (const st of tab.statuses) rows.push(...(await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).order("desc").take(take)))
+      else rows = await ctx.db.query("orders").withIndex("by_created").order("desc").take(take)
+      rows = rows.filter((o) => !o.deletedAt).sort((x, y) => y.createdAt - x.createdAt)
+      return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
+    }
     if (f.from && (f.dateField ?? "createdAt") === "createdAt") {
       rows = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", f.from!).lte("createdAt", f.to ?? Date.now() + 86400000)).order("desc").take(6000)
     } else if (tab) {
@@ -951,6 +961,15 @@ export const setCourier = internalMutation({
     log: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    const cur = await ctx.db.get(a.id)
+    if (!cur) return
+    // Skip writes that change nothing — the 30-minute Pathao sync checks hundreds of orders,
+    // and every needless write makes every open screen reload.
+    const same = (a.consignmentId === undefined || a.consignmentId === cur.consignmentId)
+      && (a.courierStatus === undefined || a.courierStatus === cur.courierStatus)
+      && (a.courierFee === undefined || a.courierFee === cur.courierFee)
+      && (a.courierError ?? undefined) === (cur.courierError ?? undefined)
+    if (same && !a.log) return
     const patch: Partial<Doc<"orders">> = { updatedAt: Date.now() }
     if (a.consignmentId !== undefined) patch.consignmentId = a.consignmentId
     if (a.courierStatus !== undefined) patch.courierStatus = a.courierStatus

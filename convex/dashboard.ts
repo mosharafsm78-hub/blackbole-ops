@@ -1,11 +1,12 @@
 import { v } from "convex/values"
-import { query } from "./_generated/server"
+import { action, internalQuery } from "./_generated/server"
+import { internal } from "./_generated/api"
 import { currentStaff } from "./lib"
 
 const DAY = 86400000
 const BD_OFFSET = 6 * 3600000 // Asia/Dhaka
 
-export const stats = query({
+export const statsData = internalQuery({
   args: { from: v.number(), to: v.number() },
   handler: async (ctx, { from, to }) => {
     const s = await currentStaff(ctx)
@@ -61,4 +62,10 @@ export const stats = query({
       topItems: [...items.values()].sort((a, b) => b.qty - a.qty).slice(0, 10),
     }
   },
+})
+
+/** Not live on purpose: the dashboard refreshes every minute instead of re-adding up every order on every change. */
+export const stats = action({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, args): Promise<any> => await ctx.runQuery(internal.dashboard.statsData, args),
 })
