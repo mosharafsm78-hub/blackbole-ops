@@ -1035,14 +1035,14 @@ export const setCourier = internalMutation({
 export const shippedForSync = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const out: { _id: Id<"orders">; consignmentId: string; status: string; partnerCreds: any }[] = []
+    const out: { _id: Id<"orders">; invoice: string; consignmentId: string; status: string; partnerCreds: any }[] = []
     const partners = await ctx.db.query("deliveryPartners").collect()
     for (const st of ["ready_to_ship", "in_transit", "delivered_due", "pending_returned"] as const) {
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(400)
       for (const r of rows) {
         if (!r.consignmentId || r.courier !== "pathao" || r.deletedAt) continue
         const p = partners.find((x) => x._id === r.deliveryPartnerId)
-        out.push({ _id: r._id, consignmentId: r.consignmentId, status: r.status, partnerCreds: p?.useOwnCredentials ? p.credentials ?? null : null })
+        out.push({ _id: r._id, invoice: invoiceLabel(r), consignmentId: r.consignmentId, status: r.status, partnerCreds: p?.useOwnCredentials ? p.credentials ?? null : null })
       }
     }
     return out

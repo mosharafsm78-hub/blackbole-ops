@@ -59,6 +59,7 @@ function OrdersPage() {
   const syncNow = useAction(api.pathao.syncNow)
   const counts = useQuery(api.orders.counts)
   const sameNumber = useQuery(api.orders.sameNumberCount, { tab: search.tab })
+  const [syncing, setSyncing] = useState(false)
   const data = useQuery(api.orders.list, {
     tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, limit,
   })
@@ -100,15 +101,21 @@ function OrdersPage() {
     <div>
       <PageHeader title="Orders" sub={search.q ? `Search results for “${search.q}”` : undefined}>
         <Button
-          variant="outline" size="sm"
+          variant="outline" size="sm" disabled={syncing}
+          title="Asks Pathao for the latest status of every parcel that is shipped, delivered-due or returning, and moves those orders (e.g. In Transit → Delivered). Also runs by itself every 30 minutes."
           onClick={async () => {
+            setSyncing(true)
+            const id = toast.loading("Checking every shipped parcel with Pathao…")
             try {
               const r = await syncNow({})
-              toast.success(`Checked ${r.checked} parcels with Pathao, ${r.moved} updated`)
-            } catch (e) { toast.error(errMsg(e)) }
+              const msg = r.moved
+                ? `${r.moved} order${r.moved > 1 ? "s" : ""} updated from Pathao: ${r.changes.slice(0, 8).join(", ")}${r.changes.length > 8 ? "…" : ""}`
+                : `All ${r.checked - r.failed} parcels already up to date with Pathao`
+              toast.success(msg, { id, duration: 10000, description: r.failed ? `${r.failed} parcel(s) could not be read — tried again in 30 min` : `Checked ${r.checked} parcels` })
+            } catch (e) { toast.error(errMsg(e), { id }) } finally { setSyncing(false) }
           }}
         >
-          <RefreshCw className="size-4" /> Sync Pathao
+          <RefreshCw className={cn("size-4", syncing && "animate-spin")} /> {syncing ? "Syncing…" : "Sync Pathao"}
         </Button>
         <Perm perm="orders.create"><Button size="sm" asChild><Link to="/new-order">Create order</Link></Button></Perm>
       </PageHeader>
