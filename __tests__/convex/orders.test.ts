@@ -565,3 +565,23 @@ describe("shopify cart line notes", () => {
     expect(preOrderFullPrice({ price: "1584", quantity: 1 })).toBeNull()
   })
 })
+
+describe("COD form leads", () => {
+  it("saves the number typed in the COD popup, updates it, and closes it when the order comes in", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const lead = { phone: "01711999888", name: "Rahim", address: "", zone: "outside", items: [{ id: 1, sku: "BB-HSS-41", qty: 1, price: 1480, title: "Harbor Shore", variant: "41" }] }
+    expect(await t.mutation(internal.checkouts.codLead, lead)).toBe("added")
+    let c: any = await t.run((ctx) => ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", "codform:01711999888")).first())
+    expect(c).toMatchObject({ kind: "codform", phone: "01711999888", status: "open", total: 1610, customerName: "Rahim" })
+    expect(c.items[0].variantId).toBe(v41._id)
+    await t.run(async (ctx) => { await ctx.db.patch(c._id, { shopUpdatedAt: Date.now() - 60000 }) })
+    expect(await t.mutation(internal.checkouts.codLead, { ...lead, address: "House 5, Road 2, Agrabad, Chattogram" })).toBe("updated")
+    expect(await t.mutation(internal.checkouts.codLead, { ...lead, phone: "123" })).toBe("bad phone")
+    // the customer orders: the lead closes and new typing within 2 hours is ignored
+    const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), phone: "01711999888" })
+    c = await t.run((ctx) => ctx.db.get(c._id))
+    expect(c.status).toBe("ordered")
+    expect(c.orderId).toBe(orderId)
+    expect(await t.mutation(internal.checkouts.codLead, lead)).toBe("already ordered")
+  })
+})

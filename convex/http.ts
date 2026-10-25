@@ -4,6 +4,7 @@ import { webhook as shopifyWebhook } from "./shopify"
 import { webhook as pathaoWebhook } from "./pathao"
 import { orders as apiOrders } from "./publicApi"
 import { handler as migrateHandler } from "./migrate"
+import { codLeadHttp } from "./checkouts"
 
 const http = httpRouter()
 
@@ -15,5 +16,8 @@ http.route({ path: "/api/orders", method: "POST", handler: apiOrders })
 http.route({ path: "/api/orders", method: "GET", handler: apiOrders })
 http.route({ path: "/migrate", method: "POST", handler: migrateHandler })
 http.route({ path: "/migrate", method: "OPTIONS", handler: migrateHandler })
+// Website COD popup: customer's number as soon as it's typed (abandoned COD form leads)
+http.route({ path: "/cod-lead", method: "POST", handler: codLeadHttp })
+http.route({ path: "/cod-lead", method: "OPTIONS", handler: codLeadHttp })
 
 export default http

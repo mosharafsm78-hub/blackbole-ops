@@ -1,5 +1,6 @@
 import { v, ConvexError } from "convex/values"
-import { query } from "./_generated/server"
+import { httpAction, query } from "./_generated/server"
+import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem } from "./schema"
@@ -76,6 +77,81 @@ export const markOrdered = internalMutation({
 })
 
 // ---------- list ----------
+// ---------- COD form leads (website "Cash on delivery" popup) ----------
+// The popup sends the customer's number as soon as a valid one is typed, so people who leave without
+// pressing "Confirm order" still show up in Abandoned carts. One lead per phone; a real order closes it.
+const leadItem = v.object({ id: v.optional(v.number()), sku: v.optional(v.string()), qty: v.number(), price: v.number(), title: v.string(), variant: v.optional(v.string()) })
+
+export const codLead = internalMutation({
+  args: { phone: v.string(), name: v.string(), email: v.optional(v.string()), address: v.string(), zone: v.optional(v.string()), items: v.array(leadItem), url: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const phone = normalizePhone(a.phone)
+    if (!/^01[3-9]\d{8}$/.test(phone)) return "bad phone"
+    const now = Date.now()
+    // already ordered in the last 2 hours (the form also sends while the order is being placed)
+    const recent = await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", phone)).order("desc").first()
+    if (recent && !recent.deletedAt && now - recent.createdAt < 2 * 3600000) return "already ordered"
+    const items: Doc<"checkouts">["items"] = []
+    for (const i of a.items.slice(0, 10)) {
+      const sku = (i.sku ?? "").trim().toUpperCase()
+      const vr = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
+      const p = vr ? await ctx.db.get(vr.productId) : null
+      const qty = Math.max(1, Math.min(10, Math.round(i.qty)))
+      const price = Math.max(0, Math.round(i.price))
+      items.push({ variantId: vr?._id, sku: sku || `SHOPIFY-${i.id ?? "?"}`, name: (p?.name ?? i.title).slice(0, 160), attrs: (vr?.title ?? i.variant ?? "").slice(0, 80) || undefined, imageUrl: p?.imageUrl, price, qty, discount: 0, weightKg: vr?.weightKg ?? 0.5 })
+    }
+    const subtotal = items.reduce((t, i) => t + i.price * i.qty, 0)
+    const deliveryFee = a.zone === "outside" ? 130 : 90
+    const data = {
+      customerName: a.name.trim().slice(0, 80) || "Customer", phone, email: a.email?.trim().slice(0, 120) || undefined,
+      address: a.address.trim().slice(0, 300), cityName: a.zone === "inside" ? "Dhaka" : undefined,
+      items, subtotal, discount: 0, deliveryFee, total: subtotal + deliveryFee, recoveryUrl: a.url?.slice(0, 300), shopUpdatedAt: now,
+    }
+    const checkoutId = `codform:${phone}`
+    const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", checkoutId)).first()
+    if (!old) {
+      await ctx.db.insert("checkouts", { checkoutId, kind: "codform", ...data, shopCreatedAt: now, status: "open", callCount: 0 })
+      return "added"
+    }
+    if (now - old.shopUpdatedAt < 5000) return "too fast"
+    if (old.status === "open") {
+      await ctx.db.patch(old._id, { ...data, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
+      return "updated"
+    }
+    // came back another time (older lead was ordered / lost / converted): start a fresh lead
+    if (now - (old.closedAt ?? old.shopUpdatedAt) < 6 * 3600000) return "recently closed"
+    await ctx.db.patch(old._id, { ...data, shopCreatedAt: now, status: "open", callCount: 0, orderId: undefined, closedAt: undefined, followUpAt: undefined, lastOutcome: undefined, lastNote: undefined, lastCallBy: undefined, lastCallAt: undefined })
+    return "reopened"
+  },
+})
+
+/** A real order for this phone closes its COD-form lead (called from insertOrder). */
+export async function closeCodLead(ctx: any, phone: string, orderId: Id<"orders">) {
+  const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q: any) => q.eq("checkoutId", `codform:${phone}`)).first()
+  if (old && old.status === "open") await ctx.db.patch(old._id, { status: "ordered", orderId, closedAt: Date.now() })
+}
+
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }
+export const codLeadHttp = httpAction(async (ctx, req) => {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS })
+  try {
+    const text = await req.text()
+    if (text.length > 20000) return new Response("too big", { status: 413, headers: CORS })
+    const b = JSON.parse(text)
+    const str = (x: unknown, n: number) => (typeof x === "string" ? x : "").slice(0, n)
+    const items = (Array.isArray(b.items) ? b.items : []).slice(0, 10).map((i: any) => ({
+      id: Number.isFinite(+i?.id) ? +i.id : undefined, sku: str(i?.sku, 60), qty: Number(i?.qty) || 1, price: Number(i?.price) || 0,
+      title: str(i?.title, 160) || "Product", variant: str(i?.variant, 80),
+    }))
+    const res = await ctx.runMutation(internal.checkouts.codLead, {
+      phone: str(b.phone, 20), name: str(b.name, 80), email: str(b.email, 120), address: str(b.address, 300), zone: str(b.zone, 10), items, url: str(b.url, 300),
+    })
+    return new Response(JSON.stringify({ ok: true, res }), { status: 200, headers: { ...CORS, "Content-Type": "application/json" } })
+  } catch {
+    return new Response(JSON.stringify({ ok: false }), { status: 200, headers: { ...CORS, "Content-Type": "application/json" } })
+  }
+})
+
 type Row = Doc<"checkouts"> & { laterOrder: { id: Id<"orders">; invoice: string } | null; orderInvoice: string | null }
 
 async function laterOrderFor(ctx: any, c: Doc<"checkouts">) {

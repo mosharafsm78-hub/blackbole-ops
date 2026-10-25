@@ -1,6 +1,7 @@
 import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internal } from "./_generated/api"
+import { closeCodLead } from "./checkouts"
 import { internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -162,6 +163,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     await logOrder(ctx, orderId, `Advance ৳${paid}${kind} received via ${o.advance!.method}${o.advance!.reference ? ` — TrxID ${o.advance!.reference}` : ""}`, byName)
   }
   await logOrder(ctx, orderId, `Order created by ${byName} from ${o.source}${o.externalName ? ` (${o.externalName})` : ""}`, byName)
+  await closeCodLead(ctx, phone, orderId) // the customer's COD-form lead (if any) is now an order
   if (blocked) await logOrder(ctx, orderId, `Auto-cancelled: ${blocked}`, "System")
   if (STATUS_BUCKET[status] !== "available") {
     const order = (await ctx.db.get(orderId))!

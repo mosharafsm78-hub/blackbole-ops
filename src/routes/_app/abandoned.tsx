@@ -126,8 +126,8 @@ function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{c.customerName || "No name given"}</span>
-          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", c.kind === "draft" ? "bg-tone-violet/10 text-tone-violet" : "bg-tone-blue/10 text-tone-blue")}>
-            {c.kind === "draft" ? `COD form${c.shopName ? ` ${c.shopName}` : ""}` : "Website checkout"}
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", c.kind === "codform" ? "bg-tone-amber/15 text-tone-amber" : c.kind === "draft" ? "bg-tone-violet/10 text-tone-violet" : "bg-tone-blue/10 text-tone-blue")}>
+            {c.kind === "codform" ? "COD form · left without ordering" : c.kind === "draft" ? `COD form${c.shopName ? ` ${c.shopName}` : ""}` : "Website checkout"}
           </span>
           <span className="text-xs text-muted-foreground">{ago(c.shopUpdatedAt)}</span>
         </div>
