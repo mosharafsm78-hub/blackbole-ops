@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, FOLLOW_UP_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -265,6 +265,8 @@ export function CallDialog({
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const needsFollowUp = FOLLOW_UP_OUTCOMES.includes(outcome)
+  const [channel, setChannel] = useState(MESSAGE_CHANNELS[0])
+  const byMessage = outcome === "Confirmed by message"
   const [followUp, setFollowUp] = useState("") // yyyy-mm-ddThh:mm (local)
   const toLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   const quick = (label: string, at: () => Date) => ({ label, value: toLocal(at()) })
@@ -290,6 +292,19 @@ export function CallDialog({
               </button>
             ))}
           </div>
+          {byMessage && (
+            <div className="space-y-1.5 rounded-lg border border-tone-green/40 bg-tone-green/5 p-3" data-testid="call-channel">
+              <Label>Confirmed on</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {MESSAGE_CHANNELS.map((c) => (
+                  <button key={c} type="button" onClick={() => setChannel(c)}
+                    className={cn("rounded-md border px-2.5 py-1 text-xs", channel === c ? "border-foreground bg-foreground text-background" : "bg-background hover:bg-accent")}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {needsFollowUp && (
             <div className="space-y-1.5 rounded-lg border border-tone-amber/40 bg-tone-amber/5 p-3" data-testid="call-follow-up">
               <Label>Call again on</Label>
@@ -307,7 +322,7 @@ export function CallDialog({
           )}
           <div className="space-y-1.5">
             <Label>Note</Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={outcome === "Confirmed" ? "What did the customer say?" : "Why? e.g. customer will confirm after salary, did not pick up…"} />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={outcome === "Confirmed" || byMessage ? "What did the customer say?" : "Why? e.g. customer will confirm after salary, did not pick up…"} />
           </div>
         </div>
         <DialogFooter>
@@ -317,12 +332,13 @@ export function CallDialog({
               setBusy(true)
               try {
                 const followUpAt = needsFollowUp && followUp ? new Date(followUp).getTime() : undefined
-                await logCall({ id: orderId, outcome, note, followUpAt })
+                const saved = byMessage ? `Confirmed on ${channel}` : outcome
+                await logCall({ id: orderId, outcome: saved, note, followUpAt })
                 toast.success(followUpAt ? `Call logged — follow up ${new Date(followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Call logged")
                 onOpenChange(false)
                 setNote("")
                 setFollowUp("")
-                if (outcome === "Confirmed") onConfirmed?.()
+                if (outcome === "Confirmed" || byMessage) onConfirmed?.()
               } catch (e) {
                 toast.error(errMsg(e))
               } finally {

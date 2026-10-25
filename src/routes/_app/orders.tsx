@@ -108,6 +108,7 @@ function OrdersPage() {
             const id = toast.loading("Checking every shipped parcel with Pathao…")
             try {
               const r = await syncNow({})
+              if (r.errors?.length) console.warn("Pathao sync could not read:", r.errors)
               const msg = r.moved
                 ? `${r.moved} order${r.moved > 1 ? "s" : ""} updated from Pathao: ${r.changes.slice(0, 8).join(", ")}${r.changes.length > 8 ? "…" : ""}`
                 : `All ${r.checked - r.failed} parcels already up to date with Pathao`

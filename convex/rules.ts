@@ -201,8 +201,11 @@ export const EXPENSE_HEADS = [
 ]
 
 export const CALL_OUTCOMES = [
-  "Confirmed", "Will confirm later", "No answer", "Busy / call later", "Switched off", "Wrong number", "Customer cancelled", "Changed order",
+  "Confirmed", "Confirmed by message", "Will confirm later", "No answer", "Busy / call later", "Switched off", "Wrong number", "Customer cancelled", "Changed order",
 ]
+
+/** Where a customer confirmed by message (WhatsApp / Facebook Messenger / Instagram). */
+export const MESSAGE_CHANNELS = ["WhatsApp", "Messenger", "Instagram"]
 
 /** Outcomes that need another call — the dialog asks when to follow up. */
 export const FOLLOW_UP_OUTCOMES = ["Will confirm later", "Busy / call later", "No answer", "Switched off"]
