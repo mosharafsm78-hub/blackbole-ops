@@ -1041,6 +1041,7 @@ export const shippedForSync = internalMutation({
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(400)
       for (const r of rows) {
         if (!r.consignmentId || r.courier !== "pathao" || r.deletedAt) continue
+        if (/^R[BE]/i.test(r.consignmentId)) continue // Pathao return parcels (RB/RE) — Pathao's order lookup doesn't know them
         const p = partners.find((x) => x._id === r.deliveryPartnerId)
         out.push({ _id: r._id, invoice: invoiceLabel(r), consignmentId: r.consignmentId, status: r.status, partnerCreds: p?.useOwnCredentials ? p.credentials ?? null : null })
       }
