@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TAB_TONE, TONE_CLASS, TONE_SOLID, dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string }
+type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string }
 
 export const Route = createFileRoute("/_app/orders")({
   validateSearch: (s: Record<string, unknown>): Search => ({
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/_app/orders")({
     source: typeof s.source === "string" && s.source ? s.source : undefined,
     range: typeof s.range === "string" && s.range ? s.range : undefined,
     flag: typeof s.flag === "string" && s.flag ? s.flag : undefined,
+    wh: typeof s.wh === "string" && s.wh ? s.wh : undefined,
   }),
   component: () => (
     <Guard perm="orders.view">
@@ -63,8 +64,13 @@ function OrdersPage() {
   const pushMany = useAction(api.pathao.pushMany)
   const [pushing, setPushing] = useState(false)
   const data = useQuery(api.orders.list, {
-    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, limit,
+    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, limit,
   })
+  const locations = useQuery(api.team.listLocations, {})
+  const whTone = (id: string) => {
+    const i = (locations ?? []).findIndex((l) => l._id === id)
+    return ["bg-tone-blue/10 text-tone-blue", "bg-tone-violet/10 text-tone-violet", "bg-tone-teal/10 text-tone-teal", "bg-tone-orange/10 text-tone-orange", "bg-tone-pink/10 text-tone-pink"][Math.max(0, i) % 5]
+  }
   const rows = data?.rows ?? []
 
   const set = (patch: Partial<Search>) => {
@@ -85,12 +91,12 @@ function OrdersPage() {
 
   const exportCsv = () => {
     const list = selectedRows.length ? selectedRows : rows
-    const head = ["Invoice", "Status", "Source", "Shopify", "Created", "Customer", "Phone", "Address", "City", "Zone", "Items", "Total", "Paid", "Due", "Delivery fee", "Consignment", "Courier status", "Calls"]
+    const head = ["Invoice", "Status", "Source", "Shopify", "Created", "Customer", "Phone", "Address", "City", "Zone", "Items", "Total", "Paid", "Due", "Delivery fee", "Consignment", "Courier status", "Calls", "Warehouse"]
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
     const lines = list.map((o) => [
       invoice(o.invoiceNo), o.status, o.source, o.externalName, dateTime(o.createdAt), o.customerName, o.phone, o.address,
       o.cityName, o.zoneName, o.items.map((i) => `${i.sku} x${i.qty}`).join("; "), o.total, o.paidAmount, o.due, o.deliveryFee,
-      o.consignmentId, o.courierStatus, o.callCount,
+      o.consignmentId, o.courierStatus, o.callCount, (o as any).locationName ?? "",
     ].map(esc).join(","))
     const blob = new Blob(["﻿" + [head.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" })
     const a = document.createElement("a")
@@ -170,6 +176,15 @@ function OrdersPage() {
             {Object.entries(FLAGS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
           </SelectContent>
         </Select>
+        {locations && locations.length > 1 && (
+          <Select value={search.wh ?? "any"} onValueChange={(v) => set({ wh: v === "any" ? undefined : v })}>
+            <SelectTrigger size="sm" className="w-44" data-testid="wh-filter"><SelectValue placeholder="Warehouse" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">All warehouses</SelectItem>
+              {locations.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
         {typeof sameNumber === "number" && (
           <Button
             size="sm" variant="outline" data-testid="same-number"
@@ -181,8 +196,8 @@ function OrdersPage() {
             <span className={cn("rounded px-1.5 text-xs font-semibold tabular-nums", sameNumber > 0 ? "bg-tone-orange text-white" : "bg-muted text-muted-foreground")}>{sameNumber}</span>
           </Button>
         )}
-        {(search.q || search.source || search.range || search.flag) && (
-          <Button variant="ghost" size="sm" onClick={() => set({ q: undefined, source: undefined, range: undefined, flag: undefined })}>Clear</Button>
+        {(search.q || search.source || search.range || search.flag || search.wh) && (
+          <Button variant="ghost" size="sm" onClick={() => set({ q: undefined, source: undefined, range: undefined, flag: undefined, wh: undefined })}>Clear</Button>
         )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {selected.size > 0 && <span className="text-sm text-muted-foreground">{selected.size} selected</span>}
@@ -248,6 +263,7 @@ function OrdersPage() {
                 </th>
                 <th className="p-3 font-medium">Invoice</th>
                 <th className="p-3 font-medium">Customer</th>
+                <th className="p-3 font-medium">Warehouse</th>
                 <th className="p-3 font-medium">Products</th>
                 <th className="p-3 font-medium">Payment</th>
                 <th className="p-3 font-medium">Courier</th>
@@ -301,6 +317,11 @@ function OrdersPage() {
                         <AlertTriangle className="size-3" /> {(o as any).dupes} more open order{(o as any).dupes > 1 ? "s" : ""} from this number
                       </button>
                     )}
+                  </td>
+                  <td className="p-3 text-xs" data-testid="wh-cell">
+                    {(o as any).locationName ? (
+                      <span className={cn("inline-flex whitespace-nowrap rounded-md px-1.5 py-0.5 font-semibold", whTone(o.locationId))}>{(o as any).locationName}</span>
+                    ) : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="max-w-56 p-3 text-xs">
                     {o.items.map((i, k) => (

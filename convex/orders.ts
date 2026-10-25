@@ -352,18 +352,19 @@ export const sameNumberCount = query({
 })
 
 async function withDupes(ctx: QueryCtx, page: Doc<"orders">[]) {
+  const locs = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
   return await Promise.all(
     page.map(async (o) => {
       const same = await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", o.phone)).take(30)
       const dupes = same.filter((x) => x._id !== o._id && !x.deletedAt && OPEN.includes(x.status as OrderStatus)).length
       const c = await ctx.db.get(o.customerId)
-      return { ...o, dupes, customerTag: c?.tag ?? "NEW", customerOrders: c?.orderCount ?? 1 }
+      return { ...o, dupes, customerTag: c?.tag ?? "NEW", customerOrders: c?.orderCount ?? 1, locationName: locs.get(o.locationId) ?? "" }
     }),
   )
 }
 
 /** Adds the "other open orders from this number" count for screen-sized lists (not for big CSV exports). */
-async function dupesIfSmall(ctx: QueryCtx, rows: Doc<"orders">[], limit: number): Promise<(Doc<"orders"> & { dupes?: number })[]> {
+async function dupesIfSmall(ctx: QueryCtx, rows: Doc<"orders">[], limit: number): Promise<(Doc<"orders"> & { dupes?: number; locationName?: string })[]> {
   return limit <= 300 ? await withDupes(ctx, rows) : rows
 }
 
@@ -376,13 +377,14 @@ export const list = query({
     from: v.optional(v.number()),
     to: v.optional(v.number()),
     flag: v.optional(v.string()),
+    location: v.optional(v.string()),
     limit: v.number(),
     filters: v.optional(filterArgs),
   },
   handler: async (ctx, a) => {
     const s = await currentStaff(ctx)
     if (!s) return null
-    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag }
+    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag, locationIds: a.location ? [a.location] : undefined }
     const limit = Math.min(a.limit, 2000)
     // Search box: look the order up directly (invoice, phone, consignment, name…), across every status.
     if (a.search?.trim()) {
