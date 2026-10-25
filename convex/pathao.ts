@@ -183,6 +183,47 @@ export const syncNow = action({
   },
 })
 
+/** "Push to Pathao" for one or many orders (order page button or bulk action in the list). */
+export const pushMany = action({
+  args: { ids: v.array(v.id("orders")) },
+  handler: async (ctx, { ids }): Promise<{ booked: string[]; failed: string[]; skipped: string[] }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "courier.book" })
+    const booked: string[] = [], failed: string[] = [], skipped: string[] = []
+    const one = async (id: Id<"orders">) => {
+      const before = await ctx.runMutation(internal.orders.internalGet, { id })
+      if (!before) return
+      const o = before.order
+      const label = o.invoiceCode ?? `BB-${o.invoiceNo}`
+      if (o.consignmentId) { skipped.push(`${label} (already sent)`); return }
+      if (o.courier !== "pathao") { skipped.push(`${label} (not a Pathao order)`); return }
+      if (["pending", "on_hold", "cancelled", "returned", "delivered_paid", "delivered_due"].includes(o.status)) { skipped.push(`${label} (${o.status.replace(/_/g, " ")})`); return }
+      await ctx.runAction(internal.pathao.bookOrder, { orderId: id })
+      const after = await ctx.runMutation(internal.orders.internalGet, { id })
+      if (after?.order.consignmentId) booked.push(`${label} → ${after.order.consignmentId}`)
+      else failed.push(`${label}: ${after?.order.courierError ?? "not booked"}`)
+    }
+    for (let i = 0; i < ids.length; i += 5) await Promise.all(ids.slice(i, i + 5).map(one))
+    return { booked, failed, skipped }
+  },
+})
+
+/** Cancel the parcel on Pathao (only possible before the rider picks it up), then clear it from the order. */
+export const cancelParcel = action({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }): Promise<{ ok: true }> => {
+    const by = await ctx.runQuery(internal.pathao.checkPerm, { perm: "courier.book" })
+    const g = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+    const cid = g?.order.consignmentId
+    if (!g || !cid) throw new ConvexError("This order has no Pathao parcel")
+    // same call Pathao's own merchant panel makes for "Cancel order"
+    const res = await merchantGet(ctx, `${MB}/orders/${encodeURIComponent(cid)}/cancel`, g.partnerId, { method: "PUT" })
+    const msg = String(res.json?.message ?? "")
+    if (!res.ok) throw new ConvexError(`Pathao did not cancel it: ${msg || `error ${res.status}`}. Parcels can only be cancelled before pickup.`)
+    await ctx.runMutation(internal.orders.clearParcel, { id: orderId, cid, by })
+    return { ok: true }
+  },
+})
+
 // ---------- booking ----------
 export const bookOrder = internalAction({
   args: { orderId: v.id("orders") },
@@ -593,12 +634,16 @@ export const saveTracking = internalMutation({
   },
 })
 
-async function merchantGet(ctx: any, url: string, partnerId?: Id<"deliveryPartners"> | null) {
+async function merchantGet(ctx: any, url: string, partnerId?: Id<"deliveryPartners"> | null, send?: { method: string; body?: unknown }) {
   const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, { partnerId: partnerId ?? undefined })
   if (!creds || creds.env !== "production") throw new ConvexError("Connect Pathao (live) in Settings")
   let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await http(ctx, url, { method: "GET", headers: { Authorization: `Bearer ${tk.accessToken}`, Accept: "application/json" } })
+    const res = await http(ctx, url, {
+      method: send?.method ?? "GET",
+      headers: { Authorization: `Bearer ${tk.accessToken}`, Accept: "application/json", ...(send?.body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: send?.body !== undefined ? JSON.stringify(send.body) : undefined,
+    })
     if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
     return res
   }

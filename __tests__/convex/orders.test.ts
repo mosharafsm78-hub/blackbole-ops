@@ -144,6 +144,19 @@ describe("order lifecycle", () => {
     expect(r.done).toBe(1)
   })
 
+  it("sends to Pathao at In Transit by default (like Nuport), not at Ready To Ship", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await t.run((ctx) => ctx.db.insert("deliveryPartners", { code: 2001, name: "Pathao", provider: "pathao", locationId, active: true, createdAt: Date.now() }))
+    const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular", approve: true })
+    const booking = async () => (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect()))
+      .filter((f: any) => f.name.includes("bookOrder") && f.args[0]?.orderId === orderId).length
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "processing" })
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "ready_to_ship" })
+    expect(await booking()).toBe(0)
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "in_transit" })
+    expect(await booking()).toBe(1)
+  })
+
   it("editing an approved order re-reserves the new quantity", async () => {
     const { t, as, locationId, v41 } = await setup()
     const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), approve: true })

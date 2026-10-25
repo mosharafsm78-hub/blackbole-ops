@@ -58,6 +58,13 @@ export async function getSetting<T = any>(ctx: QueryCtx, key: string): Promise<T
   return row?.value as T | undefined
 }
 
+/** When orders are sent to Pathao: "in_transit" (default, like Nuport), "ready_to_ship", or "manual" (only by button). */
+export async function pathaoBookAt(ctx: QueryCtx): Promise<"in_transit" | "ready_to_ship" | "manual"> {
+  const v = await getSetting<string>(ctx, "pathaoBookAt")
+  if (v === "in_transit" || v === "ready_to_ship" || v === "manual") return v
+  return (await getSetting<boolean>(ctx, "pathaoAutoBook")) === false ? "manual" : "in_transit"
+}
+
 export async function setSetting(ctx: MutationCtx, key: string, value: any) {
   const row = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", key)).unique()
   if (row) await ctx.db.patch(row._id, { value })

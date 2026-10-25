@@ -7,7 +7,7 @@ import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
-  moveOrderStock, nextCounter, notify, requirePerm,
+  moveOrderStock, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
   STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
@@ -538,9 +538,9 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   await notify(ctx, "Order Status Updated.", `Sales Order ${invoiceLabel(order)} was set to ${STATUS_LABEL[to]}.`, order._id)
   await emitOrderEvent(ctx, order._id, to)
 
-  if (to === "ready_to_ship" && order.courier === "pathao" && !order.consignmentId) {
-    const auto = (await getSetting<boolean>(ctx, "pathaoAutoBook")) ?? true
-    if (auto) await ctx.scheduler.runAfter(0, internal.pathao.bookOrder, { orderId: order._id })
+  // Send to Pathao at the step chosen in Settings (default In Transit, like Nuport; or Ready To Ship; or only by button)
+  if (order.courier === "pathao" && !order.consignmentId && to === (await pathaoBookAt(ctx))) {
+    await ctx.scheduler.runAfter(0, internal.pathao.bookOrder, { orderId: order._id })
   }
 }
 
@@ -1000,6 +1000,17 @@ export const needingPlace = internalQuery({
       for (const o of rows) if (!o.deletedAt && !o.pathaoCityId && o.courier === "pathao") out.push(o._id)
     }
     return out
+  },
+})
+
+/** After a parcel is cancelled on Pathao: the order is no longer linked to it (it can be pushed again later). */
+export const clearParcel = internalMutation({
+  args: { id: v.id("orders"), cid: v.string(), by: v.string() },
+  handler: async (ctx, { id, cid, by }) => {
+    const o = await ctx.db.get(id)
+    if (!o || o.consignmentId !== cid) return
+    await ctx.db.patch(id, { consignmentId: undefined, courierStatus: undefined, courierError: undefined, courierFee: undefined, courierLinkedBy: undefined, updatedAt: Date.now() })
+    await logOrder(ctx, id, `Pathao parcel ${cid} cancelled on Pathao`, by)
   },
 })
 

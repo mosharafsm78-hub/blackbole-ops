@@ -426,7 +426,7 @@ export function StatusDialog({
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why?" />
               </div>
             )}
-            {to === "ready_to_ship" && <p className="text-xs text-muted-foreground">Orders going to Pathao are booked automatically when they reach Ready To Ship.</p>}
+            {(to === "ready_to_ship" || to === "in_transit") && <p className="text-xs text-muted-foreground">Pathao orders are sent to Pathao at the step chosen in Settings (In Transit by default, like Nuport). You can also press “Push to Pathao”.</p>}
           </div>
         )}
         <DialogFooter>

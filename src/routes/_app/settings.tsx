@@ -488,7 +488,7 @@ function GeneralTab() {
   const g = useQuery(api.settings.general)
   const info = useQuery(api.settings.integrations)
   const save = useMutation(api.settings.saveGeneral)
-  const [f, setF] = useState<{ invoiceStart: number; feeInsideDhaka: number; feeOutsideDhaka: number; pathaoAutoBook: boolean } | null>(null)
+  const [f, setF] = useState<{ invoiceStart: number; feeInsideDhaka: number; feeOutsideDhaka: number; pathaoAutoBook: boolean; pathaoBookAt: "in_transit" | "ready_to_ship" | "manual" } | null>(null)
   useEffect(() => { if (g && !f) setF(g) }, [g, f])
   if (!f || !info) return <Loading />
   return (
@@ -502,7 +502,23 @@ function GeneralTab() {
         <div className="space-y-1.5"><Label>Delivery fee — Dhaka</Label><Input type="number" value={f.feeInsideDhaka} onChange={(e) => setF({ ...f, feeInsideDhaka: Number(e.target.value) || 0 })} /></div>
         <div className="space-y-1.5"><Label>Delivery fee — outside Dhaka</Label><Input type="number" value={f.feeOutsideDhaka} onChange={(e) => setF({ ...f, feeOutsideDhaka: Number(e.target.value) || 0 })} /></div>
       </div>
-      <label className="mt-4 flex items-center gap-2 text-sm"><Switch checked={f.pathaoAutoBook} onCheckedChange={(v) => setF({ ...f, pathaoAutoBook: v })} /> Book with Pathao automatically at Ready To Ship</label>
+      <div className="mt-5 max-w-2xl space-y-2" data-testid="pathao-book-at">
+        <Label>Send orders to Pathao when…</Label>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {([
+            ["in_transit", "Moved to In Transit", "Like Nuport. Ready To Ship = packed only."],
+            ["ready_to_ship", "Moved to Ready To Ship", "Parcel ID ready before the rider comes."],
+            ["manual", "Only by button", "Staff press “Push to Pathao”."],
+          ] as const).map(([k, t, d]) => (
+            <button key={k} type="button" onClick={() => setF({ ...f, pathaoBookAt: k })}
+              className={cn("rounded-lg border p-3 text-left", f.pathaoBookAt === k ? "border-foreground bg-accent" : "hover:bg-accent/50")}>
+              <div className="text-sm font-medium">{t}</div>
+              <div className="text-xs text-muted-foreground">{d}</div>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">“Push to Pathao” on an order (or on many orders in the list) always works, whatever is chosen here.</p>
+      </div>
       <Button className="mt-4" onClick={async () => { try { await save(f); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) } }}>Save</Button>
     </Section>
   )

@@ -106,6 +106,8 @@ function OrderPage() {
   const data = useQuery(api.orders.get, id ? { id: id as Id<"orders"> } : "skip")
   const addNote = useMutation(api.orders.addNote)
   const retryBook = useAction(api.pathao.retryBook)
+  const cancelParcel = useAction(api.pathao.cancelParcel)
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const [initialStatus, setInitialStatus] = useState<OrderStatus | undefined>()
   const [callOpen, setCallOpen] = useState(false)
@@ -122,12 +124,15 @@ function OrderPage() {
   const status = o.status as OrderStatus
   const events2 = events.filter((e) => filter === "all" || e.type === filter || (filter === "log" && e.type === "payment"))
   const editable = ["pending", "on_hold", "approved", "processing"].includes(status) && !o.consignmentId && can("orders.edit")
-  const canBook = o.courier === "pathao" && !o.consignmentId && ["ready_to_ship", "processing", "approved"].includes(status) && can("courier.book")
+  const canBook = o.courier === "pathao" && !o.consignmentId && ["approved", "processing", "ready_to_ship", "in_transit"].includes(status) && can("courier.book")
+  // Pathao only lets a parcel be cancelled before the rider picks it up
+  const PICKED = /picked|transit|sorting|hub|delivery|delivered|return|hold|paid|cancel/i
+  const canCancelParcel = !!o.consignmentId && o.courier === "pathao" && /^DB/i.test(o.consignmentId) && !PICKED.test(o.courierStatus ?? "") && can("courier.book")
 
   const itemCount = o.items.reduce((s, i) => s + i.qty, 0)
   const itemDiscount = o.items.reduce((s, i) => s + i.discount, 0)
   const area = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
-  const shippedNoParcel = o.courier !== "pickup" && !o.consignmentId && ["ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned"].includes(status)
+  const shippedNoParcel = o.courier !== "pickup" && !o.consignmentId && ["in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned"].includes(status)
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -207,7 +212,7 @@ function OrderPage() {
           <Tile
             label="Courier"
             value={o.courier === "pickup" ? "Store pickup" : o.consignmentId ? <span className="text-base">{o.consignmentId}</span> : "Not booked"}
-            hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus.replace(/[_-]+/g, " ")}` : o.courierError ? "Booking failed — see Delivery" : shippedNoParcel ? "Shipped, but not linked to a Pathao parcel" : o.consignmentId ? "Booked on Pathao" : "Pathao · books at Ready To Ship"}
+            hint={o.courier === "pickup" ? "Customer collects" : o.courierStatus ? `Pathao: ${o.courierStatus.replace(/[_-]+/g, " ")}` : o.courierError ? "Booking failed — see Delivery" : shippedNoParcel ? "Shipped, but not linked to a Pathao parcel" : o.consignmentId ? "Sent to Pathao" : "Not sent to Pathao yet"}
             tone={o.courierError || shippedNoParcel ? "red" : o.consignmentId ? "violet" : "gray"}
           />
         )}
@@ -341,24 +346,38 @@ function OrderPage() {
 
           <Card
             title="Delivery"
-            action={canBook && (
+            action={canBook ? (
               <Button
-                size="xs" variant="outline" disabled={booking}
+                size="xs" variant="outline" disabled={booking} data-testid="push-pathao"
                 onClick={async () => {
                   setBooking(true)
                   try { await retryBook({ orderId: o._id }); toast.success("Sent to Pathao") } catch (e) { toast.error(errMsg(e)) } finally { setBooking(false) }
                 }}
               >
-                <Truck className="size-3.5" /> {o.courierError ? "Retry booking" : "Book now"}
+                <Truck className="size-3.5" /> {booking ? "Sending…" : o.courierError ? "Try again" : "Push to Pathao"}
               </Button>
-            )}
+            ) : canCancelParcel ? (
+              <Button
+                size="xs" variant={confirmCancel ? "destructive" : "outline"} disabled={booking} data-testid="cancel-pathao"
+                onClick={async () => {
+                  if (!confirmCancel) { setConfirmCancel(true); setTimeout(() => setConfirmCancel(false), 5000); return }
+                  setBooking(true)
+                  try { await cancelParcel({ orderId: o._id }); toast.success("Parcel cancelled on Pathao") } catch (e) { toast.error(errMsg(e)) } finally { setBooking(false); setConfirmCancel(false) }
+                }}
+              >
+                {booking ? "Cancelling…" : confirmCancel ? "Click again to cancel on Pathao" : "Cancel on Pathao"}
+              </Button>
+            ) : null}
           >
             {o.courier === "pickup" ? (
               <p className="text-sm text-muted-foreground">Customer picks up from the store.</p>
             ) : (
               <>
                 <Row k="Courier" v="Pathao" />
-                <Row k="Consignment" v={o.consignmentId ?? "Not booked"} />
+                <Row k="Pathao" v={o.consignmentId
+                  ? <span className="font-medium text-tone-blue">Sent · <span className="font-mono text-xs">{o.consignmentId}</span></span>
+                  : o.courierError ? <span className="font-medium text-tone-red">Booking failed</span>
+                  : <span className="text-muted-foreground">Not sent to Pathao yet</span>} />
                 {o.courierStatus && <Row k="Pathao status" v={o.courierStatus} />}
                 {o.courierFee !== undefined && <Row k="Courier charge" v={taka(o.courierCost ?? o.courierFee)} />}
                 {o.courierCollected !== undefined && <Row k="Pathao collected" v={taka(o.courierCollected)} />}
@@ -367,7 +386,7 @@ function OrderPage() {
                 {o.courierLinkedBy && <Row k="Linked" v={o.courierLinkedBy === "manual" ? "By hand" : "Same order no. on Pathao"} />}
                 {o.courierError && <div className="mt-2 rounded-md bg-tone-red-bg p-2 text-sm text-tone-red">{o.courierError}</div>}
                 {!o.consignmentId && !o.courierError && (
-                  <p className="mt-2 text-xs text-muted-foreground">Booked automatically when the order reaches Ready To Ship.</p>
+                  <p className="mt-2 text-xs text-muted-foreground">Sent to Pathao automatically at the step chosen in Settings (In Transit, like Nuport), or press “Push to Pathao”.</p>
                 )}
               </>
             )}

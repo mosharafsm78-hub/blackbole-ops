@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle } from "lucide-react"
+import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle, Truck } from "lucide-react"
 import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
@@ -60,6 +60,8 @@ function OrdersPage() {
   const counts = useQuery(api.orders.counts)
   const sameNumber = useQuery(api.orders.sameNumberCount, { tab: search.tab })
   const [syncing, setSyncing] = useState(false)
+  const pushMany = useAction(api.pathao.pushMany)
+  const [pushing, setPushing] = useState(false)
   const data = useQuery(api.orders.list, {
     tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, limit,
   })
@@ -187,6 +189,29 @@ function OrdersPage() {
           <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => setStatusOpen(true)}>
             <Shuffle className="size-4" /> Change status
           </Button>
+          <Perm perm="courier.book">
+            <Button
+              size="sm" variant="outline" disabled={selected.size === 0 || pushing} data-testid="bulk-push-pathao"
+              title="Send the selected orders to Pathao now"
+              onClick={async () => {
+                setPushing(true)
+                const tid = toast.loading(`Sending ${selected.size} order(s) to Pathao…`)
+                try {
+                  const r = await pushMany({ ids: [...selected] })
+                  const lines = [
+                    r.booked.length ? `Sent: ${r.booked.join(", ")}` : "",
+                    r.failed.length ? `Failed: ${r.failed.join(" · ")}` : "",
+                    r.skipped.length ? `Skipped: ${r.skipped.join(", ")}` : "",
+                  ].filter(Boolean).join("\n")
+                  const fn = r.failed.length ? toast.error : toast.success
+                  fn(`${r.booked.length} sent to Pathao${r.failed.length ? `, ${r.failed.length} failed` : ""}`, { id: tid, description: lines, duration: 12000 })
+                  setSelected(new Set())
+                } catch (e) { toast.error(errMsg(e), { id: tid }) } finally { setPushing(false) }
+              }}
+            >
+              <Truck className="size-4" /> {pushing ? "Sending…" : "Push to Pathao"}
+            </Button>
+          </Perm>
           <Perm perm="orders.print">
             <Button
               size="sm" variant="outline" disabled={selected.size === 0}
@@ -296,13 +321,17 @@ function OrdersPage() {
                       <span className="text-muted-foreground">Store pickup</span>
                     ) : o.consignmentId ? (
                       <>
-                        <div className="font-medium">Pathao {o.consignmentId}</div>
+                        <div className="inline-flex rounded bg-tone-blue/10 px-1.5 py-0.5 font-semibold text-tone-blue">Sent to Pathao</div>
+                        <div className="mt-0.5 font-mono">{o.consignmentId}</div>
                         <div className="text-muted-foreground">{o.courierStatus}</div>
                       </>
                     ) : o.courierError ? (
-                      <div className="max-w-40 text-tone-red">{o.courierError}</div>
+                      <>
+                        <div className="inline-flex rounded bg-tone-red/10 px-1.5 py-0.5 font-semibold text-tone-red">Pathao booking failed</div>
+                        <div className="mt-0.5 max-w-40 text-tone-red">{o.courierError}</div>
+                      </>
                     ) : (
-                      <span className="text-muted-foreground">Pathao · not booked</span>
+                      <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Not sent to Pathao</span>
                     )}
                   </td>
                   <td className="p-3 text-xs">

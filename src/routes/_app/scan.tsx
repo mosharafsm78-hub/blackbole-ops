@@ -18,9 +18,9 @@ export const Route = createFileRoute("/_app/scan")({
 })
 
 const MODES: { to: OrderStatus; label: string; hint: string }[] = [
-  { to: "ready_to_ship", label: "Packed → Ready To Ship", hint: "Scan the invoice on the box. The order is booked with Pathao automatically." },
+  { to: "ready_to_ship", label: "Packed → Ready To Ship", hint: "Scan the invoice on the box. Packed and waiting for the rider (sent to Pathao only if Settings says “at Ready To Ship”)." },
   { to: "processing", label: "Start → Processing", hint: "Scan to start packing an approved order." },
-  { to: "in_transit", label: "Handed over → In Transit", hint: "For custom couriers. Pathao orders move to In Transit by themselves when picked up." },
+  { to: "in_transit", label: "Handed over → In Transit", hint: "Scan each parcel you hand to the rider. Pathao orders are sent to Pathao now if not sent yet." },
   { to: "returned", label: "Return received → Returned", hint: "Scan a returned parcel in good condition. Stock goes back to Available and can be sold again." },
   { to: "damaged", label: "Return damaged → Damaged", hint: "Scan a returned parcel that came back damaged. Stock goes to Damaged, not Available." },
 ]
@@ -63,7 +63,7 @@ function ScanPage() {
       const r = await fast({ codes: [c], to: m.to })
       const ok = r.done > 0
       beep(ok)
-      setLines((l) => [{ at: Date.now(), code: c, ok, text: ok ? `${r.moved[0] ?? c} → moved${m.to === "ready_to_ship" ? ", booking with Pathao…" : ""}` : r.errors[0] ?? "Not moved" }, ...l].slice(0, 200))
+      setLines((l) => [{ at: Date.now(), code: c, ok, text: ok ? `${r.moved[0] ?? c} → moved${m.to === "in_transit" ? " (sending to Pathao if not sent)" : ""}` : r.errors[0] ?? "Not moved" }, ...l].slice(0, 200))
     } catch (e) {
       beep(false)
       setLines((l) => [{ at: Date.now(), code: c, ok: false, text: errMsg(e) }, ...l].slice(0, 200))

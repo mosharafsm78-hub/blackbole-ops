@@ -1,6 +1,6 @@
 import { v } from "convex/values"
 import { internalMutation, mutation, query } from "./_generated/server"
-import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
+import { currentStaff, getSetting, pathaoBookAt, requirePerm, setSetting } from "./lib"
 
 export const general = query({
   args: {},
@@ -12,19 +12,26 @@ export const general = query({
       feeInsideDhaka: (await getSetting<number>(ctx, "feeInsideDhaka")) ?? 90,
       feeOutsideDhaka: (await getSetting<number>(ctx, "feeOutsideDhaka")) ?? 130,
       pathaoAutoBook: (await getSetting<boolean>(ctx, "pathaoAutoBook")) ?? true,
+      pathaoBookAt: await pathaoBookAt(ctx),
     }
   },
 })
 
 export const saveGeneral = mutation({
-  args: { invoiceStart: v.number(), feeInsideDhaka: v.number(), feeOutsideDhaka: v.number(), pathaoAutoBook: v.boolean() },
+  args: {
+    invoiceStart: v.number(), feeInsideDhaka: v.number(), feeOutsideDhaka: v.number(), pathaoAutoBook: v.boolean(),
+    pathaoBookAt: v.optional(v.union(v.literal("in_transit"), v.literal("ready_to_ship"), v.literal("manual"))),
+  },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
     const used = await ctx.db.query("counters").withIndex("by_name", (q) => q.eq("name", "invoice")).unique()
     if (!used) await setSetting(ctx, "invoiceStart", Math.max(1, Math.floor(a.invoiceStart)))
     await setSetting(ctx, "feeInsideDhaka", a.feeInsideDhaka)
     await setSetting(ctx, "feeOutsideDhaka", a.feeOutsideDhaka)
-    await setSetting(ctx, "pathaoAutoBook", a.pathaoAutoBook)
+    if (a.pathaoBookAt) {
+      await setSetting(ctx, "pathaoBookAt", a.pathaoBookAt)
+      await setSetting(ctx, "pathaoAutoBook", a.pathaoBookAt !== "manual")
+    } else await setSetting(ctx, "pathaoAutoBook", a.pathaoAutoBook)
   },
 })
 
