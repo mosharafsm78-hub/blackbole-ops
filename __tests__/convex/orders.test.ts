@@ -481,3 +481,18 @@ describe("shopify pre-order advance", () => {
     expect(preOrderFullPrice({ price: "1480", quantity: 1, properties: [] })).toBeNull()
   })
 })
+
+describe("pre-order origin", () => {
+  it("a Bangladesh pre-order product goes to the Bangladesh sub-tab", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await t.run(async (ctx) => { await ctx.db.patch(v41.productId, { preOrder: true, preOrderFrom: "bangladesh" }) })
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    expect((await t.run((ctx) => ctx.db.get(orderId as Id<"orders">)))!.status).toBe("pre_order_bd")
+    const c = await as.query(api.orders.counts, {})
+    expect(c!.pre_order).toBe(1)
+    expect(c!["st:pre_order_bd"]).toBe(1)
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "pre_order" })
+    expect((await t.run((ctx) => ctx.db.get(orderId as Id<"orders">)))!.status).toBe("pre_order")
+  })
+})

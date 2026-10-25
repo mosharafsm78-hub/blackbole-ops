@@ -405,7 +405,7 @@ async function nuportSync(ctx: any, rows: NuRow[], dryRun = false) {
   }
   for (let i = 0; i < allRenames.length; i += 50) await ctx.runMutation(internal.orders.nuportRenumber, { rows: allRenames.slice(i, i + 50), top })
   if (!allRenames.length) await ctx.runMutation(internal.orders.nuportRenumber, { rows: [], top })
-  const OPEN = ["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship", "in_transit"]
+  const OPEN = ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship", "in_transit"]
   const notSeen = ours.filter((o) => OPEN.includes(o.status) && !seen.has(o.id)).map((o) => ({ inv: o.code ?? `BB-${finalNo(o)}`, ext: o.ext, status: o.status }))
   return {
     received: rows.length, alreadySame: same, changed, linked, unmatched, errors, notSeen, groupMismatch,

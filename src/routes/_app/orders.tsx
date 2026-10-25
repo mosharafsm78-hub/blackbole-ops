@@ -40,6 +40,7 @@ export const Route = createFileRoute("/_app/orders")({
 
 const RANGES: Record<string, string> = { today: "Today", "7d": "Last 7 days", "30d": "Last 30 days" }
 const SUB_LABEL: Record<string, string> = {
+  pre_order: "China", pre_order_bd: "Bangladesh",
   delivered_due: "Payment Due", delivered_paid: "Payment Collected",
   pending_returned: "Pending Returned", returned: "Returned", damaged: "Damaged",
 }
@@ -341,7 +342,7 @@ function OrdersPage() {
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <Pill tone="gray">{o.source}</Pill>
-                      {o.preOrder && <Pill tone="pink">Pre-order</Pill>}
+                      {o.preOrder && <Pill tone="pink">Pre-order{o.preOrderFrom === "bangladesh" ? " · BD" : o.preOrderFrom === "china" ? " · China" : ""}</Pill>}
                       {o.externalName && <span className="text-xs text-muted-foreground">{o.externalName}</span>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{dateTime(o.createdAt)}</div>

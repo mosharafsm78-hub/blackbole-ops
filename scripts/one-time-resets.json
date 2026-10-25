@@ -62,5 +62,10 @@
         }
       ]
     }
+  },
+  {
+    "id": "2026-10-25-pre-order-bd",
+    "fn": "orders:addPreOrderBd",
+    "args": {}
   }
 ]

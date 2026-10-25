@@ -7,6 +7,7 @@ export type OrderStatus =
   | "approved"
   | "processing"
   | "pre_order"
+  | "pre_order_bd"
   | "ready_to_ship"
   | "in_transit"
   | "delivered_due"
@@ -21,7 +22,8 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
   on_hold: "On Hold",
   approved: "Approved",
   processing: "Processing",
-  pre_order: "Pre-Order",
+  pre_order: "Pre-Order · China",
+  pre_order_bd: "Pre-Order · Bangladesh",
   ready_to_ship: "Ready To Ship",
   in_transit: "In Transit",
   delivered_due: "Delivered · Payment Due",
@@ -40,7 +42,7 @@ export const STATUS_TABS: { key: string; label: string; statuses: OrderStatus[] 
   { key: "on_hold", label: "On Hold", statuses: ["on_hold"] },
   { key: "approved", label: "Approved", statuses: ["approved"] },
   { key: "processing", label: "Processing", statuses: ["processing"] },
-  { key: "pre_order", label: "Pre-Order", statuses: ["pre_order"] },
+  { key: "pre_order", label: "Pre-Order", statuses: ["pre_order", "pre_order_bd"] },
   { key: "ready_to_ship", label: "Ready To Ship", statuses: ["ready_to_ship"] },
   { key: "in_transit", label: "In Transit", statuses: ["in_transit"] },
   { key: "delivered", label: "Delivered", statuses: ["delivered_due", "delivered_paid"] },
@@ -52,10 +54,11 @@ export const STATUS_TABS: { key: string; label: string; statuses: OrderStatus[] 
 export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["approved", "on_hold", "cancelled"],
   on_hold: ["approved", "pending", "cancelled"],
-  approved: ["processing", "pre_order", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending", "on_hold", "cancelled"],
-  processing: ["ready_to_ship", "pre_order", "in_transit", "delivered_due", "delivered_paid", "approved", "on_hold", "cancelled"],
-  pre_order: ["processing", "ready_to_ship", "in_transit", "approved", "on_hold", "cancelled"],
-  ready_to_ship: ["in_transit", "processing", "pre_order", "on_hold"],
+  approved: ["processing", "pre_order", "pre_order_bd", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid", "pending", "on_hold", "cancelled"],
+  processing: ["ready_to_ship", "pre_order", "pre_order_bd", "in_transit", "delivered_due", "delivered_paid", "approved", "on_hold", "cancelled"],
+  pre_order: ["processing", "ready_to_ship", "in_transit", "pre_order_bd", "approved", "on_hold", "cancelled"],
+  pre_order_bd: ["processing", "ready_to_ship", "in_transit", "pre_order", "approved", "on_hold", "cancelled"],
+  ready_to_ship: ["in_transit", "processing", "pre_order", "pre_order_bd", "on_hold"],
   in_transit: ["delivered_due", "delivered_paid", "pending_returned", "returned", "processing", "approved", "ready_to_ship", "cancelled"],
   delivered_due: ["delivered_paid", "pending_returned", "returned"],
   delivered_paid: ["pending_returned", "returned"],
@@ -67,6 +70,9 @@ export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 
 // Pre-order products take weeks to arrive. A variant is pre-order when its SKU starts with "PO-"
 // (how Shopify and Nuport name them) or its product is switched to pre-order.
+export type PreOrderFrom = "china" | "bangladesh"
+export const PRE_ORDER_STATUS: Record<PreOrderFrom, OrderStatus> = { china: "pre_order", bangladesh: "pre_order_bd" }
+export const isPreOrderStatus = (s: string) => s === "pre_order" || s === "pre_order_bd"
 export const isPreOrderSku = (sku?: string | null) => !!sku && /^PO-/i.test(sku.trim())
 
 export function canTransition(from: OrderStatus, to: OrderStatus) {
@@ -82,6 +88,7 @@ export const STATUS_BUCKET: Record<OrderStatus, Bucket> = {
   approved: "processing",
   processing: "processing",
   pre_order: "processing",
+  pre_order_bd: "processing",
   ready_to_ship: "processing",
   in_transit: "inTransit",
   delivered_due: "sold",
@@ -200,7 +207,7 @@ export const WEBHOOK_EVENTS: { key: string; label: string; group: string }[] = [
 ]
 
 export const STATUS_EVENT: Record<OrderStatus, string> = {
-  pending: "order.pending", on_hold: "order.on_hold", approved: "order.approved", processing: "order.processing", pre_order: "order.pre_order",
+  pending: "order.pending", on_hold: "order.on_hold", approved: "order.approved", processing: "order.processing", pre_order: "order.pre_order", pre_order_bd: "order.pre_order",
   ready_to_ship: "order.ready_to_ship", in_transit: "order.in_transit", delivered_due: "order.delivered.payment_due",
   delivered_paid: "order.delivered.payment_collected", pending_returned: "order.flagged.pending_returned",
   returned: "order.flagged.returned", damaged: "order.flagged.damaged", cancelled: "order.cancelled",

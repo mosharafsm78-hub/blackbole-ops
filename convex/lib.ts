@@ -3,7 +3,7 @@ import { getAuthUserId } from "@convex-dev/auth/server"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
-import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type Bucket, type OrderStatus } from "./rules"
+import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type PreOrderFrom, type Bucket, type OrderStatus } from "./rules"
 
 export type StaffCtx = { staff: Doc<"staff">; perms: string[] }
 
@@ -199,16 +199,21 @@ export function bdNow() {
   return new Date(Date.now() + 6 * 3600000)
 }
 
-/** True when any item is a pre-order product: SKU starts with "PO-" (Shopify/Nuport naming) or its product is marked pre-order. */
-export async function hasPreOrderItem(ctx: QueryCtx, items: Doc<"orders">["items"]) {
+/** Where an order's pre-order products come from, or null when it has none. China wins when mixed (longer wait).
+ *  SKU "PO-…" (Shopify/Nuport naming) or a product switched to pre-order; origin from the product (default China). */
+export async function preOrderOrigin(ctx: QueryCtx, items: Doc<"orders">["items"]): Promise<PreOrderFrom | null> {
+  let found: PreOrderFrom | null = null
   for (const i of items) {
-    if (isPreOrderSku(i.sku)) return true
-    if (!i.variantId) continue
-    const vr = await ctx.db.get(i.variantId)
-    if (!vr) continue
-    if (isPreOrderSku(vr.sku)) return true
-    const p = await ctx.db.get(vr.productId)
-    if (p?.preOrder) return true
+    const vr = i.variantId ? await ctx.db.get(i.variantId) : null
+    const p = vr ? await ctx.db.get(vr.productId) : null
+    if (!(isPreOrderSku(i.sku) || isPreOrderSku(vr?.sku) || p?.preOrder)) continue
+    const from = p?.preOrderFrom ?? "china"
+    if (from === "china") return "china"
+    found = from
   }
-  return false
+  return found
+}
+
+export async function hasPreOrderItem(ctx: QueryCtx, items: Doc<"orders">["items"]) {
+  return (await preOrderOrigin(ctx, items)) !== null
 }

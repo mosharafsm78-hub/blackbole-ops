@@ -7,12 +7,12 @@ import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
-  hasPreOrderItem, moveOrderStock, nextCounter, notify, pathaoBookAt, requirePerm,
+  hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
   STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
-  ALL_MOVE_KEYS,
+  ALL_MOVE_KEYS, PRE_ORDER_STATUS,
 } from "./rules"
 
 // ---------- status counters (cheap tab counts) ----------
@@ -25,7 +25,7 @@ export async function bumpStatusCount(ctx: MutationCtx, status: string, delta: n
 
 const isDelivered = (s: OrderStatus) => s === "delivered_due" || s === "delivered_paid"
 const isFlagged = (s: OrderStatus) => s === "pending_returned" || s === "returned" || s === "damaged"
-const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship"]
+const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"]
 
 async function updateCustomerStats(ctx: MutationCtx, order: Doc<"orders">, from: OrderStatus, to: OrderStatus) {
   const c = await ctx.db.get(order.customerId)
@@ -127,8 +127,9 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
   const t = orderTotals(o.items, o.discount, o.deliveryFee, paid)
   let status: OrderStatus = o.status ?? "pending"
   if (blocked) status = "cancelled"
-  const preOrder = await hasPreOrderItem(ctx, o.items)
-  if (preOrder && status === "approved") status = "pre_order" // product not in hand yet: wait in Pre-Order
+  const poFrom = await preOrderOrigin(ctx, o.items)
+  const preOrder = poFrom !== null
+  if (poFrom && status === "approved") status = PRE_ORDER_STATUS[poFrom] // product not in hand yet: wait in Pre-Order (China / Bangladesh)
   const orderId = await ctx.db.insert("orders", {
     invoiceNo, status, source: o.source, externalId: o.externalId, externalName: o.externalName,
     customerId: customer._id, customerName: o.customerName.trim() || customer.name, phone, email: o.email,
@@ -147,6 +148,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     hasUpsell: o.hasUpsell ?? o.source === "Up Sell",
     purchaseCost: await computePurchaseCost(ctx, o.items),
     preOrder: preOrder || undefined,
+    preOrderFrom: poFrom ?? undefined,
   })
   await bumpStatusCount(ctx, status, 1)
   if (noCourier) await logOrder(ctx, orderId, `Exchange warehouse (${location.name}) — this order is NOT sent to Pathao`, byName)
@@ -528,10 +530,11 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   if (from === to) return
   if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
   // Approving an order with a pre-order product sends it to Pre-Order (it waits there until the product arrives)
-  if (to === "approved" && !opts.quiet && ["pending", "on_hold", "cancelled"].includes(from) && (order.preOrder || (await hasPreOrderItem(ctx, order.items)))) {
-    to = "pre_order"
-    if (!order.preOrder) await ctx.db.patch(order._id, { preOrder: true })
-    await logOrder(ctx, order._id, "Has a pre-order product — moved to Pre-Order instead of Approved", byName)
+  const poFrom = to === "approved" && !opts.quiet && ["pending", "on_hold", "cancelled"].includes(from) ? await preOrderOrigin(ctx, order.items) : null
+  if (poFrom) {
+    to = PRE_ORDER_STATUS[poFrom]
+    await ctx.db.patch(order._id, { preOrder: true, preOrderFrom: poFrom })
+    await logOrder(ctx, order._id, `Has a pre-order product (${poFrom === "china" ? "China" : "Bangladesh"}) — moved to Pre-Order instead of Approved`, byName)
   }
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)
@@ -663,7 +666,7 @@ export const update = mutation({
     const me = await requirePerm(ctx, "orders.edit")
     const order = await ctx.db.get(a.id)
     if (!order) throw new ConvexError("Order not found")
-    const editable = ["pending", "on_hold", "approved", "processing", "pre_order"]
+    const editable = ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd"]
     if (!editable.includes(order.status)) throw new ConvexError("Only Pending, On Hold, Approved, Processing or Pre-Order orders can be edited")
     if (order.consignmentId) throw new ConvexError("This order is already booked with the courier")
     const phone = normalizePhone(a.phone)
@@ -691,7 +694,7 @@ export const update = mutation({
       customerNote: a.customerNote, additionalInfo: a.additionalInfo, updatedAt: Date.now(),
       itemCount: items.reduce((s, i) => s + i.qty, 0), purchaseCost: await computePurchaseCost(ctx, items),
       hasUpsell: order.hasUpsell || a.source === "Up Sell",
-      preOrder: (await hasPreOrderItem(ctx, items)) || undefined,
+      ...(await (async () => { const f = await preOrderOrigin(ctx, items); return { preOrder: f !== null || undefined, preOrderFrom: f ?? undefined } })()),
     })
     if (reserved) {
       const fresh = (await ctx.db.get(order._id))!
@@ -1029,7 +1032,7 @@ export const needingPlace = internalQuery({
   args: {},
   handler: async (ctx) => {
     const out: Id<"orders">[] = []
-    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship"] as const) {
+    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
       for (const o of rows) if (!o.deletedAt && !o.pathaoCityId && o.courier === "pathao") out.push(o._id)
     }
@@ -1177,7 +1180,7 @@ export const markPreOrders = internalMutation({
       for (const o of rows) {
         if (o.deletedAt || !(await hasPreOrderItem(ctx, o.items))) continue
         if (!o.preOrder) { await ctx.db.patch(o._id, { preOrder: true }); flagged++ }
-        if (st === "approved") { await applyStatus(ctx, { ...o, preOrder: true }, "pre_order", "System", "Pre-order product — waiting for stock", { quiet: true }); moved++ }
+        if (st === "approved") { await applyStatus(ctx, { ...o, preOrder: true }, PRE_ORDER_STATUS[(await preOrderOrigin(ctx, o.items)) ?? "china"], "System", "Pre-order product — waiting for stock", { quiet: true }); moved++ }
       }
     }
     // Roles that can move Approved → Processing also get the new Pre-Order moves
@@ -1210,5 +1213,24 @@ export const fixPreOrderPrices = internalMutation({
       done.push(`${r.invoice} ${r.sku} → due ৳${t.due}`)
     }
     return done
+  },
+})
+
+/** One-time: roles that already move orders through Pre-Order also get the new Bangladesh moves; existing pre-orders get their origin. */
+export const addPreOrderBd = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const newKeys = ALL_MOVE_KEYS.filter((k) => k.includes("pre_order"))
+    let roles = 0
+    for (const r of await ctx.db.query("roles").collect()) {
+      if (!r.permissions.includes("move:approved>processing")) continue
+      const add = newKeys.filter((k) => !r.permissions.includes(k))
+      if (add.length) { await ctx.db.patch(r._id, { permissions: [...r.permissions, ...add] }); roles++ }
+    }
+    let marked = 0
+    for (const o of await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "pre_order")).collect()) {
+      if (!o.preOrderFrom) { await ctx.db.patch(o._id, { preOrderFrom: (await preOrderOrigin(ctx, o.items)) ?? "china" }); marked++ }
+    }
+    return { roles, marked }
   },
 })
