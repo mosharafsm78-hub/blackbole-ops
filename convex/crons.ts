@@ -3,7 +3,7 @@ import { internal } from "./_generated/api"
 
 const crons = cronJobs()
 
-// Pathao: statuses and payments every 10 minutes; every Payment Due order re-checked every 30 minutes (paused 12 am–8 am)
+// Pathao: statuses and payments every 10 minutes; every Payment Due order re-checked every 30 minutes — 24/7
 crons.interval("pathao status sync", { minutes: 10 }, internal.pathao.cronTick, { job: "status" })
 crons.interval("pathao money sync", { minutes: 10 }, internal.pathao.cronTick, { job: "money" })
 crons.interval("pathao payment due check", { minutes: 30 }, internal.pathao.cronTick, { job: "due" })
