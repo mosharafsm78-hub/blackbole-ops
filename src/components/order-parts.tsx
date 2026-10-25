@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, FOLLOW_UP_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -264,6 +264,17 @@ export function CallDialog({
   const [outcome, setOutcome] = useState(CALL_OUTCOMES[0])
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
+  const needsFollowUp = FOLLOW_UP_OUTCOMES.includes(outcome)
+  const [followUp, setFollowUp] = useState("") // yyyy-mm-ddThh:mm (local)
+  const toLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  const quick = (label: string, at: () => Date) => ({ label, value: toLocal(at()) })
+  const at = (days: number, hour: number) => () => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d }
+  const QUICK = [
+    quick("In 2 hours", () => new Date(Date.now() + 2 * 3600000)),
+    quick("This evening", at(0, 19)),
+    quick("Tomorrow", at(1, 11)),
+    quick("In 2 days", at(2, 11)),
+  ]
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -272,16 +283,31 @@ export function CallDialog({
           <div className="flex flex-wrap gap-2">
             {CALL_OUTCOMES.map((o) => (
               <button
-                key={o} type="button" onClick={() => setOutcome(o)}
+                key={o} type="button" onClick={() => { setOutcome(o); if (FOLLOW_UP_OUTCOMES.includes(o) && !followUp) setFollowUp(toLocal(at(1, 11)())) }}
                 className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}
               >
                 {o}
               </button>
             ))}
           </div>
+          {needsFollowUp && (
+            <div className="space-y-1.5 rounded-lg border border-tone-amber/40 bg-tone-amber/5 p-3" data-testid="call-follow-up">
+              <Label>Call again on</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK.map((q) => (
+                  <button key={q.label} type="button" onClick={() => setFollowUp(q.value)}
+                    className={cn("rounded-md border px-2.5 py-1 text-xs", followUp === q.value ? "border-foreground bg-foreground text-background" : "bg-background hover:bg-accent")}>
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+              <input type="datetime-local" value={followUp} onChange={(e) => setFollowUp(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" />
+              <p className="text-xs text-muted-foreground">The order shows in the “Follow-up due” quick filter when it is time to call.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>Note</Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did the customer say?" />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={outcome === "Confirmed" ? "What did the customer say?" : "Why? e.g. customer will confirm after salary, did not pick up…"} />
           </div>
         </div>
         <DialogFooter>
@@ -290,10 +316,12 @@ export function CallDialog({
             onClick={async () => {
               setBusy(true)
               try {
-                await logCall({ id: orderId, outcome, note })
-                toast.success("Call logged")
+                const followUpAt = needsFollowUp && followUp ? new Date(followUp).getTime() : undefined
+                await logCall({ id: orderId, outcome, note, followUpAt })
+                toast.success(followUpAt ? `Call logged — follow up ${new Date(followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Call logged")
                 onOpenChange(false)
                 setNote("")
+                setFollowUp("")
                 if (outcome === "Confirmed") onConfirmed?.()
               } catch (e) {
                 toast.error(errMsg(e))

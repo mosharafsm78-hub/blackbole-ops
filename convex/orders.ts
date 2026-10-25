@@ -310,7 +310,8 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>) {
   if (f.hasInfo !== undefined && !!(o.additionalInfo || o.customerNote) !== f.hasInfo) return false
   if (f.flag === "nocall" && o.callCount > 0) return false
   if (f.flag === "courierError" && !o.courierError) return false
-  if (f.flag === "followUp" && !(o.followUpAt && o.followUpAt <= Date.now() + 86400000)) return false
+  // due today (Dhaka time) or overdue
+  if (f.flag === "followUp" && !(o.followUpAt && o.followUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
   if (f.flag === "exchange" && !o.isExchange) return false
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
@@ -683,9 +684,10 @@ export const logCall = mutation({
     if (!order) throw new ConvexError("Order not found")
     await ctx.db.patch(id, {
       callCount: order.callCount + 1, lastCallOutcome: outcome, updatedAt: Date.now(),
-      ...(followUpAt ? { followUpAt } : {}),
+      followUpAt: followUpAt || undefined, // a new call without a follow-up time clears the old one
     })
-    await logOrder(ctx, id, note?.trim() ? `${outcome} — ${note.trim()}` : outcome, me.staff.name, "call", outcome)
+    const when = followUpAt ? ` · follow up ${new Date(followUpAt + 6 * 3600000).toISOString().slice(0, 16).replace("T", " ")}` : ""
+    await logOrder(ctx, id, `${note?.trim() ? `${outcome} — ${note.trim()}` : outcome}${when}`, me.staff.name, "call", outcome)
   },
 })
 

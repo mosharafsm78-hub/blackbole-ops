@@ -384,6 +384,7 @@ function OrderPage() {
             <Row k="Created by" v={o.createdByName} />
             <Row k="Payment type" v={paymentType} />
             <Row k="Calls" v={`${o.callCount}${o.lastCallOutcome ? ` · ${o.lastCallOutcome}` : ""}`} />
+            {o.followUpAt && <Row k="Call again" v={new Date(o.followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} />}
             {o.customerNote && <div className="mt-2 rounded-md bg-tone-amber-bg p-2 text-sm text-tone-amber">Customer note: {o.customerNote}</div>}
           </Card>
 

@@ -39,6 +39,7 @@ export const Route = createFileRoute("/_app/orders")({
 const RANGES: Record<string, string> = { today: "Today", "7d": "Last 7 days", "30d": "Last 30 days" }
 const FLAGS: Record<string, string> = {
   nocall: "Not called yet", unprinted: "Invoice not printed", duplicate: "Same phone, other open orders", courierError: "Courier booking failed",
+  followUp: "Follow-up due (call again)",
 }
 
 function rangeFrom(r?: string) {
@@ -284,6 +285,11 @@ function OrdersPage() {
                   <td className="p-3 text-xs">
                     <div className="tabular-nums">{o.callCount}</div>
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}
+                    {o.followUpAt && (
+                      <div className={cn("whitespace-nowrap font-medium", o.followUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
+                        Call again {new Date(o.followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                      </div>
+                    )}
                   </td>
                   <td className="p-3"><RowStatus id={o._id} status={o.status as OrderStatus} perms={me.perms} label={o.invoiceCode ?? invoice(o.invoiceNo)} /></td>
                 </tr>

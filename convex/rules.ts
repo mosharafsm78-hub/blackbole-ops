@@ -201,8 +201,11 @@ export const EXPENSE_HEADS = [
 ]
 
 export const CALL_OUTCOMES = [
-  "Confirmed", "No answer", "Busy / call later", "Switched off", "Wrong number", "Customer cancelled", "Changed order",
+  "Confirmed", "Will confirm later", "No answer", "Busy / call later", "Switched off", "Wrong number", "Customer cancelled", "Changed order",
 ]
+
+/** Outcomes that need another call — the dialog asks when to follow up. */
+export const FOLLOW_UP_OUTCOMES = ["Will confirm later", "Busy / call later", "No answer", "Switched off"]
 
 export const CUSTOMER_TAGS = ["NEW", "REGULAR", "VIP", "RISKY"]
 

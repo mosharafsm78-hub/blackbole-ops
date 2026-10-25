@@ -256,6 +256,23 @@ describe("Pathao money sync", () => {
   })
 })
 
+describe("call log follow-up", () => {
+  it("'Will confirm later' sets a follow-up time; a later confirmed call clears it", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const at = Date.now() + 3600000
+    await as.mutation(api.orders.logCall, { id: orderId, outcome: "Will confirm later", note: "after salary", followUpAt: at })
+    let o: any = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o).toMatchObject({ callCount: 1, lastCallOutcome: "Will confirm later", followUpAt: at })
+    const due = await as.query(api.orders.list, { tab: "pending", flag: "followUp", limit: 50 } as any)
+    expect(JSON.stringify(due)).toContain(orderId)
+    await as.mutation(api.orders.logCall, { id: orderId, outcome: "Confirmed" })
+    o = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o.callCount).toBe(2)
+    expect(o.followUpAt).toBeUndefined()
+  })
+})
+
 describe("Nuport status sync", () => {
   it("gives our orders Nuport's invoice numbers and moves our-only orders out of the way", async () => {
     const { t, as, locationId, v41 } = await setup()
