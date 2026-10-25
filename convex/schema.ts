@@ -448,6 +448,9 @@ export default defineSchema({
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
 
+  // Daily scoreboard: numbers per day an order was made (kept up to date on every order change)
+  dayStats: defineTable({ day: v.string(), st: v.any(), src: v.any(), it: v.any(), due: v.number(), q: v.number() }).index("by_day", ["day"]),
+
   // Saved results of heavy read-only reports (dashboard), shared by everyone for a few minutes to save database reads
   cache: defineTable({ key: v.string(), at: v.number(), value: v.any() }).index("by_key", ["key"]),
 

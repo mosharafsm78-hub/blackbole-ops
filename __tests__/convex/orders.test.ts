@@ -516,3 +516,42 @@ describe("product search does not show loose matches", () => {
     expect((await as.query(api.catalog.searchVariants, { q: "brinkley" })).map((r) => r.sku)).toEqual(["BB-SAN-CDS-42"])
   })
 })
+
+describe("daily scoreboard", () => {
+  it("gives the same dashboard numbers as counting every order, through creates, status moves, edits, payments, cancels and deletes", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const ids: any[] = []
+    for (let i = 0; i < 6; i++) ids.push((await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), source: i % 2 ? "Website" : "Facebook" })).orderId)
+    await as.mutation(api.orders.changeStatus, { ids: ids.slice(0, 4), to: "approved" })
+    await as.mutation(api.orders.changeStatus, { ids: ids.slice(0, 3), to: "in_transit" })
+    await as.mutation(api.orders.changeStatus, { ids: [ids[0]], to: "delivered_due" })
+    await as.mutation(api.orders.changeStatus, { ids: [ids[1]], to: "delivered_paid" })
+    await as.mutation(api.orders.changeStatus, { ids: [ids[2]], to: "pending_returned" })
+    await as.mutation(api.orders.changeStatus, { ids: [ids[4]], to: "cancelled" })
+    await as.mutation(api.orders.softDelete, { ids: [ids[5]] } as any).catch(() => {})
+    const from = Date.now() - 2 * 86400000, to = Date.now() + 86400000
+    const old = await t.query(internal.dashboard.statsData, { from, to }).catch(() => null)
+    const rows = await t.query(internal.stats.days, { fromDay: "2000-01-01", toDay: "2100-01-01" })
+    const { statsFromDays } = await import("../../convex/stats")
+    const neu = statsFromDays(rows, from, to)
+    // statsData needs a signed-in user; run it as the admin through t.run instead
+    const scan = await t.run(async (ctx) => {
+      const orders = (await ctx.db.query("orders").collect()).filter((o) => !o.deletedAt)
+      const live = orders.filter((o) => o.status !== "cancelled")
+      const byStatus: Record<string, number> = {}
+      for (const o of orders) byStatus[o.status] = (byStatus[o.status] ?? 0) + 1
+      return { byStatus, totalOrders: live.length, totalSales: live.reduce((s, o) => s + o.total, 0), due: live.filter((o) => o.status === "delivered_due").reduce((s, o) => s + o.due, 0) }
+    })
+    expect(old === null || old.totalOrders === neu.totalOrders).toBe(true)
+    expect(neu.byStatus).toEqual(scan.byStatus)
+    expect(neu.totalOrders).toBe(scan.totalOrders)
+    expect(neu.totalSales).toBe(scan.totalSales)
+    expect(neu.dueCollect).toBe(scan.due)
+    expect(neu.topItems[0].qty).toBe(scan.totalOrders * 2)
+    // a from-scratch rebuild gives the very same rows
+    await t.mutation(internal.stats.backfill, {})
+    const rebuilt = await t.query(internal.stats.days, { fromDay: "2000-01-01", toDay: "2100-01-01" })
+    expect(statsFromDays(rebuilt, from, to)).toEqual(neu)
+    expect(await t.query(internal.stats.ready, {})).toBe(true)
+  })
+})

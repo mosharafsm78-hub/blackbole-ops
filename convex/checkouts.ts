@@ -1,5 +1,6 @@
 import { v, ConvexError } from "convex/values"
-import { internalMutation, mutation, query } from "./_generated/server"
+import { query } from "./_generated/server"
+import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem } from "./schema"
 import { currentStaff, logOrder, requirePerm } from "./lib"

@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
-import { action, httpAction, internalMutation, internalQuery, mutation } from "./_generated/server"
+import { action, httpAction, internalQuery } from "./_generated/server"
+import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { getSetting, moveOrderStock, nextCounter, requirePerm, setCounter, setSetting } from "./lib"

@@ -1,5 +1,6 @@
 import { v, ConvexError } from "convex/values"
-import { action, httpAction, internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
+import { action, httpAction, internalAction, internalQuery, query } from "./_generated/server"
+import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { getSetting, requirePerm, setSetting } from "./lib"
@@ -1084,5 +1085,17 @@ export const checkDueNow = action({
   handler: async (ctx): Promise<{ checked: number; paid: string[]; returned: string[]; failed: number }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
     return await ctx.runAction(internal.pathao.checkDue, {})
+  },
+})
+
+/** Timer entry: Pathao checks pause from midnight to 8 am Bangladesh time (nothing moves at night; saves database reads). */
+export const cronTick = internalAction({
+  args: { job: v.union(v.literal("status"), v.literal("money"), v.literal("due")) },
+  handler: async (ctx, { job }): Promise<void> => {
+    const hourBD = new Date(Date.now() + 6 * 3600000).getUTCHours()
+    if (hourBD < 8) return
+    if (job === "status") await ctx.runAction(internal.pathao.syncAll, {})
+    else if (job === "money") await ctx.runAction(internal.pathao.syncMoney, {})
+    else await ctx.runAction(internal.pathao.checkDue, {})
   },
 })

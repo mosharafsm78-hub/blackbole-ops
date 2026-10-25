@@ -1,7 +1,9 @@
 import { v } from "convex/values"
-import { action, internalMutation, internalQuery } from "./_generated/server"
+import { action, internalQuery } from "./_generated/server"
+import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { currentStaff } from "./lib"
+import { bdDay, statsFromDays } from "./stats"
 
 const DAY = 86400000
 const BD_OFFSET = 6 * 3600000 // Asia/Dhaka
@@ -15,6 +17,7 @@ export const statsData = internalQuery({
       .query("orders")
       .withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to))
       .collect()
+      .then((rows) => rows.filter((o) => !o.deletedAt))
     const live = orders.filter((o) => o.status !== "cancelled")
 
     const days = new Map<string, { day: string; orders: number; sales: number; delivered: number; returned: number; cancelled: number; open: number }>()
@@ -102,6 +105,28 @@ export const moneyData = internalQuery({
   },
 })
 
+export const signedIn = internalQuery({ args: {}, handler: async (ctx) => !!(await currentStaff(ctx)) })
+
+/** Admin check: old way (reading every order) vs scoreboard, for the same dates. */
+export const compareStats = action({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }): Promise<any> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "team.manage" })
+    const old = await ctx.runQuery(internal.dashboard.statsData, { from, to })
+    const neu = statsFromDays(await ctx.runQuery(internal.stats.days, { fromDay: bdDay(from), toDay: bdDay(to) }), from, to)
+    const diffs: string[] = []
+    for (const k of ["returned", "delivered", "deliveredValue", "totalOrders", "totalSales", "avgOrder", "cancelled", "deliveryRate", "dueCollect"] as const) {
+      if (Math.abs(Number((old as any)[k] ?? 0) - Number((neu as any)[k] ?? 0)) > 0.5) diffs.push(`${k}: old ${(old as any)[k]} new ${(neu as any)[k]}`)
+    }
+    for (const [st, n] of Object.entries({ ...(old as any).byStatus, ...neu.byStatus })) {
+      const a = (old as any).byStatus[st] ?? 0, b = neu.byStatus[st] ?? 0
+      if (a !== b) diffs.push(`status ${st}: old ${a} new ${b} (${n})`)
+    }
+    ;(old as any).daily.forEach((d: any, i: number) => { if (JSON.stringify(d) !== JSON.stringify(neu.daily[i])) diffs.push(`day ${d.day}: old ${JSON.stringify(d)} new ${JSON.stringify(neu.daily[i])}`) })
+    return { ok: diffs.length === 0, diffs: diffs.slice(0, 40), ready: await ctx.runQuery(internal.stats.ready, {}) }
+  },
+})
+
 // ---------- shared cache: heavy reports are worked out once and reused by everyone for a few minutes ----------
 export const readCache = internalQuery({
   args: { key: v.string() },
@@ -138,9 +163,15 @@ async function buildOverview(ctx: any, from: number, to: number): Promise<any> {
     const span = to - from + 1
     const bd = new Date(Date.now() + BD_OFFSET); bd.setUTCHours(0, 0, 0, 0)
     const todayStart = bd.getTime() - BD_OFFSET
+    const fast = await ctx.runQuery(internal.stats.ready, {})
+    const range = async (a: number, b: number) => {
+      if (!fast) return await ctx.runQuery(internal.dashboard.statsData, { from: a, to: b })
+      if (!(await ctx.runQuery(internal.dashboard.signedIn, {}))) return null
+      return statsFromDays(await ctx.runQuery(internal.stats.days, { fromDay: bdDay(a), toDay: bdDay(b) }), a, b)
+    }
     const [now, prev, money, pathao, today, yesterday] = await Promise.all([
-      ctx.runQuery(internal.dashboard.statsData, { from, to }),
-      ctx.runQuery(internal.dashboard.statsData, { from: from - span, to: from - 1 }),
+      range(from, to),
+      range(from - span, from - 1),
       ctx.runQuery(internal.dashboard.moneyData, { from, to }),
       ctx.runAction(internal.pathao.dashboardStats, { from, to }).catch(() => null),
       ctx.runQuery(internal.dashboard.statsData, { from: todayStart, to: todayStart + DAY - 1 }),
@@ -180,6 +211,7 @@ export const monthly = action({
 })
 
 async function buildMonthly(ctx: any, months: number): Promise<any[]> {
+  if (await ctx.runQuery(internal.stats.ready, {})) return await buildMonthlyFast(ctx, months)
   {
     const nowBD = new Date(Date.now() + BD_OFFSET)
     const start = Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1), 1) - BD_OFFSET
@@ -208,4 +240,34 @@ async function buildMonthly(ctx: any, months: number): Promise<any[]> {
     }
     return [...out.values()].reverse().map((m) => ({ ...m, deliveryRate: m.delivered + m.returned ? Math.round((m.delivered / (m.delivered + m.returned)) * 100) : null }))
   }
+}
+
+const DELIVERED = ["delivered_due", "delivered_paid"]
+const RETURNED = ["pending_returned", "returned", "damaged"]
+async function buildMonthlyFast(ctx: any, months: number): Promise<any[]> {
+  if (!(await ctx.runQuery(internal.dashboard.signedIn, {}))) return []
+  const nowBD = new Date(Date.now() + BD_OFFSET)
+  const start = Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1), 1) - BD_OFFSET
+  const out = new Map<string, any>()
+  for (let i = 0; i < months; i++) {
+    const k = new Date(Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1) + i, 1)).toISOString().slice(0, 7)
+    out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, cancelled: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
+  }
+  const rows: any[] = await ctx.runQuery(internal.stats.days, { fromDay: bdDay(start), toDay: bdDay(Date.now()) })
+  for (const r of rows) {
+    const m = out.get(r.day.slice(0, 7)); if (!m) continue
+    m.items += r.q
+    for (const s of r.st) {
+      if (s.s === "cancelled") { m.cancelled += s.n; continue }
+      m.orders += s.n; m.sales += s.v
+      if (DELIVERED.includes(s.s)) { m.delivered += s.n; m.deliveredValue += s.v }
+      else if (RETURNED.includes(s.s)) m.returned += s.n
+      else m.open += s.n
+    }
+  }
+  const key = (t: number) => new Date(t + BD_OFFSET).toISOString().slice(0, 7)
+  for (const i of await ctx.runQuery(internal.dashboard.monthMoney, { from: start })) {
+    const m = out.get(key(i.at)); if (m) { m.pathaoPaid += i.paid; m.pathaoFees += i.fees }
+  }
+  return [...out.values()].reverse().map((m) => ({ ...m, sales: Math.round(m.sales * 100) / 100, deliveredValue: Math.round(m.deliveredValue * 100) / 100, deliveryRate: m.delivered + m.returned ? Math.round((m.delivered / (m.delivered + m.returned)) * 100) : null }))
 }

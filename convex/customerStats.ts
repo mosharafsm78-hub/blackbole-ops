@@ -1,6 +1,7 @@
 import { v } from "convex/values"
 import { internal } from "./_generated/api"
-import { internalMutation, type QueryCtx } from "./_generated/server"
+import { type QueryCtx } from "./_generated/server"
+import { internalMutation } from "./functions"
 import type { Doc } from "./_generated/dataModel"
 
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])

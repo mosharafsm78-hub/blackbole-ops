@@ -1,6 +1,7 @@
 import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
-import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server"
+import { internalAction, internalQuery, query } from "./_generated/server"
+import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { currentStaff, invoiceLabel, nextCounter, requirePerm } from "./lib"

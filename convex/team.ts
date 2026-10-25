@@ -1,6 +1,7 @@
 import { v, ConvexError } from "convex/values"
 import { getAuthUserId } from "@convex-dev/auth/server"
-import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server"
+import { query, type MutationCtx } from "./_generated/server"
+import { internalMutation, mutation } from "./functions"
 import type { Id } from "./_generated/dataModel"
 import { currentStaff, effectivePerms, requirePerm } from "./lib"
 import { DEFAULT_ROLES, PERMISSIONS, ALL_MOVE_KEYS } from "./rules"
