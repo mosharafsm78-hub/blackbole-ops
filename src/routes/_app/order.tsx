@@ -163,7 +163,7 @@ function OrderPage() {
         </div>
 
         <div className="flex flex-wrap items-end gap-x-4 gap-y-1 px-5 pb-1 pt-2">
-          <h1 className="text-2xl font-semibold tracking-tight">{invoice(o.invoiceNo)}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{o.invoiceCode ?? invoice(o.invoiceNo)}</h1>
           <StatusPill status={o.status} />
           <span className="pb-0.5 text-sm text-muted-foreground">
             {o.source}{o.externalName ? ` ${o.externalName}` : ""} · {dateTime(o.createdAt)} · by {o.createdByName}
@@ -412,7 +412,7 @@ function OrderPage() {
               <div className="-my-1 divide-y">
                 {history.map((h) => (
                   <Link key={h._id} to="/order" search={{ id: h._id }} className="flex items-center justify-between gap-2 py-2 text-sm hover:text-tone-blue">
-                    <span><span className="font-medium">{invoice(h.invoiceNo)}</span> <span className="text-xs text-muted-foreground">· {taka(h.total)}</span></span>
+                    <span><span className="font-medium">{h.invoiceCode ?? invoice(h.invoiceNo)}</span> <span className="text-xs text-muted-foreground">· {taka(h.total)}</span></span>
                     <StatusPill status={h.status} />
                   </Link>
                 ))}

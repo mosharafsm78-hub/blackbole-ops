@@ -67,6 +67,8 @@ function OrdersPage() {
   const sameNumber = useQuery(api.orders.sameNumberCount, { tab: search.tab })
   const [syncing, setSyncing] = useState(false)
   const pushMany = useAction(api.pathao.pushMany)
+  const checkDue = useAction(api.pathao.checkDueNow)
+  const [checkingDue, setCheckingDue] = useState(false)
   const [pushing, setPushing] = useState(false)
   const data = useQuery(api.orders.list, {
     tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, status: search.st, limit,
@@ -99,7 +101,7 @@ function OrdersPage() {
     const head = ["Invoice", "Status", "Source", "Shopify", "Created", "Customer", "Phone", "Address", "City", "Zone", "Items", "Total", "Paid", "Due", "Delivery fee", "Consignment", "Courier status", "Calls", "Warehouse"]
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`
     const lines = list.map((o) => [
-      invoice(o.invoiceNo), o.status, o.source, o.externalName, dateTime(o.createdAt), o.customerName, o.phone, o.address,
+      o.invoiceCode ?? invoice(o.invoiceNo), o.status, o.source, o.externalName, dateTime(o.createdAt), o.customerName, o.phone, o.address,
       o.cityName, o.zoneName, o.items.map((i) => `${i.sku} x${i.qty}`).join("; "), o.total, o.paidAmount, o.due, o.deliveryFee,
       o.consignmentId, o.courierStatus, o.callCount, (o as any).locationName ?? "",
     ].map(esc).join(","))
@@ -178,6 +180,25 @@ function OrdersPage() {
                 </button>
               )
             })}
+            {search.st === "delivered_due" && (
+              <Button
+                size="sm" variant="outline" className="ml-auto" disabled={checkingDue} data-testid="check-due"
+                title="Asks Pathao about every Payment Due order. Paid ones move to Payment Collected. Also runs by itself every 30 minutes."
+                onClick={async () => {
+                  setCheckingDue(true)
+                  const tid = toast.loading("Checking every Payment Due order with Pathao…")
+                  try {
+                    const r = await checkDue({})
+                    const msg = r.paid.length || r.returned.length
+                      ? `${r.paid.length} paid by Pathao → Payment Collected${r.returned.length ? `, ${r.returned.length} returning` : ""}`
+                      : `All ${r.checked - r.failed} checked — Pathao has not paid these yet`
+                    toast.success(msg, { id: tid, duration: 12000, description: [r.paid.length ? `Paid: ${r.paid.join(", ")}` : "", r.returned.length ? `Returning: ${r.returned.join(", ")}` : "", r.failed ? `${r.failed} could not be read` : ""].filter(Boolean).join("\n") || undefined })
+                  } catch (e) { toast.error(errMsg(e), { id: tid }) } finally { setCheckingDue(false) }
+                }}
+              >
+                <RefreshCw className={cn("size-4", checkingDue && "animate-spin")} /> {checkingDue ? "Checking…" : "Check with Pathao"}
+              </Button>
+            )}
           </div>
         )
       })()}
@@ -311,12 +332,12 @@ function OrdersPage() {
                         if (v) next.add(o._id); else next.delete(o._id)
                         setSelected(next)
                       }}
-                      aria-label={`Select ${invoice(o.invoiceNo)}`}
+                      aria-label={`Select ${o.invoiceCode ?? invoice(o.invoiceNo)}`}
                     />
                   </td>
                   <td className="p-3">
                     <Link to="/order" search={{ id: o._id }} className="font-semibold text-tone-blue hover:underline">
-                      {invoice(o.invoiceNo)}
+                      {o.invoiceCode ?? invoice(o.invoiceNo)}
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <Pill tone="gray">{o.source}</Pill>

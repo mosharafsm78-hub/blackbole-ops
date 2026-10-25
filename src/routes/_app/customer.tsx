@@ -86,7 +86,7 @@ function CustomerPage() {
           <div className="divide-y">
             {data.orders.map((o) => (
               <Link key={o._id} to="/order" search={{ id: o._id }} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/30">
-                <span className="w-24 font-medium text-tone-blue">{invoice(o.invoiceNo)}</span>
+                <span className="w-24 font-medium text-tone-blue">{o.invoiceCode ?? invoice(o.invoiceNo)}</span>
                 <span className="w-36 text-xs text-muted-foreground">{dateTime(o.createdAt)}</span>
                 <span className="min-w-0 flex-1 truncate text-xs">{o.items.map((i) => `${i.qty}× ${i.name}${i.attrs ? ` ${i.attrs}` : ""}`).join(", ")}</span>
                 <span className="tabular-nums">{taka(o.total)}</span>

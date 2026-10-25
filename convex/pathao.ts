@@ -1010,3 +1010,72 @@ export const setCache = internalMutation({
   args: { key: v.string(), data: v.any() },
   handler: async (ctx, { key, data }) => { await setSetting(ctx, key, { data, at: Date.now() }) },
 })
+
+// =====================================================================================
+// Payment Due check: ask Pathao about every "Delivered · Payment Due" order, one by one
+// =====================================================================================
+export const dueOrders = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "delivered_due")).take(500)
+    return rows
+      .filter((o) => !o.deletedAt && o.courier === "pathao" && o.consignmentId && /^D/i.test(o.consignmentId))
+      .map((o) => ({ _id: o._id, cid: o.consignmentId!, partnerId: o.deliveryPartnerId ?? null, invoice: o.invoiceCode ?? `BB-${o.invoiceNo}` }))
+  },
+})
+
+export const markPaidByPathao = internalMutation({
+  args: { id: v.id("orders"), invoiceId: v.optional(v.string()) },
+  handler: async (ctx, { id, invoiceId }) => {
+    const o = await ctx.db.get(id)
+    if (!o) return
+    const patch: Partial<Doc<"orders">> = {}
+    if (!o.courierPaid) { patch.courierPaid = true; patch.courierPaidAt = Date.now() }
+    if (invoiceId && o.courierInvoiceId !== invoiceId) patch.courierInvoiceId = invoiceId
+    if (Object.keys(patch).length) await ctx.db.patch(id, patch)
+  },
+})
+
+export const checkDue = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; paid: string[]; returned: string[]; failed: number }> => {
+    const rows: { _id: Id<"orders">; cid: string; partnerId: Id<"deliveryPartners"> | null; invoice: string }[] = await ctx.runQuery(internal.pathao.dueOrders, {})
+    const paid: string[] = [], returned: string[] = []
+    let failed = 0
+    const one = async (r: (typeof rows)[number]) => {
+      try {
+        let res = await merchantGet(ctx, `${MB}/orders/${encodeURIComponent(r.cid)}?archive=0`, r.partnerId)
+        let d = res.json?.data?.data ?? res.json?.data
+        if (!res.ok || !d || typeof d !== "object") {
+          res = await merchantGet(ctx, `${MB}/orders/${encodeURIComponent(r.cid)}?archive=1`, r.partnerId)
+          d = res.json?.data?.data ?? res.json?.data
+        }
+        if (!res.ok || !d || typeof d !== "object") { failed++; return }
+        const billing = String(d.billing_status ?? d.payment_status ?? d.invoice_status ?? "")
+        const status = String(d.order_status_slug ?? d.order_status ?? "")
+        const invoiceId = d.order_invoice_id ?? d.invoice_id
+        if (/^paid$/i.test(billing)) {
+          await ctx.runMutation(internal.pathao.markPaidByPathao, { id: r._id, invoiceId: invoiceId ? String(invoiceId) : undefined })
+          if (await moveTo(ctx, r._id, "delivered_due", "delivered_paid", `Pathao: payment ${billing}${invoiceId ? ` (invoice ${invoiceId})` : ""}`)) paid.push(r.invoice)
+        } else if (status && targetFor(status) === "pending_returned") {
+          await ctx.runMutation(internal.orders.setCourier, { id: r._id, courierStatus: status })
+          if (await moveTo(ctx, r._id, "delivered_due", "pending_returned", `Pathao: ${status}`)) returned.push(r.invoice)
+        }
+      } catch {
+        failed++
+      }
+    }
+    for (let i = 0; i < rows.length; i += 6) await Promise.all(rows.slice(i, i + 6).map(one))
+    if (paid.length || returned.length) console.log("Payment Due check", { paid, returned })
+    return { checked: rows.length, paid, returned, failed }
+  },
+})
+
+/** Button on Delivered → Payment Due: check them all with Pathao now. */
+export const checkDueNow = action({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; paid: string[]; returned: string[]; failed: number }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    return await ctx.runAction(internal.pathao.checkDue, {})
+  },
+})
