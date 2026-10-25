@@ -71,11 +71,17 @@ export const webhook = httpAction(async (ctx, req) => {
       await ctx.runMutation(internal.shopify.markSeen, { topic, ok: true, message: `Cancelled ${o.name}` })
       return new Response("ok")
     }
-    if (topic === "checkouts/create" || topic === "checkouts/update") {
-      const c = await toCart(ctx, o)
-      await ctx.runMutation(internal.checkouts.upsertFromShopify, c)
-      await ctx.runMutation(internal.shopify.markSeen, { topic, ok: true, message: `Checkout ${c.customerName || c.phone || o.id}${c.completed ? " (completed)" : ""}` })
-      return new Response("ok")
+    if (topic === "checkouts/create" || topic === "checkouts/update" || topic === "draft_orders/create" || topic === "draft_orders/update") {
+      try {
+        const c = topic.startsWith("draft") ? await toDraft(ctx, o) : await toCart(ctx, o)
+        await ctx.runMutation(internal.checkouts.upsertFromShopify, c)
+        await ctx.runMutation(internal.shopify.markSeen, { topic, ok: true, message: `${c.kind === "draft" ? "Draft" : "Checkout"} ${c.customerName || c.phone || o.id}${c.completed ? " (completed)" : ""}` })
+        return new Response("ok")
+      } catch (e) {
+        // a cart must never be lost: answer with an error so Shopify sends it again
+        await ctx.runMutation(internal.shopify.markSeen, { topic, ok: false, message: `Cart ${o?.id ?? ""}: ${e instanceof Error ? e.message : String(e)}` })
+        return new Response("retry", { status: 500 })
+      }
     }
     if (topic && topic !== "orders/create") return new Response("ignored")
 
@@ -168,6 +174,7 @@ async function toCart(ctx: any, o: any) {
   const t = (x: any) => { const n = Date.parse(String(x ?? "")); return Number.isFinite(n) ? n : Date.now() }
   return {
     checkoutId: String(o.id ?? o.token),
+    kind: "checkout",
     token: o.token ? String(o.token) : undefined,
     customerName: ship.name || [ship.first_name, ship.last_name].filter(Boolean).join(" ") || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || "",
     phone: String(ship.phone || o.phone || cust.phone || o.billing_address?.phone || ""),
@@ -179,5 +186,33 @@ async function toCart(ctx: any, o: any) {
     shopCreatedAt: t(o.created_at),
     shopUpdatedAt: t(o.updated_at ?? o.created_at),
     completed: !!o.completed_at,
+  }
+}
+
+/** Shopify draft order (e.g. EasySell COD form left without ordering) → what we store. */
+async function toDraft(ctx: any, o: any) {
+  const ship = o.shipping_address ?? o.billing_address ?? {}
+  const cust = o.customer ?? {}
+  const { items, itemDiscountTotal } = await mapLines(ctx, o.line_items ?? [])
+  const deliveryFee = num(o.shipping_line?.price)
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0)
+  const discount = Math.max(0, num(o.applied_discount?.amount) - 0) || Math.max(0, num(o.total_discounts) - itemDiscountTotal)
+  const total = num(o.total_price) || Math.max(0, subtotal - itemDiscountTotal - discount + deliveryFee)
+  const t = (x: any) => { const n = Date.parse(String(x ?? "")); return Number.isFinite(n) ? n : Date.now() }
+  const status = String(o.status ?? "open")
+  return {
+    checkoutId: `draft:${o.id}`,
+    kind: "draft",
+    shopName: o.name ? String(o.name) : undefined,
+    customerName: ship.name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || "",
+    phone: String(ship.phone || o.phone || cust.phone || o.billing_address?.phone || ""),
+    email: o.email || cust.email || undefined,
+    address: [ship.address1, ship.address2, ship.city && ship.city !== "-" ? ship.city : "", ship.province].filter(Boolean).join(", "),
+    cityName: ship.city && ship.city !== "-" ? ship.city : undefined,
+    items, subtotal, discount, deliveryFee, total,
+    recoveryUrl: o.invoice_url ? String(o.invoice_url) : undefined,
+    shopCreatedAt: t(o.created_at),
+    shopUpdatedAt: t(o.updated_at ?? o.created_at),
+    completed: status === "completed" || !!o.order_id || !!o.completed_at,
   }
 }

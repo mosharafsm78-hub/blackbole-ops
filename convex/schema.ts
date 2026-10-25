@@ -441,7 +441,9 @@ export default defineSchema({
 
   // Shopify checkouts — the ones never finished are "abandoned carts" the team calls to win back
   checkouts: defineTable({
-    checkoutId: v.string(),
+    checkoutId: v.string(), // Shopify checkout id, or "draft:<id>" for draft orders
+    kind: v.optional(v.string()), // "checkout" (website checkout) | "draft" (COD form / draft order)
+    shopName: v.optional(v.string()), // e.g. #D5839 for a draft order
     token: v.optional(v.string()),
     customerName: v.string(),
     phone: v.string(), // normalized 01XXXXXXXXX, or "" if not given

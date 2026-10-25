@@ -58,7 +58,7 @@ function AbandonedPage() {
     <div className="space-y-4">
       <PageHeader
         title="Abandoned carts"
-        sub="Customers who filled in the website checkout but did not order. Call them, then make the order here — it goes straight to Approved."
+        sub="Customers who filled in the website checkout or the COD form but did not order. Call them, then make the order here — it goes straight to Approved."
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
@@ -126,6 +126,9 @@ function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{c.customerName || "No name given"}</span>
+          <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", c.kind === "draft" ? "bg-tone-violet/10 text-tone-violet" : "bg-tone-blue/10 text-tone-blue")}>
+            {c.kind === "draft" ? `COD form${c.shopName ? ` ${c.shopName}` : ""}` : "Website checkout"}
+          </span>
           <span className="text-xs text-muted-foreground">{ago(c.shopUpdatedAt)}</span>
         </div>
         {c.phone ? (

@@ -112,6 +112,7 @@ function ImportPage() {
 function NuportSync() {
   const sync = useAction(api.migrate.nuportSyncNow)
   const create = useMutation(api.migrate.nuportCreateOrders)
+  const importCarts = useMutation(api.checkouts.importMany)
   const [text, setText] = useState("")
   const [busy, setBusy] = useState(false)
   const [res, setRes] = useState<any>(null)
@@ -127,6 +128,11 @@ function NuportSync() {
         try {
           const parsed = JSON.parse(text)
           if (parsed.bbNuportCreate) { setRes(await create({ rows: parsed.bbNuportCreate })); return }
+          if (parsed.bbCarts) {
+            let added = 0, skipped = 0
+            for (let i = 0; i < parsed.bbCarts.length; i += 40) { const r = await importCarts({ rows: parsed.bbCarts.slice(i, i + 40) }); added += r.added; skipped += r.skipped }
+            setRes({ created: [`${added} carts added`], skipped: skipped ? [`${skipped} already here`] : [] }); return
+          }
           const rows = (parsed.bbNuportRows ?? parsed).map((r: any) => ({ inv: String(r.inv), shopify: r.shopify ?? null, phone: r.phone ?? null, cid: r.cid ?? null, status: String(r.status), nuport: String(r.nuport ?? "") }))
           setRes(await sync({ rows, dryRun: !!parsed.dryRun }))
         } catch (e) { setRes({ error: e instanceof Error ? e.message : String(e) }) } finally { setBusy(false) }

@@ -12,12 +12,15 @@ export const ABANDON_AFTER = 15 * 60000
 // ---------- from Shopify ----------
 export const upsertFromShopify = internalMutation({
   args: {
-    checkoutId: v.string(), token: v.optional(v.string()), customerName: v.string(), phone: v.string(), email: v.optional(v.string()),
+    checkoutId: v.string(), kind: v.optional(v.string()), shopName: v.optional(v.string()), token: v.optional(v.string()), customerName: v.string(), phone: v.string(), email: v.optional(v.string()),
     address: v.string(), cityName: v.optional(v.string()), items: v.array(orderItem), subtotal: v.number(), discount: v.number(),
     deliveryFee: v.number(), total: v.number(), recoveryUrl: v.optional(v.string()), shopCreatedAt: v.number(), shopUpdatedAt: v.number(),
     completed: v.boolean(),
   },
-  handler: async (ctx, { completed, ...a }) => {
+  handler: async (ctx, args) => upsertCart(ctx, args),
+})
+
+async function upsertCart(ctx: any, { completed, ...a }: any) {
     const phone = /^01\d{9}$/.test(normalizePhone(a.phone)) ? normalizePhone(a.phone) : ""
     const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", a.checkoutId)).first()
     if (old) {
@@ -27,6 +30,35 @@ export const upsertFromShopify = internalMutation({
     }
     if (completed) return
     await ctx.db.insert("checkouts", { ...a, phone, status: "open", callCount: 0 })
+}
+
+const cartRow = v.object({
+  checkoutId: v.string(), kind: v.optional(v.string()), shopName: v.optional(v.string()), token: v.optional(v.string()), customerName: v.string(),
+  phone: v.string(), email: v.optional(v.string()), address: v.string(), cityName: v.optional(v.string()),
+  items: v.array(v.object({ sku: v.string(), name: v.string(), attrs: v.optional(v.string()), price: v.number(), qty: v.number(), discount: v.number() })),
+  subtotal: v.number(), discount: v.number(), deliveryFee: v.number(), total: v.number(), recoveryUrl: v.optional(v.string()),
+  shopCreatedAt: v.number(), shopUpdatedAt: v.number(), completed: v.boolean(),
+})
+
+/** Admin: bring in older abandoned checkouts / draft orders read from Shopify (skips ones already here). */
+export const importMany = mutation({
+  args: { rows: v.array(cartRow) },
+  handler: async (ctx, { rows }) => {
+    await requirePerm(ctx, "team.manage")
+    let added = 0, skipped = 0
+    for (const r of rows) {
+      const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", r.checkoutId)).first()
+      if (old) { skipped++; continue }
+      const items: Doc<"checkouts">["items"] = []
+      for (const i of r.items) {
+        const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", i.sku.toUpperCase())).first()
+        const p = vr ? await ctx.db.get(vr.productId) : null
+        items.push({ variantId: vr?._id, sku: i.sku.toUpperCase(), name: p?.name ?? i.name, attrs: vr?.title ?? i.attrs, imageUrl: p?.imageUrl, price: i.price, qty: i.qty, discount: i.discount, weightKg: vr?.weightKg ?? 0.5 })
+      }
+      await upsertCart(ctx, { ...r, items })
+      added++
+    }
+    return { added, skipped }
   },
 })
 
