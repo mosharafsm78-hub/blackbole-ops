@@ -94,11 +94,21 @@ export const codLead = internalMutation({
     const items: Doc<"checkouts">["items"] = []
     for (const i of a.items.slice(0, 10)) {
       const sku = (i.sku ?? "").trim().toUpperCase()
-      const vr = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
+      let vr = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
+      if (!vr && i.title) {
+        // the popup only knows the product name and size (e.g. "EU 42"): find our product by name, then the size
+        const size = (i.variant ?? "").toLowerCase().replace(/eu\s*/g, "").trim()
+        for (const p of await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", i.title)).take(3)) {
+          if (p.name.trim().toLowerCase() !== i.title.trim().toLowerCase()) continue
+          const vars = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()
+          vr = vars.find((x) => x.title.toLowerCase() === size) ?? vars.find((x) => size && x.title.toLowerCase().split(/[\s/·]+/).every((w) => size.includes(w))) ?? null
+          if (vr) break
+        }
+      }
       const p = vr ? await ctx.db.get(vr.productId) : null
       const qty = Math.max(1, Math.min(10, Math.round(i.qty)))
       const price = Math.max(0, Math.round(i.price))
-      items.push({ variantId: vr?._id, sku: sku || `SHOPIFY-${i.id ?? "?"}`, name: (p?.name ?? i.title).slice(0, 160), attrs: (vr?.title ?? i.variant ?? "").slice(0, 80) || undefined, imageUrl: p?.imageUrl, price, qty, discount: 0, weightKg: vr?.weightKg ?? 0.5 })
+      items.push({ variantId: vr?._id, sku: vr?.sku ?? (sku || `SHOPIFY-${i.id ?? "?"}`), name: (p?.name ?? i.title).slice(0, 160), attrs: (vr?.title ?? i.variant ?? "").slice(0, 80) || undefined, imageUrl: p?.imageUrl, price, qty, discount: 0, weightKg: vr?.weightKg ?? 0.5 })
     }
     const subtotal = items.reduce((t, i) => t + i.price * i.qty, 0)
     const deliveryFee = a.zone === "outside" ? 130 : 90

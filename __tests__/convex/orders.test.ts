@@ -577,6 +577,10 @@ describe("COD form leads", () => {
     await t.run(async (ctx) => { await ctx.db.patch(c._id, { shopUpdatedAt: Date.now() - 60000 }) })
     expect(await t.mutation(internal.checkouts.codLead, { ...lead, address: "House 5, Road 2, Agrabad, Chattogram" })).toBe("updated")
     expect(await t.mutation(internal.checkouts.codLead, { ...lead, phone: "123" })).toBe("bad phone")
+    // popup gives only name + "EU 42": still matched to our product
+    expect(await t.mutation(internal.checkouts.codLead, { ...lead, phone: "01811222333", items: [{ qty: 1, price: 1480, title: "Harbor Shore Sandal - Black", variant: "EU 42" }] })).toBe("added")
+    const c2: any = await t.run((ctx) => ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", "codform:01811222333")).first())
+    expect(c2.items[0].sku).toBe("BB-HSS-42")
     // the customer orders: the lead closes and new typing within 2 hours is ignored
     const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), phone: "01711999888" })
     c = await t.run((ctx) => ctx.db.get(c._id))
