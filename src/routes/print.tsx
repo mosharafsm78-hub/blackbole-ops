@@ -82,7 +82,7 @@ function Invoices() {
           ))}
         </div>
       ) : (
-        chunk(orders, layout === "half" ? 2 : 1).map((sheet, si) => (
+        chunk<PrintOrder>(orders as PrintOrder[], layout === "half" ? 2 : 1).map((sheet, si) => (
           <div key={si} className="sheet mx-auto my-4 flex w-[210mm] flex-col bg-white px-[8mm] shadow" style={{ height: "297mm", breakAfter: "page", overflow: "hidden" }} data-testid="invoice-sheet">
             {sheet.map((o, k) => (
               <div key={o._id} className="inv overflow-hidden" style={{ height: layout === "half" ? "148.5mm" : "297mm", borderTop: k > 0 ? "1px dashed #888" : undefined }}>

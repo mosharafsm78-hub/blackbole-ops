@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, Search, Truck, Upload, ScanLine, Lock,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -33,6 +33,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view", color: "bg-tone-blue-bg text-tone-blue", group: "" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
+  { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },
   { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Orders" },
   { to: "/customers", label: "Customers", icon: Users, perm: "orders.view", color: "bg-tone-pink-bg text-tone-pink", group: "Orders" },
   { to: "/products", label: "Products", icon: Package, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
@@ -151,6 +152,8 @@ function Gate({ children }: { children: React.ReactNode }) {
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const me = useMe()
   const path = useRouterState({ select: (s) => s.location.pathname })
+  const carts = useQuery(api.checkouts.counts)
+  const badge = (to: string) => (to === "/abandoned" && carts ? carts.new + carts.followupDue : 0)
   return (
     <nav className="space-y-0.5">
       {NAV.map((n, i) => {
@@ -178,6 +181,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           >
             <span className={cn("flex size-7 items-center justify-center rounded-md", n.color)}><Icon className="size-4" /></span>
             {n.label}
+            {badge(n.to) > 0 && <span className="ml-auto rounded-full bg-tone-red px-1.5 text-[11px] font-semibold tabular-nums text-white">{badge(n.to)}</span>}
           </Link>
         )]
       })}

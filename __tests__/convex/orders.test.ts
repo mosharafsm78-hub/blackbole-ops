@@ -285,6 +285,43 @@ describe("same phone, more than one open order", () => {
   })
 })
 
+describe("abandoned carts", () => {
+  const cart = (v41: Id<"variants">, over: Record<string, unknown> = {}) => ({
+    checkoutId: "900001", token: "tok1", customerName: "Cart Buyer", phone: "+8801812345678", address: "Road 5, Dhanmondi", cityName: "Dhaka",
+    items: [{ variantId: v41, sku: "BB-HSS-41", name: "Harbor Shore Sandal - Black", attrs: "41", price: 1480, qty: 1, discount: 0, weightKg: 0.4 }],
+    subtotal: 1480, discount: 0, deliveryFee: 90, total: 1570, recoveryUrl: "https://blackbole.com/x/recover",
+    shopCreatedAt: Date.now() - 3600000, shopUpdatedAt: Date.now() - 3600000, completed: false, ...over,
+  })
+
+  it("lists carts left for 15+ minutes; a website order closes them", async () => {
+    const { t, as, v41 } = await setup()
+    await t.mutation(internal.checkouts.upsertFromShopify, cart(v41._id))
+    await t.mutation(internal.checkouts.upsertFromShopify, cart(v41._id, { checkoutId: "900002", token: "tok2", shopUpdatedAt: Date.now() - 60000 })) // still paying
+    let rows: any = await as.query(api.checkouts.list, { tab: "new" })
+    expect(rows.map((r: any) => r.checkoutId)).toEqual(["900001"])
+    expect(rows[0].phone).toBe("01812345678")
+    await t.mutation(internal.checkouts.markOrdered, { token: "tok1", externalId: "shopify-1" })
+    rows = await as.query(api.checkouts.list, { tab: "new" })
+    expect(rows).toHaveLength(0)
+    expect(await as.query(api.checkouts.list, { tab: "ordered" })).toHaveLength(1)
+  })
+
+  it("call log moves it to follow-up; confirming makes an Approved order and reserves stock", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await t.mutation(internal.checkouts.upsertFromShopify, cart(v41._id))
+    const [c]: any = await as.query(api.checkouts.list, { tab: "new" })
+    await as.mutation(api.checkouts.logCall, { id: c._id, outcome: "Will order later", followUpAt: Date.now() - 1000 })
+    expect(await as.query(api.checkouts.list, { tab: "new" })).toHaveLength(0)
+    expect(await as.query(api.checkouts.counts, {})).toMatchObject({ new: 0, followup: 1, followupDue: 1 })
+    const r = await as.mutation(api.checkouts.convert, { id: c._id, customerName: "Cart Buyer", phone: "01812345678", address: "Road 5, Dhanmondi", deliveryFee: 90, status: "approved" })
+    const o: any = await t.run((ctx) => ctx.db.get(r.orderId))
+    expect(o).toMatchObject({ status: "approved", total: 1570, externalName: "Abandoned cart" })
+    expect(await stockOf(t, v41._id, locationId)).toMatchObject({ available: 9, processing: 1 })
+    expect(await as.query(api.checkouts.counts, {})).toMatchObject({ followup: 0, recovered30d: 1, recoveredValue30d: 1570 })
+    await expect(as.mutation(api.checkouts.convert, { id: c._id, customerName: "x", phone: "01812345678", address: "y", deliveryFee: 90, status: "approved" })).rejects.toThrow()
+  })
+})
+
 describe("call log follow-up", () => {
   it("'Will confirm later' sets a follow-up time; a later confirmed call clears it", async () => {
     const { t, as, locationId, v41 } = await setup()

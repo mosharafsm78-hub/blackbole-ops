@@ -71,6 +71,12 @@ export const webhook = httpAction(async (ctx, req) => {
       await ctx.runMutation(internal.shopify.markSeen, { topic, ok: true, message: `Cancelled ${o.name}` })
       return new Response("ok")
     }
+    if (topic === "checkouts/create" || topic === "checkouts/update") {
+      const c = await toCart(ctx, o)
+      await ctx.runMutation(internal.checkouts.upsertFromShopify, c)
+      await ctx.runMutation(internal.shopify.markSeen, { topic, ok: true, message: `Checkout ${c.customerName || c.phone || o.id}${c.completed ? " (completed)" : ""}` })
+      return new Response("ok")
+    }
     if (topic && topic !== "orders/create") return new Response("ignored")
 
     const ship = o.shipping_address ?? o.billing_address ?? {}
@@ -79,29 +85,7 @@ export const webhook = httpAction(async (ctx, req) => {
     const name = ship.name || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || "Customer"
     const address = [ship.address1, ship.address2, ship.city, ship.province, ship.zip].filter(Boolean).join(", ")
 
-    const lines: any[] = o.line_items ?? []
-    const skus = lines.map((l) => String(l.sku ?? "").trim()).filter(Boolean)
-    const found = await ctx.runQuery(internal.shopify.variantsBySku, { skus })
-    const unmatched: string[] = []
-    let itemDiscountTotal = 0
-    const items = lines.map((l) => {
-      const sku = String(l.sku ?? "").trim() || `SHOPIFY-${l.variant_id ?? l.id}`
-      const match = found[String(l.sku ?? "").trim()]
-      if (!match) unmatched.push(sku)
-      const disc = (l.discount_allocations ?? []).reduce((s: number, d: any) => s + num(d.amount), 0) || num(l.total_discount)
-      itemDiscountTotal += disc
-      return {
-        variantId: match ? (match.variantId as any) : undefined,
-        sku: sku.toUpperCase(),
-        name: match?.name ?? String(l.title ?? sku),
-        attrs: match?.title ?? (l.variant_title || undefined),
-        imageUrl: match?.imageUrl,
-        price: num(l.price),
-        qty: num(l.quantity) || 1,
-        discount: disc,
-        weightKg: match?.weightKg ?? num(l.grams) / 1000,
-      }
-    })
+    const { items, unmatched, itemDiscountTotal } = await mapLines(ctx, o.line_items ?? [])
     const deliveryFee = (o.shipping_lines ?? []).reduce((s: number, x: any) => s + num(x.price), 0)
     const orderDiscount = Math.max(0, num(o.total_discounts) - itemDiscountTotal)
     const fin = String(o.financial_status ?? "")
@@ -128,6 +112,11 @@ export const webhook = httpAction(async (ctx, req) => {
       origin: o.referring_site ? String(o.referring_site) : o.source_name && o.source_name !== "web" ? String(o.source_name) : undefined,
       campaignId: (() => { try { return new URL(o.landing_site, "https://x.y").searchParams.get("utm_campaign") || new URL(o.landing_site, "https://x.y").searchParams.get("campaign_id") || undefined } catch { return undefined } })(),
     })
+    if (o.checkout_token || o.checkout_id) {
+      await ctx.runMutation(internal.checkouts.markOrdered, {
+        token: o.checkout_token ? String(o.checkout_token) : undefined, checkoutId: o.checkout_id ? String(o.checkout_id) : undefined, externalId: String(o.id),
+      })
+    }
     await ctx.runMutation(internal.shopify.markSeen, {
       topic, ok: true, message: res.skipped ? `${o.name} already imported` : `${o.name} → BB-${res.invoiceNo}`,
     })
@@ -139,3 +128,56 @@ export const webhook = httpAction(async (ctx, req) => {
     return new Response("error logged")
   }
 })
+
+/** Shopify line items → our order items (matched to our products by SKU). */
+async function mapLines(ctx: any, lines: any[]) {
+  const skus = lines.map((l) => String(l.sku ?? "").trim()).filter(Boolean)
+  const found = await ctx.runQuery(internal.shopify.variantsBySku, { skus })
+  const unmatched: string[] = []
+  let itemDiscountTotal = 0
+  const items = lines.map((l) => {
+    const sku = String(l.sku ?? "").trim() || `SHOPIFY-${l.variant_id ?? l.id}`
+    const match = found[String(l.sku ?? "").trim()]
+    if (!match) unmatched.push(sku)
+    const disc = (l.discount_allocations ?? []).reduce((s: number, d: any) => s + num(d.amount), 0) || num(l.total_discount)
+    itemDiscountTotal += disc
+    return {
+      variantId: match ? (match.variantId as any) : undefined,
+      sku: sku.toUpperCase(),
+      name: match?.name ?? String(l.title ?? sku),
+      attrs: match?.title ?? (l.variant_title || undefined),
+      imageUrl: match?.imageUrl,
+      price: num(l.price),
+      qty: num(l.quantity) || 1,
+      discount: disc,
+      weightKg: match?.weightKg ?? num(l.grams) / 1000,
+    }
+  })
+  return { items, unmatched, itemDiscountTotal }
+}
+
+/** Shopify checkout (abandoned cart) → what we store. */
+async function toCart(ctx: any, o: any) {
+  const ship = o.shipping_address ?? o.billing_address ?? {}
+  const cust = o.customer ?? {}
+  const { items, itemDiscountTotal } = await mapLines(ctx, o.line_items ?? [])
+  const deliveryFee = (o.shipping_lines ?? []).reduce((s: number, x: any) => s + num(x.price), 0)
+  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0)
+  const discount = Math.max(0, num(o.total_discounts) - itemDiscountTotal)
+  const total = num(o.total_price) || Math.max(0, subtotal - itemDiscountTotal - discount + deliveryFee)
+  const t = (x: any) => { const n = Date.parse(String(x ?? "")); return Number.isFinite(n) ? n : Date.now() }
+  return {
+    checkoutId: String(o.id ?? o.token),
+    token: o.token ? String(o.token) : undefined,
+    customerName: ship.name || [ship.first_name, ship.last_name].filter(Boolean).join(" ") || [cust.first_name, cust.last_name].filter(Boolean).join(" ") || "",
+    phone: String(ship.phone || o.phone || cust.phone || o.billing_address?.phone || ""),
+    email: o.email || cust.email || undefined,
+    address: [ship.address1, ship.address2, ship.city, ship.province].filter(Boolean).join(", "),
+    cityName: ship.city || undefined,
+    items, subtotal, discount, deliveryFee, total,
+    recoveryUrl: o.abandoned_checkout_url ? String(o.abandoned_checkout_url) : undefined,
+    shopCreatedAt: t(o.created_at),
+    shopUpdatedAt: t(o.updated_at ?? o.created_at),
+    completed: !!o.completed_at,
+  }
+}

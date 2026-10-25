@@ -439,6 +439,40 @@ export default defineSchema({
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
 
+  // Shopify checkouts — the ones never finished are "abandoned carts" the team calls to win back
+  checkouts: defineTable({
+    checkoutId: v.string(),
+    token: v.optional(v.string()),
+    customerName: v.string(),
+    phone: v.string(), // normalized 01XXXXXXXXX, or "" if not given
+    email: v.optional(v.string()),
+    address: v.string(),
+    cityName: v.optional(v.string()),
+    items: v.array(orderItem),
+    subtotal: v.number(),
+    discount: v.number(),
+    deliveryFee: v.number(),
+    total: v.number(),
+    recoveryUrl: v.optional(v.string()),
+    shopCreatedAt: v.number(),
+    shopUpdatedAt: v.number(),
+    // open = still abandoned · ordered = customer finished on the website · converted = we made the order · lost = not interested
+    status: v.string(),
+    orderId: v.optional(v.id("orders")),
+    callCount: v.number(),
+    lastOutcome: v.optional(v.string()),
+    lastNote: v.optional(v.string()),
+    lastCallBy: v.optional(v.string()),
+    lastCallAt: v.optional(v.number()),
+    followUpAt: v.optional(v.number()),
+    closedBy: v.optional(v.string()),
+    closedAt: v.optional(v.number()),
+  })
+    .index("by_checkout", ["checkoutId"])
+    .index("by_token", ["token"])
+    .index("by_status", ["status", "shopUpdatedAt"])
+    .index("by_phone", ["phone"]),
+
   // Courier-wide delivery history for a phone number (Pathao merchant network), cached
   courierChecks: defineTable({
     phone: v.string(),
