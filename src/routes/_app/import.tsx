@@ -149,7 +149,7 @@ function NuportSync() {
               {res.groupMismatch?.length > 0 && <p className="text-tone-amber">Different from Nuport: {res.groupMismatch.slice(0, 40).join(" · ")}</p>}
               {res.errors?.length > 0 && <p className="text-tone-red">{res.errors.slice(0, 20).join(" · ")}</p>}
               {res.dryRun && <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs" data-testid="nuport-sync-preview">{JSON.stringify(res, null, 1)}</pre>}
-              {res.created && <p>Added from Nuport: <b className="text-tone-green">{res.created.join(", ") || "none"}</b>{res.skipped?.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</p>}
+              {res.created && <p>Added: <b className="text-tone-green">{res.created.join(", ") || "none"}</b>{res.skipped?.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</p>}
             </>
           )}
         </div>
