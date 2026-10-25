@@ -153,18 +153,39 @@ export const searchVariants = query({
     const s = await currentStaff(ctx)
     if (!s) return []
     const term = q.trim().toLowerCase()
-    const products = await ctx.db.query("products").collect()
-    const pmap = new Map(products.map((p) => [p._id as string, p]))
-    const variants = await ctx.db.query("variants").collect()
-    const stock = await stockByVariant(ctx, locationId)
-    return variants
-      .filter((vr) => vr.active && pmap.get(vr.productId)?.active !== false)
-      .filter((vr) => {
-        if (!term) return true
-        const p = pmap.get(vr.productId)
-        return vr.sku.toLowerCase().includes(term) || `${p?.name} ${vr.title}`.toLowerCase().includes(term)
-      })
-      .slice(0, 40)
+    // Read only what can match (was: every product, variant and stock row on each keystroke)
+    let variants: Doc<"variants">[] = []
+    if (!term) variants = await ctx.db.query("variants").take(120)
+    else {
+      const up = term.toUpperCase()
+      const bySku = await ctx.db.query("variants").withIndex("by_sku", (x) => x.gte("sku", up).lt("sku", up + "\uffff")).take(60)
+      const words = term.split(/\s+/).filter(Boolean)
+      const hits = await ctx.db.query("products").withSearchIndex("search_name", (x) => x.search("name", term)).take(15)
+      const byName: Doc<"variants">[] = []
+      for (const p of hits) {
+        for (const vr of await ctx.db.query("variants").withIndex("by_product", (x) => x.eq("productId", p._id)).take(40)) {
+          const text = `${p.name} ${vr.title} ${vr.sku}`.toLowerCase()
+          if (words.every((w) => text.includes(w)) || words.length === 1) byName.push(vr)
+        }
+      }
+      const seen = new Set<string>()
+      variants = [...bySku, ...byName].filter((x) => (seen.has(x._id) ? false : (seen.add(x._id), true)))
+      // SKU typed from the middle (e.g. "RCS-BR"): fall back to a full scan only when nothing else matched
+      if (!variants.length) variants = (await ctx.db.query("variants").collect()).filter((vr) => vr.sku.toLowerCase().includes(term))
+    }
+    const pmap = new Map<string, Doc<"products"> | null>()
+    for (const vr of variants) if (!pmap.has(vr.productId)) pmap.set(vr.productId, await ctx.db.get(vr.productId))
+    const picked = variants.filter((vr) => vr.active && pmap.get(vr.productId)?.active !== false).slice(0, 40)
+    const stock = new Map<string, StockSum>()
+    for (const vr of picked) {
+      const rows = locationId
+        ? await ctx.db.query("stock").withIndex("by_variant_location", (x) => x.eq("variantId", vr._id).eq("locationId", locationId)).collect()
+        : await ctx.db.query("stock").withIndex("by_variant_location", (x) => x.eq("variantId", vr._id)).collect()
+      const s = emptySum()
+      for (const r of rows) s.available += r.available
+      stock.set(vr._id, s)
+    }
+    return picked
       .map((vr) => {
         const p = pmap.get(vr.productId)
         return {

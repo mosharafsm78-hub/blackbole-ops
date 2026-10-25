@@ -344,7 +344,8 @@ export default defineSchema({
     .index("by_customer", ["customerId", "createdAt"])
     .index("by_phone", ["phone"])
     .index("by_consignment", ["consignmentId"])
-    .index("by_courier_invoice", ["courierInvoiceId"]),
+    .index("by_courier_invoice", ["courierInvoiceId"])
+    .index("by_auto_approve", ["autoApproveAt"]),
 
   // Order timeline: system logs, internal notes and customer-care calls
   orderEvents: defineTable({
@@ -446,6 +447,9 @@ export default defineSchema({
 
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
+
+  // Saved results of heavy read-only reports (dashboard), shared by everyone for a few minutes to save database reads
+  cache: defineTable({ key: v.string(), at: v.number(), value: v.any() }).index("by_key", ["key"]),
 
   // Shopify checkouts — the ones never finished are "abandoned carts" the team calls to win back
   checkouts: defineTable({

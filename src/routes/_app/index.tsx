@@ -42,7 +42,7 @@ function Dashboard() {
   const [range, setRange] = useState("30d")
   const days = RANGES.find((r) => r.key === range)!.days
   const { from, to } = useMemo(() => ({ from: startOfDayBD() - (days - 1) * 86400000, to: startOfDayBD() + 86400000 - 1 }), [days])
-  const data = usePolledAction(api.dashboard.overview, { from, to }, 60000)
+  const data = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
   const counts = useQuery(api.orders.counts)
   const n = data?.now, p = data?.prev, pa = data?.pathao, m = data?.money
   const label = RANGES.find((r) => r.key === range)!.label.toLowerCase()

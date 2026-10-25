@@ -635,8 +635,8 @@ export const runAutoApprove = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now()
-    const due = (await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "pending")).take(500))
-      .filter((o) => o.autoApproveAt && o.autoApproveAt <= now && !o.deletedAt)
+    const due = (await ctx.db.query("orders").withIndex("by_auto_approve", (q) => q.gt("autoApproveAt", 0).lte("autoApproveAt", now)).take(200))
+      .filter((o) => o.status === "pending" && !o.deletedAt)
     for (const o of due) {
       try { await applyStatus(ctx, o, "approved", "Auto-approve", "Scheduled auto-approve") } catch (e) {
         await ctx.db.patch(o._id, { autoApproveAt: undefined })

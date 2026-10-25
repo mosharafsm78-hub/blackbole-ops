@@ -1,5 +1,5 @@
 import { v } from "convex/values"
-import { action, internalQuery } from "./_generated/server"
+import { action, internalMutation, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { currentStaff } from "./lib"
 
@@ -102,10 +102,39 @@ export const moneyData = internalQuery({
   },
 })
 
-/** Everything the dashboard shows, in one call: this period, the period before, Pathao's delivery outcome and money. */
+// ---------- shared cache: heavy reports are worked out once and reused by everyone for a few minutes ----------
+export const readCache = internalQuery({
+  args: { key: v.string() },
+  handler: async (ctx, { key }) => {
+    if (!(await currentStaff(ctx))) throw new Error("Not signed in")
+    const row = await ctx.db.query("cache").withIndex("by_key", (q) => q.eq("key", key)).unique()
+    return row ? { at: row.at, value: row.value } : null
+  },
+})
+export const writeCache = internalMutation({
+  args: { key: v.string(), value: v.any() },
+  handler: async (ctx, { key, value }) => {
+    const row = await ctx.db.query("cache").withIndex("by_key", (q) => q.eq("key", key)).unique()
+    if (row) await ctx.db.patch(row._id, { at: Date.now(), value })
+    else await ctx.db.insert("cache", { key, at: Date.now(), value })
+  },
+})
+async function cached<T>(ctx: any, key: string, maxAgeMs: number, make: () => Promise<T>): Promise<T> {
+  const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.value as T
+  const value = await make()
+  await ctx.runMutation(internal.dashboard.writeCache, { key, value })
+  return value
+}
+
+/** Everything the dashboard shows, in one call (re-worked out at most every 5 minutes, shared by everyone). */
 export const overview = action({
   args: { from: v.number(), to: v.number() },
-  handler: async (ctx, { from, to }): Promise<any> => {
+  handler: async (ctx, { from, to }): Promise<any> => cached(ctx, `overview:${from}:${to}`, 5 * 60000, () => buildOverview(ctx, from, to)),
+})
+
+async function buildOverview(ctx: any, from: number, to: number): Promise<any> {
+  {
     const span = to - from + 1
     const bd = new Date(Date.now() + BD_OFFSET); bd.setUTCHours(0, 0, 0, 0)
     const todayStart = bd.getTime() - BD_OFFSET
@@ -118,8 +147,8 @@ export const overview = action({
       ctx.runQuery(internal.dashboard.statsData, { from: todayStart - DAY, to: Date.now() - DAY }),
     ])
     return { now, prev, money, pathao, today, yesterday }
-  },
-})
+  }
+}
 
 /** One page of compact orders for the monthly summary. */
 export const monthPage = internalQuery({
@@ -144,10 +173,14 @@ export const monthMoney = internalQuery({
   },
 })
 
-/** Month by month: orders, sales, delivered, returned, cancelled, delivery %, Pathao paid us. */
+/** Month by month: orders, sales, delivered, returned, cancelled, delivery %, Pathao paid us (re-worked out at most every 2 hours). */
 export const monthly = action({
   args: { months: v.optional(v.number()) },
-  handler: async (ctx, { months = 6 }): Promise<any[]> => {
+  handler: async (ctx, { months = 6 }): Promise<any[]> => cached(ctx, `monthly:${months}`, 2 * 3600000, () => buildMonthly(ctx, months)),
+})
+
+async function buildMonthly(ctx: any, months: number): Promise<any[]> {
+  {
     const nowBD = new Date(Date.now() + BD_OFFSET)
     const start = Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1), 1) - BD_OFFSET
     const key = (t: number) => new Date(t + BD_OFFSET).toISOString().slice(0, 7)
@@ -174,5 +207,5 @@ export const monthly = action({
       const m = out.get(key(i.at)); if (m) { m.pathaoPaid += i.paid; m.pathaoFees += i.fees }
     }
     return [...out.values()].reverse().map((m) => ({ ...m, deliveryRate: m.delivered + m.returned ? Math.round((m.delivered / (m.delivered + m.returned)) * 100) : null }))
-  },
-})
+  }
+}

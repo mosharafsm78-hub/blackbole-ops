@@ -496,3 +496,14 @@ describe("pre-order origin", () => {
     expect((await t.run((ctx) => ctx.db.get(orderId as Id<"orders">)))!.status).toBe("pre_order")
   })
 })
+
+describe("product search (new order)", () => {
+  it("finds by SKU start, by name words, and by SKU middle", async () => {
+    const { as } = await setup()
+    expect((await as.query(api.catalog.searchVariants, { q: "bb-hss" })).map((r) => r.sku).sort()).toEqual(["BB-HSS-41", "BB-HSS-42"])
+    expect((await as.query(api.catalog.searchVariants, { q: "harbor 42" })).map((r) => r.sku)).toEqual(["BB-HSS-42"])
+    expect((await as.query(api.catalog.searchVariants, { q: "hss-41" })).map((r) => r.sku)).toEqual(["BB-HSS-41"])
+    const r = await as.query(api.catalog.searchVariants, { q: "BB-HSS-41" })
+    expect(r[0].available).toBe(10)
+  })
+})
