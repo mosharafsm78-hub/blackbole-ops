@@ -58,6 +58,7 @@ function OrdersPage() {
   const [statusOpen, setStatusOpen] = useState(false)
   const syncNow = useAction(api.pathao.syncNow)
   const counts = useQuery(api.orders.counts)
+  const sameNumber = useQuery(api.orders.sameNumberCount, { tab: search.tab })
   const data = useQuery(api.orders.list, {
     tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, limit,
   })
@@ -159,6 +160,17 @@ function OrdersPage() {
             {Object.entries(FLAGS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
           </SelectContent>
         </Select>
+        {typeof sameNumber === "number" && (
+          <Button
+            size="sm" variant="outline" data-testid="same-number"
+            className={cn("gap-2", search.flag === "duplicate" && "border-tone-orange bg-tone-orange/10")}
+            onClick={() => set({ flag: search.flag === "duplicate" ? undefined : "duplicate" })}
+            title="Orders where the same phone number has more than one open order"
+          >
+            <AlertTriangle className="size-4 text-tone-orange" /> Multiple orders, same number
+            <span className={cn("rounded px-1.5 text-xs font-semibold tabular-nums", sameNumber > 0 ? "bg-tone-orange text-white" : "bg-muted text-muted-foreground")}>{sameNumber}</span>
+          </Button>
+        )}
         {(search.q || search.source || search.range || search.flag) && (
           <Button variant="ghost" size="sm" onClick={() => set({ q: undefined, source: undefined, range: undefined, flag: undefined })}>Clear</Button>
         )}
@@ -212,7 +224,7 @@ function OrdersPage() {
             </thead>
             <tbody className="divide-y">
               {rows.map((o) => (
-                <tr key={o._id} className={cn("align-top hover:bg-muted/30", selected.has(o._id) && "bg-accent/50")}>
+                <tr key={o._id} className={cn("align-top hover:bg-muted/30", (o as any).dupes > 0 && "bg-tone-orange/5", selected.has(o._id) && "bg-accent/50")}>
                   <td className="p-3">
                     <Checkbox
                       checked={selected.has(o._id)}
@@ -249,9 +261,12 @@ function OrdersPage() {
                     <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{o.address}</div>
                     {(o.cityName || o.zoneName) && <div className="text-xs">{[o.zoneName, o.cityName].filter(Boolean).join(", ")}</div>}
                     {(o as any).dupes > 0 && (
-                      <div className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-tone-orange">
-                        <AlertTriangle className="size-3" /> {(o as any).dupes} other open order{(o as any).dupes > 1 ? "s" : ""} from this number
-                      </div>
+                      <button
+                        type="button" onClick={() => set({ q: o.phone, flag: undefined })} title="Show all orders from this number"
+                        className="mt-1 inline-flex items-center gap-1 rounded-md bg-tone-orange/15 px-1.5 py-0.5 text-xs font-semibold text-tone-orange hover:bg-tone-orange/25"
+                      >
+                        <AlertTriangle className="size-3" /> {(o as any).dupes} more open order{(o as any).dupes > 1 ? "s" : ""} from this number
+                      </button>
                     )}
                   </td>
                   <td className="max-w-56 p-3 text-xs">

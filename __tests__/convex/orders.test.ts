@@ -256,6 +256,22 @@ describe("Pathao money sync", () => {
   })
 })
 
+describe("same phone, more than one open order", () => {
+  it("counts and filters double orders like Nuport, and marks each row", async () => {
+    const { as, locationId, v41 } = await setup()
+    await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await as.mutation(api.orders.create, baseOrder(locationId, v41._id)) // same phone again
+    await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), phone: "01811222333" })
+    expect(await as.query(api.orders.sameNumberCount, { tab: "pending" })).toBe(2)
+    const dup: any = await as.query(api.orders.list, { tab: "pending", flag: "duplicate", limit: 50 })
+    expect(dup.rows).toHaveLength(2)
+    expect(dup.rows.every((r: any) => r.dupes === 1)).toBe(true)
+    const all: any = await as.query(api.orders.list, { tab: "pending", limit: 50 })
+    expect(all.rows.find((r: any) => r.phone === "01811222333").dupes).toBe(0)
+    expect(await as.query(api.orders.sameNumberCount, { tab: "delivered" })).toBeNull()
+  })
+})
+
 describe("call log follow-up", () => {
   it("'Will confirm later' sets a follow-up time; a later confirmed call clears it", async () => {
     const { t, as, locationId, v41 } = await setup()

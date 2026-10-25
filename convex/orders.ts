@@ -278,7 +278,7 @@ const filterArgs = v.object({
 
 type Filters = typeof filterArgs.type
 
-function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>) {
+function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, openByPhone?: Map<string, number>) {
   if (o.deletedAt) return false
   const tab = STATUS_TABS.find((t) => t.key === f.tab)
   if (tab && !tab.statuses.includes(o.status as OrderStatus)) return false
@@ -309,6 +309,9 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>) {
   if (f.printed !== undefined && !!o.printedAt !== f.printed) return false
   if (f.hasInfo !== undefined && !!(o.additionalInfo || o.customerNote) !== f.hasInfo) return false
   if (f.flag === "nocall" && o.callCount > 0) return false
+  if (f.flag === "unprinted" && o.printedAt) return false
+  // same phone has more than one open order (Nuport's "Multiple orders with the same phone number")
+  if (f.flag === "duplicate" && openByPhone && !((openByPhone.get(o.phone) ?? 0) - (OPEN.includes(o.status as OrderStatus) ? 1 : 0) > 0)) return false
   if (f.flag === "courierError" && !o.courierError) return false
   // due today (Dhaka time) or overdue
   if (f.flag === "followUp" && !(o.followUpAt && o.followUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
@@ -316,6 +319,37 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>) {
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
 }
+
+/** How many open orders each phone number has right now. */
+async function openOrdersByPhone(ctx: QueryCtx) {
+  const map = new Map<string, number>()
+  for (const st of OPEN) {
+    for (const o of await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()) {
+      if (!o.deletedAt) map.set(o.phone, (map.get(o.phone) ?? 0) + 1)
+    }
+  }
+  return map
+}
+
+/** Count for the "Multiple orders with the same phone number" button on a tab. */
+export const sameNumberCount = query({
+  args: { tab: v.string() },
+  handler: async (ctx, { tab }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return 0
+    const t = STATUS_TABS.find((x) => x.key === tab)
+    const statuses = (t ? t.statuses : OPEN) as OrderStatus[]
+    if (!statuses.every((st) => OPEN.includes(st))) return null // only for open-order tabs
+    const map = await openOrdersByPhone(ctx)
+    let n = 0
+    for (const st of statuses) {
+      for (const o of await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()) {
+        if (!o.deletedAt && (map.get(o.phone) ?? 0) > 1) n++
+      }
+    }
+    return n
+  },
+})
 
 async function withDupes(ctx: QueryCtx, page: Doc<"orders">[]) {
   return await Promise.all(
@@ -326,6 +360,11 @@ async function withDupes(ctx: QueryCtx, page: Doc<"orders">[]) {
       return { ...o, dupes, customerTag: c?.tag ?? "NEW", customerOrders: c?.orderCount ?? 1 }
     }),
   )
+}
+
+/** Adds the "other open orders from this number" count for screen-sized lists (not for big CSV exports). */
+async function dupesIfSmall(ctx: QueryCtx, rows: Doc<"orders">[], limit: number): Promise<(Doc<"orders"> & { dupes?: number })[]> {
+  return limit <= 300 ? await withDupes(ctx, rows) : rows
 }
 
 /** Non-paginated list (up to 2000) with the same filters — used for CSV export and summary. */
@@ -348,7 +387,7 @@ export const list = query({
     // Search box: look the order up directly (invoice, phone, consignment, name…), across every status.
     if (a.search?.trim()) {
       const found = await findOrders(ctx, a.search)
-      return { rows: found.slice(0, limit), hasMore: false }
+      return { rows: await dupesIfSmall(ctx, found.slice(0, limit), limit), hasMore: false }
     }
     const tab = STATUS_TABS.find((t) => t.key === f.tab)
     let rows: Doc<"orders">[] = []
@@ -360,7 +399,7 @@ export const list = query({
       if (tab) for (const st of tab.statuses) rows.push(...(await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).order("desc").take(take)))
       else rows = await ctx.db.query("orders").withIndex("by_created").order("desc").take(take)
       rows = rows.filter((o) => !o.deletedAt).sort((x, y) => y.createdAt - x.createdAt)
-      return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
+      return { rows: await dupesIfSmall(ctx, rows.slice(0, limit), limit), hasMore: rows.length > limit }
     }
     if (f.from && (f.dateField ?? "createdAt") === "createdAt") {
       rows = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", f.from!).lte("createdAt", f.to ?? Date.now() + 86400000)).order("desc").take(6000)
@@ -370,8 +409,10 @@ export const list = query({
       rows = await ctx.db.query("orders").withIndex("by_created").order("desc").take(3000)
     }
     const tagOf = f.customerTags?.length ? new Map((await ctx.db.query("customers").collect()).map((c) => [c._id as string, c.tag])) : undefined
-    rows = rows.filter((o) => matches(o, f, tagOf)).sort((x, y) => y.createdAt - x.createdAt)
-    return { rows: rows.slice(0, limit), hasMore: rows.length > limit }
+    const openByPhone = f.flag === "duplicate" ? await openOrdersByPhone(ctx) : undefined
+    rows = rows.filter((o) => matches(o, f, tagOf, openByPhone)).sort((x, y) => y.createdAt - x.createdAt)
+    if (f.flag === "duplicate") rows.sort((x, y) => x.phone.localeCompare(y.phone) || y.createdAt - x.createdAt) // same numbers next to each other
+    return { rows: await dupesIfSmall(ctx, rows.slice(0, limit), limit), hasMore: rows.length > limit }
   },
 })
 
