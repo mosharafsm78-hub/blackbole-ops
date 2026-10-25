@@ -118,7 +118,8 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     city: o.cityName || customer.city,
   })
 
-  const partner = o.deliveryPartnerId ? await ctx.db.get(o.deliveryPartnerId) : o.deliveryType === "pickup" ? null : await defaultPartner(ctx, location._id)
+  const noCourier = !!location.noCourier // exchange warehouse: never sent to Pathao
+  const partner = noCourier ? null : o.deliveryPartnerId ? await ctx.db.get(o.deliveryPartnerId) : o.deliveryType === "pickup" ? null : await defaultPartner(ctx, location._id)
   const start = (await getSetting<number>(ctx, "invoiceStart")) ?? 20001
   const invoiceNo = await nextCounter(ctx, "invoice", start)
   const paid = o.advance?.amount ?? 0
@@ -132,19 +133,20 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName, locationId: location._id,
     deliveryType: o.deliveryType, items: o.items, subtotal: t.subtotal, discount: o.discount, deliveryFee: o.deliveryFee,
     paidAmount: paid, total: t.total, due: t.due, paymentMethod: o.paymentMethod ?? (paid > 0 && t.due === 0 ? o.advance!.method : "Cash On Delivery"),
-    courier: o.deliveryType === "pickup" ? "pickup" : partner?.provider === "pathao" ? "pathao" : "manual",
-    deliveryPartnerId: partner?._id, deliveryPartnerName: partner?.name,
+    courier: o.deliveryType === "pickup" ? "pickup" : !noCourier && partner?.provider === "pathao" ? "pathao" : "manual",
+    deliveryPartnerId: partner?._id, deliveryPartnerName: noCourier ? "Exchange — not sent to Pathao" : partner?.name,
     customerNote: o.customerNote, additionalInfo: o.additionalInfo,
     callCount: 0, createdByName: byName, createdAt: now, updatedAt: now, statusChangedAt: now,
     reason: blocked ?? undefined,
     ipAddress: o.ipAddress, origin: o.origin, campaignId: o.campaignId, followUpAt: o.followUpAt,
-    isExchange: o.isExchange, exchangeOfId: o.exchangeOfId,
+    isExchange: o.isExchange || noCourier || undefined, exchangeOfId: o.exchangeOfId,
     noteCount: 0, itemCount: o.items.reduce((s, i) => s + i.qty, 0),
     hasUpsell: o.hasUpsell ?? o.source === "Up Sell",
     purchaseCost: await computePurchaseCost(ctx, o.items),
   })
   await bumpStatusCount(ctx, status, 1)
-  if (!o.pathaoCityId && o.deliveryType !== "pickup" && partner?.provider === "pathao" && o.address.trim().length >= 10) {
+  if (noCourier) await logOrder(ctx, orderId, `Exchange warehouse (${location.name}) — this order is NOT sent to Pathao`, byName)
+  if (!noCourier && !o.pathaoCityId && o.deliveryType !== "pickup" && partner?.provider === "pathao" && o.address.trim().length >= 10) {
     await ctx.scheduler.runAfter(0, internal.pathao.autoPlace, { orderId })
   }
   if (paid > 0) {
@@ -663,15 +665,18 @@ export const update = mutation({
     const locationChanged = a.locationId !== order.locationId
     if (reserved) await moveOrderStock(ctx, order, order.status as OrderStatus, "pending", me.staff.name)
 
-    const partner = a.deliveryPartnerId ? await ctx.db.get(a.deliveryPartnerId) : null
+    const newLoc = await ctx.db.get(a.locationId)
+    const noCourier = !!newLoc?.noCourier // exchange warehouse: never Pathao
+    const partner = noCourier ? null : a.deliveryPartnerId ? await ctx.db.get(a.deliveryPartnerId) : null
     const t = orderTotals(items, a.discount, a.deliveryFee, order.paidAmount)
     await ctx.db.patch(order._id, {
       customerName: a.customerName, phone, email: a.email, address: a.address, cityName: a.cityName,
       pathaoCityId: a.pathaoCityId, pathaoZoneId: a.pathaoZoneId, pathaoAreaId: a.pathaoAreaId,
       zoneName: a.zoneName, areaName: a.areaName, locationId: a.locationId, deliveryType: a.deliveryType,
-      deliveryPartnerId: a.deliveryType === "pickup" ? undefined : partner?._id ?? order.deliveryPartnerId,
-      deliveryPartnerName: a.deliveryType === "pickup" ? undefined : partner?.name ?? order.deliveryPartnerName,
-      courier: a.deliveryType === "pickup" ? "pickup" : (partner?.provider ?? "pathao") === "pathao" ? "pathao" : "manual",
+      deliveryPartnerId: a.deliveryType === "pickup" || noCourier ? undefined : partner?._id ?? order.deliveryPartnerId,
+      deliveryPartnerName: a.deliveryType === "pickup" ? undefined : noCourier ? "Exchange — not sent to Pathao" : partner?.name ?? order.deliveryPartnerName,
+      courier: a.deliveryType === "pickup" ? "pickup" : noCourier ? "manual" : (partner?.provider ?? "pathao") === "pathao" ? "pathao" : "manual",
+      ...(noCourier ? { isExchange: true } : {}),
       source: a.source, items, discount: a.discount, deliveryFee: a.deliveryFee, subtotal: t.subtotal, total: t.total, due: t.due,
       customerNote: a.customerNote, additionalInfo: a.additionalInfo, updatedAt: Date.now(),
       itemCount: items.reduce((s, i) => s + i.qty, 0), purchaseCost: await computePurchaseCost(ctx, items),
@@ -763,14 +768,20 @@ export const createExchange = mutation({
     const me = await requirePerm(ctx, "orders.create")
     const o = await ctx.db.get(a.id)
     if (!o) throw new ConvexError("Order not found")
+    // Exchange parcels go out of an exchange warehouse (same city) and are never booked on Pathao as a new order
+    const locs = await ctx.db.query("locations").collect()
+    const origLoc = locs.find((l) => l._id === o.locationId)
+    const dhaka = /dhaka/i.test(origLoc?.name ?? "")
+    const exWh = locs.find((l) => l.noCourier && l.active && /dhaka/i.test(l.name) === dhaka) ?? locs.find((l) => l.noCourier && l.active)
     const partners = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && p.isExchange && !p.deletedAt)
-    const partner = partners.find((p) => p.locationId === o.locationId) ?? partners[0]
+    const partner = exWh ? null : partners.find((p) => p.locationId === o.locationId) ?? partners[0]
     const items = await buildItems(ctx, a.items)
     const res = await insertOrder(ctx, {
       source: o.source, customerName: o.customerName, phone: o.phone, email: o.email, address: o.address, cityName: o.cityName,
       pathaoCityId: o.pathaoCityId, pathaoZoneId: o.pathaoZoneId, pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName,
-      locationId: o.locationId, deliveryPartnerId: partner?._id ?? o.deliveryPartnerId, deliveryType: o.deliveryType,
+      locationId: exWh?._id ?? o.locationId, deliveryPartnerId: exWh ? undefined : partner?._id ?? o.deliveryPartnerId, deliveryType: o.deliveryType,
       items, discount: 0, deliveryFee: a.deliveryFee, customerNote: a.note, isExchange: true, exchangeOfId: o._id,
+      additionalInfo: `EXCHANGE parcel of ${invoiceLabel(o)}${o.consignmentId ? ` — Pathao ID ${o.consignmentId}` : ""}`,
     }, me.staff.name)
     await logOrder(ctx, o._id, `Exchange order BB-${res.invoiceNo} created`, me.staff.name)
     return res
@@ -983,6 +994,8 @@ export const internalGet = internalMutation({
       pathaoStoreId: partner?.pathaoStoreId ?? location?.pathaoStoreId ?? null,
       partnerCreds: partner?.useOwnCredentials ? partner.credentials ?? null : null,
       partnerId: partner?._id ?? null,
+      noCourier: !!location?.noCourier,
+      locationName: location?.name ?? "",
     }
   },
 })
@@ -1104,7 +1117,8 @@ export const nuportApply = internalMutation({
     for (const r of rows) {
       const o = await ctx.db.get(r.id)
       if (!o || o.deletedAt) continue
-      if (r.cid && !o.consignmentId) {
+      const loc = await ctx.db.get(o.locationId)
+      if (r.cid && !o.consignmentId && !loc?.noCourier) {
         const other = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", r.cid)).first()
         if (!other) { await ctx.db.patch(o._id, { consignmentId: r.cid, courier: "pathao", courierLinkedBy: "nuport" }); linked++ }
       }

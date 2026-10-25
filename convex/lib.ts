@@ -157,6 +157,8 @@ export async function defaultLocation(ctx: QueryCtx) {
 
 /** Default delivery partner for a warehouse (first active Pathao partner linked to it). */
 export async function defaultPartner(ctx: QueryCtx, locationId: Id<"locations">) {
+  const loc = await ctx.db.get(locationId)
+  if (loc?.noCourier) return null // exchange warehouse: no courier, never Pathao
   const all = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && !p.deletedAt)
   return (
     all.find((p) => p.locationId === locationId && p.provider === "pathao" && !p.isExchange) ??

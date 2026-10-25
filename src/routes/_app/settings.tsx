@@ -223,8 +223,8 @@ function WarehousesTab() {
         {locations.map((l) => (
           <div key={l._id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
             <div className="min-w-0 flex-1">
-              <div className="font-medium">{l.name} {l.isDefault && <Pill tone="blue">Default</Pill>} {!l.active && <Pill tone="gray">Inactive</Pill>}</div>
-              <div className="text-xs text-muted-foreground">{l.address || "No address"} · Pathao store {l.pathaoStoreId ? `#${l.pathaoStoreId}` : <span className="text-tone-red">not set</span>}</div>
+              <div className="font-medium">{l.name} {l.isDefault && <Pill tone="blue">Default</Pill>} {l.noCourier && <Pill tone="amber">Exchange · never sent to Pathao</Pill>} {!l.active && <Pill tone="gray">Inactive</Pill>}</div>
+              <div className="text-xs text-muted-foreground">{l.address || "No address"} · {l.noCourier ? "Not connected to Pathao" : <>Pathao store {l.pathaoStoreId ? `#${l.pathaoStoreId}` : <span className="text-tone-red">not set</span>}</>}</div>
             </div>
             <Button variant="outline" size="sm" onClick={() => setEdit(l)}>Edit</Button>
           </div>
@@ -240,13 +240,14 @@ function WarehousesTab() {
               <div className="space-y-1.5"><Label>Address</Label><Input value={edit.address ?? ""} onChange={(e) => setEdit({ ...edit, address: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Phone</Label><Input value={edit.phone ?? ""} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Pathao store ID</Label><Input type="number" value={edit.pathaoStoreId ?? ""} onChange={(e) => setEdit({ ...edit, pathaoStoreId: e.target.value ? Number(e.target.value) : undefined })} placeholder="From Pathao tab → Test connection" /></div>
-              <label className="flex items-center gap-2 text-sm"><Switch checked={!!edit.isDefault} onCheckedChange={(v) => setEdit({ ...edit, isDefault: v })} /> Default for new orders</label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={!!edit.noCourier} onCheckedChange={(v) => setEdit({ ...edit, noCourier: v, ...(v ? { isDefault: false, pathaoStoreId: undefined } : {}) })} /> Exchange warehouse — orders here are never sent to Pathao</label>
+              <label className="flex items-center gap-2 text-sm"><Switch checked={!!edit.isDefault} disabled={!!edit.noCourier} onCheckedChange={(v) => setEdit({ ...edit, isDefault: v })} /> Default for new orders</label>
               <label className="flex items-center gap-2 text-sm"><Switch checked={edit.active !== false} onCheckedChange={(v) => setEdit({ ...edit, active: v })} /> Active</label>
             </div>
             <DialogFooter>
               <Button onClick={async () => {
                 try {
-                  await save({ id: edit._id, name: edit.name ?? "", address: edit.address || undefined, phone: edit.phone || undefined, pathaoStoreId: edit.pathaoStoreId, isDefault: !!edit.isDefault, active: edit.active !== false })
+                  await save({ id: edit._id, name: edit.name ?? "", address: edit.address || undefined, phone: edit.phone || undefined, pathaoStoreId: edit.pathaoStoreId, isDefault: !!edit.isDefault, active: edit.active !== false, noCourier: !!edit.noCourier })
                   toast.success("Warehouse saved"); setEdit(null)
                 } catch (e) { toast.error(errMsg(e)) }
               }}>Save</Button>

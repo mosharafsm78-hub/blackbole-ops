@@ -162,6 +162,11 @@ function NewOrder() {
         <section className="flex h-[640px] flex-col gap-3 rounded-lg border bg-card p-4">
           <h2 className="text-sm font-semibold">Products</h2>
           <div className="min-h-0 flex-1">
+            {locations?.find((l) => l._id === locationId)?.noCourier && (
+              <div className="rounded-lg border border-tone-amber/50 bg-tone-amber/10 p-3 text-sm font-medium text-tone-amber" data-testid="exchange-wh-note">
+                Exchange warehouse — this order is for exchange / internal stock only and will NOT be sent to Pathao.
+              </div>
+            )}
             <ProductSearch locationId={locationId} onAdd={(l) => setCart((c) => addToCart(c, l))} />
           </div>
         </section>

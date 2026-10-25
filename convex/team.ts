@@ -173,15 +173,17 @@ export const saveLocation = mutation({
     pathaoStoreId: v.optional(v.number()),
     isDefault: v.boolean(),
     active: v.boolean(),
+    noCourier: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
+    if (a.noCourier && a.isDefault) throw new ConvexError("An exchange warehouse can't be the default warehouse")
     if (a.isDefault) {
       for (const l of await ctx.db.query("locations").collect()) {
         if (l.isDefault && l._id !== a.id) await ctx.db.patch(l._id, { isDefault: false })
       }
     }
-    const data = { name: a.name, address: a.address, phone: a.phone, pathaoStoreId: a.pathaoStoreId, isDefault: a.isDefault, active: a.active }
+    const data = { name: a.name, address: a.address, phone: a.phone, pathaoStoreId: a.noCourier ? undefined : a.pathaoStoreId, isDefault: a.isDefault, active: a.active, noCourier: a.noCourier || undefined }
     if (a.id) {
       await ctx.db.patch(a.id, data)
       return a.id
@@ -290,5 +292,20 @@ export const approveOwnerByEmail = internalMutation({
     else await ctx.db.insert("staff", { email: target, name: req?.name || "Mosharaf", roleId: admin._id, userId, active: true, createdAt: Date.now() })
     if (req) await ctx.db.delete(req._id)
     return { approved: target, linked: !!userId }
+  },
+})
+
+/** One-time: the two exchange warehouses (never sent to Pathao). */
+export const addExchangeWarehouses = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("locations").collect()
+    const out: string[] = []
+    for (const name of ["Blackbole CTG Exchange", "Blackbole Exchange Dhaka"]) {
+      const old = all.find((l) => l.name.toLowerCase() === name.toLowerCase())
+      if (old) { await ctx.db.patch(old._id, { noCourier: true, isDefault: false, pathaoStoreId: undefined, active: true }); out.push(`${name} updated`) }
+      else { await ctx.db.insert("locations", { name, active: true, isDefault: false, noCourier: true }); out.push(`${name} added`) }
+    }
+    return out
   },
 })

@@ -71,6 +71,8 @@ export default defineSchema({
     pathaoStoreId: v.optional(v.number()),
     isDefault: v.optional(v.boolean()),
     active: v.boolean(),
+    // Exchange warehouse: internal stock + exchange parcels only — orders here are NEVER sent to Pathao
+    noCourier: v.optional(v.boolean()),
   }),
 
   products: defineTable({

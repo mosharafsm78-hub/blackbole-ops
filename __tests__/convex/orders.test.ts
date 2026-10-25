@@ -285,6 +285,31 @@ describe("same phone, more than one open order", () => {
   })
 })
 
+describe("exchange warehouses", () => {
+  it("orders from an exchange warehouse are never sent to Pathao, even at In Transit", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await t.run((ctx) => ctx.db.insert("deliveryPartners", { code: 2001, name: "Pathao Ctg", provider: "pathao", locationId, active: true, createdAt: Date.now() }))
+    await t.mutation(internal.team.addExchangeWarehouses, {})
+    const ex = (await as.query(api.team.listLocations, {})).find((l: any) => l.name === "Blackbole CTG Exchange")!
+    expect(ex.noCourier).toBe(true)
+    await as.mutation(api.catalog.receiveStock, { locationId: ex._id, updateCost: false, items: [{ variantId: v41._id, qty: 5, unitCost: 500 }] })
+    const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(ex._id, v41._id), deliveryType: "regular", approve: true })
+    let o: any = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o).toMatchObject({ courier: "manual", isExchange: true })
+    for (const st of ["processing", "ready_to_ship", "in_transit"]) await as.mutation(api.orders.changeStatus, { ids: [orderId], to: st as any })
+    const booked = (await t.run((ctx) => ctx.db.system.query("_scheduled_functions").collect())).filter((f: any) => f.name.includes("bookOrder") && f.args[0]?.orderId === orderId)
+    expect(booked).toHaveLength(0)
+    const r = await as.action(api.pathao.pushMany, { ids: [orderId] })
+    expect(r.skipped[0]).toMatch(/exchange warehouse/)
+    // an exchange made from a normal order goes to the exchange warehouse
+    const orig = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id), deliveryType: "regular" })
+    const exo = await as.mutation(api.orders.createExchange, { id: orig.orderId, items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }], deliveryFee: 0 })
+    o = await t.run((ctx) => ctx.db.get(exo.orderId))
+    expect(o.locationId).toBe(ex._id)
+    expect(o.courier).toBe("manual")
+  })
+})
+
 describe("sub-tabs", () => {
   it("Delivered splits into Payment Due / Collected with their own counts", async () => {
     const { t, as, locationId, v41 } = await setup()

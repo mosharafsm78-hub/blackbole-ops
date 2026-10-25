@@ -195,6 +195,7 @@ export const pushMany = action({
       const o = before.order
       const label = o.invoiceCode ?? `BB-${o.invoiceNo}`
       if (o.consignmentId) { skipped.push(`${label} (already sent)`); return }
+      if (before.noCourier) { skipped.push(`${label} (exchange warehouse — never sent to Pathao)`); return }
       if (o.courier !== "pathao") { skipped.push(`${label} (not a Pathao order)`); return }
       if (["pending", "on_hold", "cancelled", "returned", "delivered_paid", "delivered_due"].includes(o.status)) { skipped.push(`${label} (${o.status.replace(/_/g, " ")})`); return }
       await ctx.runAction(internal.pathao.bookOrder, { orderId: id })
@@ -232,6 +233,11 @@ export const bookOrder = internalAction({
     if (!data) return
     const { order, pathaoStoreId, partnerId } = data
     if (order.consignmentId) return
+    // Exchange warehouse orders are never sent to Pathao, whatever path called this
+    if (data.noCourier) {
+      await ctx.runMutation(internal.orders.setCourier, { id: orderId, log: `Not sent to Pathao — ${data.locationName} is an exchange warehouse` })
+      return
+    }
     const fail = async (msg: string) =>
       ctx.runMutation(internal.orders.setCourier, { id: orderId, courierError: msg, log: `Pathao booking failed: ${msg}` })
     if (!pathaoStoreId) return fail("Delivery partner has no Pathao store selected (Settings → Delivery partners)")
@@ -745,7 +751,8 @@ export const applyParcels = internalMutation({
         const cand = n ? await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", n)).first() : null
         // the order number alone is not enough (numbers can differ between systems) — the customer's phone must match too
         const phoneOk = !!r.phone && !!cand && last10(cand.phone) === last10(r.phone)
-        if (cand && phoneOk && !cand.consignmentId && !cand.deletedAt && !["pending", "on_hold", "cancelled"].includes(cand.status)) {
+        const candLoc = cand ? await ctx.db.get(cand.locationId) : null
+        if (cand && phoneOk && !candLoc?.noCourier && !cand.consignmentId && !cand.deletedAt && !["pending", "on_hold", "cancelled"].includes(cand.status)) {
           await ctx.db.patch(cand._id, { consignmentId: r.cid, courier: "pathao", courierLinkedBy: "order no", courierError: undefined, updatedAt: Date.now() })
           await ctx.db.insert("orderEvents", { orderId: cand._id, type: "log", text: `Linked to Pathao parcel ${r.cid} (same order number on Pathao)`, byName: "Pathao sync", at: Date.now() })
           o = (await ctx.db.get(cand._id))!
