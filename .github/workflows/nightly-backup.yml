@@ -1,0 +1,47 @@
+# Nightly backup of all BlackBole Ops data to the owner's Google Drive.
+# The backup file goes straight to Drive and is deleted from the runner; it is never stored on GitHub
+# (this repository is public, so no artifacts and no data in logs).
+name: Nightly backup to Google Drive
+
+on:
+  # Nightly schedule is switched on once the Drive connection and Convex key are saved as secrets:
+  # schedule:
+  #   - cron: "0 21 * * *" # 3:00 am Bangladesh time
+  workflow_dispatch: {}
+
+concurrency: nightly-backup
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+
+      - name: Export all data from Convex
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          STAMP=$(TZ=Asia/Dhaka date +%Y-%m-%d_%H%M)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          npx convex export --path "blackbole-ops_${STAMP}.zip" > /dev/null
+          ls -lh "blackbole-ops_${STAMP}.zip" | awk '{print "Backup size:", $5}'
+
+      - name: Install rclone
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash > /dev/null
+
+      - name: Upload to Google Drive and keep the last 30 days
+        env:
+          RCLONE_CONFIG_GDRIVE_TYPE: drive
+          RCLONE_CONFIG_GDRIVE_SCOPE: drive.file
+          RCLONE_CONFIG_GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+        run: |
+          rclone copy "blackbole-ops_${STAMP}.zip" "gdrive:BlackBole Ops Backups" --stats-one-line
+          rclone delete "gdrive:BlackBole Ops Backups" --min-age 30d --include "blackbole-ops_*.zip"
+          rclone lsf "gdrive:BlackBole Ops Backups" | wc -l | awk '{print "Backups kept in Drive:", $1}'
+          rm -f "blackbole-ops_${STAMP}.zip"
