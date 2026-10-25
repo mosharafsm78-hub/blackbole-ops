@@ -112,14 +112,15 @@ function Invoice({ o }: { o: PrintOrder }) {
   const place = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
   return (
     <div className="py-[5mm] text-[10px] leading-snug" data-testid="invoice">
-      {/* top block: brand + Bill To on the left, barcode + invoice info on the right */}
+      {/* brand in the middle, like Nuport */}
+      <div className="mb-1 text-center leading-none">
+        <div className="text-[16px] font-black tracking-[0.25em]">BLACKBOLE</div>
+        <div className="mt-0.5 text-[8px] text-neutral-600">Passionate with Fashion · blackbole.com</div>
+      </div>
+      {/* Bill To on the left, barcode + invoice info on the right */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[14px] font-black tracking-[0.18em]">BLACKBOLE</span>
-            <span className="text-[8px] text-neutral-600">Passionate with Fashion · blackbole.com</span>
-          </div>
-          <div className="mt-1.5 text-[9px] font-bold uppercase text-neutral-600">Bill To</div>
+          <div className="text-[9px] font-bold uppercase text-neutral-600">Bill To</div>
           <div className="text-[11.5px] font-bold">{o.customerName}</div>
           <div className="text-[11px] font-semibold">{o.phone}</div>
           <div className="max-w-[105mm]">{o.address}{place ? `, ${place}` : ""}</div>

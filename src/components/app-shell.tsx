@@ -1,9 +1,11 @@
 import { cloneElement, createContext, useContext, useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
-import { Authenticated, AuthLoading, Unauthenticated, useMutation, useQuery } from "convex/react"
+import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, useQuery } from "convex/react"
+import { toast } from "sonner"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, Menu, Search, Truck, Upload, ScanLine, Lock,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, Search, Truck, Upload, ScanLine, Lock,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -197,7 +199,8 @@ function Layout({ children }: { children: React.ReactNode }) {
       <div className="mt-auto border-t pt-3">
         <div className="px-2 text-sm font-medium">{me.name}</div>
         <div className="px-2 text-xs text-muted-foreground">{me.roleName}</div>
-        <Button variant="ghost" size="sm" className="mt-2 w-full justify-start" onClick={() => signOut()}>
+        <ChangePassword />
+        <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => signOut()}>
           <LogOut className="size-4" /> Sign out
         </Button>
       </div>
@@ -293,4 +296,48 @@ function lockLabel(c: React.ReactNode): React.ReactNode {
   const el = c as React.ReactElement<any>
   if (el && typeof el === "object" && "props" in el && (el.type === "a" || (el.props && el.props.to))) return el.props.children
   return c
+}
+
+/** Sidebar: change your own password (asks for the current one). */
+function ChangePassword() {
+  const change = useAction(api.account.changePassword)
+  const [open, setOpen] = useState(false)
+  const [cur, setCur] = useState("")
+  const [next, setNext] = useState("")
+  const [again, setAgain] = useState("")
+  const [busy, setBusy] = useState(false)
+  const reset = () => { setCur(""); setNext(""); setAgain("") }
+  return (
+    <>
+      <Button variant="ghost" size="sm" className="mt-2 w-full justify-start" onClick={() => setOpen(true)} data-testid="change-password">
+        <KeyRound className="size-4" /> Change password
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset() }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Change password</DialogTitle></DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (next !== again) { toast.error("The two new passwords are not the same"); return }
+              setBusy(true)
+              try {
+                await change({ current: cur, next })
+                toast.success("Password changed. Use the new one next time you sign in.")
+                setOpen(false); reset()
+              } catch (err) {
+                const m = (err as any)?.data ?? (err instanceof Error ? err.message : String(err))
+                toast.error(typeof m === "string" ? m : "Could not change the password")
+              } finally { setBusy(false) }
+            }}
+          >
+            <div className="space-y-1.5"><Label htmlFor="cp-cur">Current password</Label><Input id="cp-cur" type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} required /></div>
+            <div className="space-y-1.5"><Label htmlFor="cp-new">New password</Label><Input id="cp-new" type="password" autoComplete="new-password" minLength={8} value={next} onChange={(e) => setNext(e.target.value)} required /><p className="text-xs text-muted-foreground">At least 8 characters.</p></div>
+            <div className="space-y-1.5"><Label htmlFor="cp-again">New password again</Label><Input id="cp-again" type="password" autoComplete="new-password" minLength={8} value={again} onChange={(e) => setAgain(e.target.value)} required /></div>
+            <DialogFooter><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Change password"}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
 }
