@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TAB_TONE, TONE_CLASS, TONE_SOLID, dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string }
+type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string; st?: string }
 
 export const Route = createFileRoute("/_app/orders")({
   validateSearch: (s: Record<string, unknown>): Search => ({
@@ -29,6 +29,7 @@ export const Route = createFileRoute("/_app/orders")({
     range: typeof s.range === "string" && s.range ? s.range : undefined,
     flag: typeof s.flag === "string" && s.flag ? s.flag : undefined,
     wh: typeof s.wh === "string" && s.wh ? s.wh : undefined,
+    st: typeof s.st === "string" && s.st ? s.st : undefined,
   }),
   component: () => (
     <Guard perm="orders.view">
@@ -38,6 +39,10 @@ export const Route = createFileRoute("/_app/orders")({
 })
 
 const RANGES: Record<string, string> = { today: "Today", "7d": "Last 7 days", "30d": "Last 30 days" }
+const SUB_LABEL: Record<string, string> = {
+  delivered_due: "Payment Due", delivered_paid: "Payment Collected",
+  pending_returned: "Pending Returned", returned: "Returned", damaged: "Damaged",
+}
 const FLAGS: Record<string, string> = {
   nocall: "Not called yet", unprinted: "Invoice not printed", duplicate: "Same phone, other open orders", courierError: "Courier booking failed",
   followUp: "Follow-up due (call again)",
@@ -64,7 +69,7 @@ function OrdersPage() {
   const pushMany = useAction(api.pathao.pushMany)
   const [pushing, setPushing] = useState(false)
   const data = useQuery(api.orders.list, {
-    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, limit,
+    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, status: search.st, limit,
   })
   const locations = useQuery(api.team.listLocations, {})
   const whTone = (id: string) => {
@@ -137,7 +142,7 @@ function OrdersPage() {
           return (
             <button
               key={t.key}
-              onClick={() => set({ tab: t.key })}
+              onClick={() => set({ tab: t.key, st: undefined })}
               data-testid={`tab-${t.key}`}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-lg border border-transparent px-3.5 py-2 text-sm font-semibold transition",
@@ -152,6 +157,30 @@ function OrdersPage() {
           )
         })}
       </div>
+
+      {/* Sub-tabs like Nuport: Delivered → Payment Due / Collected, Flagged → Pending Returned / Returned / Damaged */}
+      {(() => {
+        const tab = STATUS_TABS.find((t) => t.key === search.tab)
+        if (!tab || tab.statuses.length < 2) return null
+        const subs = [{ k: undefined as string | undefined, label: "All" }, ...tab.statuses.map((st) => ({ k: st as string | undefined, label: SUB_LABEL[st] ?? STATUS_LABEL[st] }))]
+        return (
+          <div className="-mt-2 mb-4 flex flex-wrap gap-2" data-testid="sub-tabs">
+            {subs.map((x) => {
+              const active = search.st === x.k
+              const n = x.k ? counts?.[`st:${x.k}`] : counts?.[tab.key]
+              return (
+                <button
+                  key={x.k ?? "all"} type="button" onClick={() => set({ st: x.k })} data-testid={`sub-${x.k ?? "all"}`}
+                  className={cn("flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium", active ? "border-foreground bg-foreground text-background" : "bg-card hover:bg-accent")}
+                >
+                  {x.label}
+                  <span className={cn("rounded px-1.5 text-xs tabular-nums", active ? "bg-white/25" : "bg-muted")}>{n ?? "·"}</span>
+                </button>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {/* Filters + bulk actions */}
       <div className="mb-3 flex flex-wrap items-center gap-2">

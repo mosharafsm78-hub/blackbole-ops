@@ -241,6 +241,7 @@ export const counts = query({
     for (const tab of STATUS_TABS) {
       out[tab.key] = tab.statuses.reduce((sum, st) => sum + get(st), 0)
       all += out[tab.key]
+      for (const st of tab.statuses) out[`st:${st}`] = get(st) // sub-tabs (Payment Due / Collected, Pending Returned / Returned / Damaged)
     }
     out.all = all
     return out
@@ -378,13 +379,14 @@ export const list = query({
     to: v.optional(v.number()),
     flag: v.optional(v.string()),
     location: v.optional(v.string()),
+    status: v.optional(v.string()), // one status inside the tab (sub-tab)
     limit: v.number(),
     filters: v.optional(filterArgs),
   },
   handler: async (ctx, a) => {
     const s = await currentStaff(ctx)
     if (!s) return null
-    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag, locationIds: a.location ? [a.location] : undefined }
+    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag, locationIds: a.location ? [a.location] : undefined, statuses: a.status ? [a.status] : undefined }
     const limit = Math.min(a.limit, 2000)
     // Search box: look the order up directly (invoice, phone, consignment, name…), across every status.
     if (a.search?.trim()) {
@@ -396,6 +398,12 @@ export const list = query({
     // Fast path: plain tab with no extra filters — read only the newest `limit` orders, not thousands.
     const { tab: _t, ...extra } = f
     const plain = Object.values(extra).every((x) => x === undefined || (Array.isArray(x) && x.length === 0))
+    // Sub-tab (e.g. Delivered → Payment Due) with no other filters: newest orders of that one status from the index
+    const oneStatus = f.statuses?.length === 1 && Object.entries(extra).every(([k, x]) => k === "statuses" || x === undefined || (Array.isArray(x) && x.length === 0))
+    if (oneStatus) {
+      rows = (await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", f.statuses![0] as OrderStatus)).order("desc").take(limit + 25)).filter((o) => !o.deletedAt).sort((x, y) => y.createdAt - x.createdAt)
+      return { rows: await dupesIfSmall(ctx, rows.slice(0, limit), limit), hasMore: rows.length > limit }
+    }
     if (plain) {
       const take = limit + 25 // a little extra to cover deleted orders
       if (tab) for (const st of tab.statuses) rows.push(...(await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).order("desc").take(take)))

@@ -285,6 +285,23 @@ describe("same phone, more than one open order", () => {
   })
 })
 
+describe("sub-tabs", () => {
+  it("Delivered splits into Payment Due / Collected with their own counts", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const a = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const b = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    for (const [id, to] of [[a.orderId, "delivered_due"], [b.orderId, "delivered_paid"]] as const) {
+      for (const st of ["approved", "processing", "ready_to_ship", "in_transit", "delivered_due"]) await as.mutation(api.orders.changeStatus, { ids: [id], to: st as any })
+      if (to === "delivered_paid") await as.mutation(api.orders.changeStatus, { ids: [id], to })
+    }
+    const c: any = await as.query(api.orders.counts, {})
+    expect(c).toMatchObject({ delivered: 2, "st:delivered_due": 1, "st:delivered_paid": 1 })
+    const due: any = await as.query(api.orders.list, { tab: "delivered", status: "delivered_due", limit: 50 })
+    expect(due.rows.map((r: any) => r._id)).toEqual([a.orderId])
+    void t
+  })
+})
+
 describe("abandoned carts", () => {
   const cart = (v41: Id<"variants">, over: Record<string, unknown> = {}) => ({
     checkoutId: "900001", token: "tok1", customerName: "Cart Buyer", phone: "+8801812345678", address: "Road 5, Dhanmondi", cityName: "Dhaka",
