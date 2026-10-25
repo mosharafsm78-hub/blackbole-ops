@@ -130,7 +130,7 @@ function Invoice({ o }: { o: PrintOrder }) {
           <div className="text-[12px] font-bold">{no}</div>
           <div>Delivery: <b>{o.courier === "pickup" ? "Store pickup" : o.deliveryPartnerName ?? "Pathao"}</b>{o.consignmentId ? <> · <b>{o.consignmentId}</b></> : null}</div>
           <div>Date: <b>{longDate(o.createdAt)}</b>{o.externalName ? <> · Web {o.externalName}</> : null}</div>
-          <div className="mt-1 inline-block rounded bg-black px-2 py-0.5 text-[12px] font-bold text-white">Collect: ৳{money(o.due)}</div>
+          <div className="mt-1 inline-block rounded bg-black px-2 py-0.5 text-[12px] font-bold text-white">Collect: BDT {money(o.due)}</div>
         </div>
       </div>
 
