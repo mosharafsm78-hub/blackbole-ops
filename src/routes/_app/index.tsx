@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
-import { useQuery } from "convex/react"
+import { useAction, useQuery } from "convex/react"
+import { useEffect } from "react"
 import { Area, AreaChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
@@ -44,6 +45,19 @@ function Dashboard() {
   const { from, to } = useMemo(() => ({ from: startOfDayBD() - (days - 1) * 86400000, to: startOfDayBD() + 86400000 - 1 }), [days])
   const data = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
   const counts = useQuery(api.orders.counts)
+  // Hidden admin check (?check=1): old count vs daily scoreboard for 7/30/90/365 days
+  const compare = useAction(api.dashboard.compareStats)
+  const [check, setCheck] = useState<any>(null)
+  useEffect(() => {
+    if (typeof window === "undefined" || !new URLSearchParams(window.location.search).has("check")) return
+    void (async () => {
+      const out: any = {}
+      for (const d of [7, 30, 90, 365]) {
+        try { out[d] = await compare({ from: startOfDayBD() - (d - 1) * 86400000, to: startOfDayBD() + 86400000 - 1 }) } catch (e) { out[d] = String(e) }
+      }
+      setCheck(out)
+    })()
+  }, [compare])
   const n = data?.now, p = data?.prev, pa = data?.pathao, m = data?.money
   const label = RANGES.find((r) => r.key === range)!.label.toLowerCase()
 
@@ -52,6 +66,7 @@ function Dashboard() {
   const returnPct = pa?.total?.count ? pa.returned.pct : n && n.delivered + n.returned ? pct(n.returned, n.delivered + n.returned) : null
   const health = deliveryPct === null ? null : deliveryPct >= 80 ? { t: "Healthy", c: "text-tone-green", bg: "bg-tone-green-bg" } : deliveryPct >= 65 ? { t: "Watch returns", c: "text-tone-amber", bg: "bg-tone-amber-bg" } : { t: "High returns — act", c: "text-tone-red", bg: "bg-tone-red-bg" }
 
+  if (check) return <pre className="whitespace-pre-wrap p-4 text-xs" data-testid="stats-check">{JSON.stringify(check, null, 1)}</pre>
   return (
     <div className="mx-auto max-w-[1400px] space-y-5">
       {/* header */}
