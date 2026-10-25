@@ -225,16 +225,7 @@ function Layout({ children }: { children: React.ReactNode }) {
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
           </Button>
-          <form
-            className="relative w-full max-w-md"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (q.trim()) navigate({ to: "/orders", search: { tab: "all", q: q.trim() } })
-            }}
-          >
-            <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find order: invoice, phone, name, consignment…" className="pl-8" />
-          </form>
+          <QuickSearch q={q} setQ={setQ} />
         </header>
         <main className="mx-auto max-w-[1400px] p-4 md:p-6">{children}</main>
       </div>
@@ -344,4 +335,63 @@ function ChangePassword() {
       </Dialog>
     </>
   )
+}
+
+/** Top search box: results show while typing (like Nuport); Enter opens the full list. */
+function QuickSearch({ q, setQ }: { q: string; setQ: (v: string) => void }) {
+  const navigate = useNavigate()
+  const [term, setTerm] = useState("")
+  const [open, setOpen] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 250); return () => clearTimeout(t) }, [q])
+  const results = useQuery(api.orders.search, term.length >= 3 ? { term } : "skip")
+  const show = open && term.length >= 3
+  const go = (id: string) => { setOpen(false); setQ(""); navigate({ to: "/order", search: { id } }) }
+  return (
+    <form
+      className="relative w-full max-w-md"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (results && results.length === 1) return go(results[0]._id)
+        if (q.trim()) { setOpen(false); navigate({ to: "/orders", search: { tab: "all", q: q.trim() } }) }
+      }}
+    >
+      <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={q} onChange={(e) => { setQ(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)} onKeyDown={(e) => { if (e.key === "Escape") setOpen(false) }}
+        placeholder="Find order: invoice, phone, name, consignment…" className="pl-8" data-testid="quick-search"
+      />
+      {show && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-96 overflow-auto rounded-xl border bg-popover p-1 shadow-lg" data-testid="quick-search-results">
+          {results === undefined ? <div className="p-3 text-sm text-muted-foreground">Searching…</div>
+            : results.length === 0 ? <div className="p-3 text-sm text-muted-foreground">No order found for “{term}”</div>
+            : (
+              <>
+                <div className="px-3 pb-1 pt-2 text-xs text-muted-foreground">{results.length} result{results.length > 1 ? "s" : ""} for “{term}”</div>
+                {results.slice(0, 8).map((o) => (
+                  <button
+                    key={o._id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => go(o._id)}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-tone-blue">{o.invoiceCode ?? `BB-${o.invoiceNo}`}{o.externalName ? <span className="ml-2 text-xs font-normal text-muted-foreground">{o.externalName}</span> : null}</span>
+                      <span className="block truncate text-sm">{o.customerName} · <span className="tabular-nums text-muted-foreground">{o.phone}</span></span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{STATUS_LABEL_SHORT[o.status] ?? o.status}</span>
+                  </button>
+                ))}
+                {results.length > 8 && (
+                  <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setOpen(false); navigate({ to: "/orders", search: { tab: "all", q: term } }) }} className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium hover:bg-accent">See all {results.length} →</button>
+                )}
+              </>
+            )}
+        </div>
+      )}
+    </form>
+  )
+}
+
+const STATUS_LABEL_SHORT: Record<string, string> = {
+  pending: "Pending", on_hold: "On Hold", approved: "Approved", processing: "Processing", ready_to_ship: "Ready To Ship", in_transit: "In Transit",
+  delivered_due: "Delivered · Due", delivered_paid: "Delivered · Paid", pending_returned: "Pending Return", returned: "Returned", damaged: "Damaged", cancelled: "Cancelled",
 }
