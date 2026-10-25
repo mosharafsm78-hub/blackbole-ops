@@ -20,5 +20,14 @@
     "id": "2026-10-25-exchange-warehouses",
     "fn": "team:addExchangeWarehouses",
     "args": {}
+  },
+  {
+    "id": "2026-10-25-pre-orders",
+    "fn": "orders:markPreOrders",
+    "args": {
+      "productNames": [
+        "BlackBole Calder Slide Mule"
+      ]
+    }
   }
 ]

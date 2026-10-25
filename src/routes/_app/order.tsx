@@ -58,7 +58,7 @@ const isDelivered = (s: OrderStatus) => s === "delivered_due" || s === "delivere
 const STEPS: { label: string; statuses: OrderStatus[] }[] = [
   { label: "Pending", statuses: ["pending", "on_hold"] },
   { label: "Approved", statuses: ["approved"] },
-  { label: "Processing", statuses: ["processing"] },
+  { label: "Processing", statuses: ["processing", "pre_order"] },
   { label: "Ready to ship", statuses: ["ready_to_ship"] },
   { label: "In transit", statuses: ["in_transit"] },
   { label: "Delivered", statuses: ["delivered_due", "delivered_paid"] },
@@ -123,8 +123,8 @@ function OrderPage() {
   const { order: o, events, payments, customer, history, next } = data
   const status = o.status as OrderStatus
   const events2 = events.filter((e) => filter === "all" || e.type === filter || (filter === "log" && e.type === "payment"))
-  const editable = ["pending", "on_hold", "approved", "processing"].includes(status) && !o.consignmentId && can("orders.edit")
-  const canBook = o.courier === "pathao" && !o.consignmentId && ["approved", "processing", "ready_to_ship", "in_transit"].includes(status) && can("courier.book")
+  const editable = ["pending", "on_hold", "approved", "processing", "pre_order"].includes(status) && !o.consignmentId && can("orders.edit")
+  const canBook = o.courier === "pathao" && !o.consignmentId && ["approved", "processing", "pre_order", "ready_to_ship", "in_transit"].includes(status) && can("courier.book")
   // Pathao only lets a parcel be cancelled before the rider picks it up
   const PICKED = /picked|transit|sorting|hub|delivery|delivered|return|hold|paid|cancel/i
   const canCancelParcel = !!o.consignmentId && o.courier === "pathao" && /^DB/i.test(o.consignmentId) && !PICKED.test(o.courierStatus ?? "") && can("courier.book")
@@ -165,6 +165,7 @@ function OrderPage() {
         <div className="flex flex-wrap items-end gap-x-4 gap-y-1 px-5 pb-1 pt-2">
           <h1 className="text-2xl font-semibold tracking-tight">{o.invoiceCode ?? invoice(o.invoiceNo)}</h1>
           <StatusPill status={o.status} />
+          {o.preOrder && <Pill tone="pink">Pre-order product</Pill>}
           <span className="pb-0.5 text-sm text-muted-foreground">
             {o.source}{o.externalName ? ` ${o.externalName}` : ""} · {dateTime(o.createdAt)} · by {o.createdByName}
           </span>

@@ -7,11 +7,12 @@ import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
-  moveOrderStock, nextCounter, notify, pathaoBookAt, requirePerm,
+  hasPreOrderItem, moveOrderStock, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
   STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
+  ALL_MOVE_KEYS,
 } from "./rules"
 
 // ---------- status counters (cheap tab counts) ----------
@@ -24,7 +25,7 @@ export async function bumpStatusCount(ctx: MutationCtx, status: string, delta: n
 
 const isDelivered = (s: OrderStatus) => s === "delivered_due" || s === "delivered_paid"
 const isFlagged = (s: OrderStatus) => s === "pending_returned" || s === "returned" || s === "damaged"
-const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "ready_to_ship"]
+const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship"]
 
 async function updateCustomerStats(ctx: MutationCtx, order: Doc<"orders">, from: OrderStatus, to: OrderStatus) {
   const c = await ctx.db.get(order.customerId)
@@ -126,6 +127,8 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
   const t = orderTotals(o.items, o.discount, o.deliveryFee, paid)
   let status: OrderStatus = o.status ?? "pending"
   if (blocked) status = "cancelled"
+  const preOrder = await hasPreOrderItem(ctx, o.items)
+  if (preOrder && status === "approved") status = "pre_order" // product not in hand yet: wait in Pre-Order
   const orderId = await ctx.db.insert("orders", {
     invoiceNo, status, source: o.source, externalId: o.externalId, externalName: o.externalName,
     customerId: customer._id, customerName: o.customerName.trim() || customer.name, phone, email: o.email,
@@ -143,6 +146,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     noteCount: 0, itemCount: o.items.reduce((s, i) => s + i.qty, 0),
     hasUpsell: o.hasUpsell ?? o.source === "Up Sell",
     purchaseCost: await computePurchaseCost(ctx, o.items),
+    preOrder: preOrder || undefined,
   })
   await bumpStatusCount(ctx, status, 1)
   if (noCourier) await logOrder(ctx, orderId, `Exchange warehouse (${location.name}) — this order is NOT sent to Pathao`, byName)
@@ -523,6 +527,12 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   const from = order.status as OrderStatus
   if (from === to) return
   if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
+  // Approving an order with a pre-order product sends it to Pre-Order (it waits there until the product arrives)
+  if (to === "approved" && !opts.quiet && ["pending", "on_hold", "cancelled"].includes(from) && (order.preOrder || (await hasPreOrderItem(ctx, order.items)))) {
+    to = "pre_order"
+    if (!order.preOrder) await ctx.db.patch(order._id, { preOrder: true })
+    await logOrder(ctx, order._id, "Has a pre-order product — moved to Pre-Order instead of Approved", byName)
+  }
   await moveOrderStock(ctx, order, from, to, byName)
   await updateCustomerStats(ctx, order, from, to)
   const now = Date.now()
@@ -653,8 +663,8 @@ export const update = mutation({
     const me = await requirePerm(ctx, "orders.edit")
     const order = await ctx.db.get(a.id)
     if (!order) throw new ConvexError("Order not found")
-    const editable = ["pending", "on_hold", "approved", "processing"]
-    if (!editable.includes(order.status)) throw new ConvexError("Only Pending, On Hold, Approved or Processing orders can be edited")
+    const editable = ["pending", "on_hold", "approved", "processing", "pre_order"]
+    if (!editable.includes(order.status)) throw new ConvexError("Only Pending, On Hold, Approved, Processing or Pre-Order orders can be edited")
     if (order.consignmentId) throw new ConvexError("This order is already booked with the courier")
     const phone = normalizePhone(a.phone)
     if (!/^01\d{9}$/.test(phone)) throw new ConvexError("Phone number looks wrong")
@@ -681,6 +691,7 @@ export const update = mutation({
       customerNote: a.customerNote, additionalInfo: a.additionalInfo, updatedAt: Date.now(),
       itemCount: items.reduce((s, i) => s + i.qty, 0), purchaseCost: await computePurchaseCost(ctx, items),
       hasUpsell: order.hasUpsell || a.source === "Up Sell",
+      preOrder: (await hasPreOrderItem(ctx, items)) || undefined,
     })
     if (reserved) {
       const fresh = (await ctx.db.get(order._id))!
@@ -1018,7 +1029,7 @@ export const needingPlace = internalQuery({
   args: {},
   handler: async (ctx) => {
     const out: Id<"orders">[] = []
-    for (const st of ["pending", "on_hold", "approved", "processing", "ready_to_ship"] as const) {
+    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship"] as const) {
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
       for (const o of rows) if (!o.deletedAt && !o.pathaoCityId && o.courier === "pathao") out.push(o._id)
     }
@@ -1146,5 +1157,37 @@ export const nuportRenumber = internalMutation({
     const inv = await ctx.db.query("counters").withIndex("by_name", (q) => q.eq("name", "invoice")).unique()
     if (!inv) await ctx.db.insert("counters", { name: "invoice", value: top })
     else if (inv.value < top) await ctx.db.patch(inv._id, { value: top })
+  },
+})
+
+/** One-time: mark pre-order products and orders. Open orders with a pre-order product get the flag; Approved ones move to Pre-Order. */
+export const markPreOrders = internalMutation({
+  args: { productNames: v.optional(v.array(v.string())) },
+  handler: async (ctx, a) => {
+    let products = 0
+    if (a.productNames?.length) {
+      const want = new Set(a.productNames.map((n) => n.trim().toLowerCase()))
+      for (const p of await ctx.db.query("products").collect()) {
+        if (want.has(p.name.trim().toLowerCase()) && !p.preOrder) { await ctx.db.patch(p._id, { preOrder: true }); products++ }
+      }
+    }
+    let flagged = 0, moved = 0
+    for (const st of ["pending", "on_hold", "approved", "processing", "ready_to_ship"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
+      for (const o of rows) {
+        if (o.deletedAt || !(await hasPreOrderItem(ctx, o.items))) continue
+        if (!o.preOrder) { await ctx.db.patch(o._id, { preOrder: true }); flagged++ }
+        if (st === "approved") { await applyStatus(ctx, { ...o, preOrder: true }, "pre_order", "System", "Pre-order product — waiting for stock", { quiet: true }); moved++ }
+      }
+    }
+    // Roles that can move Approved → Processing also get the new Pre-Order moves
+    const newKeys = ALL_MOVE_KEYS.filter((k) => k.includes("pre_order"))
+    let roles = 0
+    for (const r of await ctx.db.query("roles").collect()) {
+      if (!r.permissions.includes("move:approved>processing")) continue
+      const add = newKeys.filter((k) => !r.permissions.includes(k))
+      if (add.length) { await ctx.db.patch(r._id, { permissions: [...r.permissions, ...add] }); roles++ }
+    }
+    return { products, flagged, moved, roles }
   },
 })

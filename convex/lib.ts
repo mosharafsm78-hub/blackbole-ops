@@ -3,7 +3,7 @@ import { getAuthUserId } from "@convex-dev/auth/server"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
-import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, type Bucket, type OrderStatus } from "./rules"
+import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type Bucket, type OrderStatus } from "./rules"
 
 export type StaffCtx = { staff: Doc<"staff">; perms: string[] }
 
@@ -197,4 +197,18 @@ export async function computePurchaseCost(ctx: QueryCtx, items: Doc<"orders">["i
 
 export function bdNow() {
   return new Date(Date.now() + 6 * 3600000)
+}
+
+/** True when any item is a pre-order product: SKU starts with "PO-" (Shopify/Nuport naming) or its product is marked pre-order. */
+export async function hasPreOrderItem(ctx: QueryCtx, items: Doc<"orders">["items"]) {
+  for (const i of items) {
+    if (isPreOrderSku(i.sku)) return true
+    if (!i.variantId) continue
+    const vr = await ctx.db.get(i.variantId)
+    if (!vr) continue
+    if (isPreOrderSku(vr.sku)) return true
+    const p = await ctx.db.get(vr.productId)
+    if (p?.preOrder) return true
+  }
+  return false
 }

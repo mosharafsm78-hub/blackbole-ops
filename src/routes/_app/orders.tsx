@@ -341,6 +341,7 @@ function OrdersPage() {
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-1">
                       <Pill tone="gray">{o.source}</Pill>
+                      {o.preOrder && <Pill tone="pink">Pre-order</Pill>}
                       {o.externalName && <span className="text-xs text-muted-foreground">{o.externalName}</span>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{dateTime(o.createdAt)}</div>

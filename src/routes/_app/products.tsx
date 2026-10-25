@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TEMPLATE_CSV, mapProductCsv, type ImportRow } from "@/lib/csv"
 import { errMsg, taka } from "@/lib/format"
+import { isPreOrderSku } from "@/convex/rules"
 
 export const Route = createFileRoute("/_app/products")({
   component: () => (
@@ -25,9 +26,9 @@ export const Route = createFileRoute("/_app/products")({
 })
 
 type VariantForm = { id?: Id<"variants">; sku: string; title: string; weightKg: number; price: number; purchasePrice: number; active: boolean }
-type ProductForm = { id?: Id<"products">; name: string; category: string; imageUrl: string; active: boolean; variants: VariantForm[] }
+type ProductForm = { id?: Id<"products">; name: string; category: string; imageUrl: string; active: boolean; preOrder: boolean; variants: VariantForm[] }
 
-const blank = (): ProductForm => ({ name: "", category: "", imageUrl: "", active: true, variants: [] })
+const blank = (): ProductForm => ({ name: "", category: "", imageUrl: "", active: true, preOrder: false, variants: [] })
 
 function ProductsPage() {
   const can = useCan()
@@ -94,11 +95,11 @@ function ProductsPage() {
                       <td className="p-3 tabular-nums">{p.variants.length}</td>
                       <td className="p-3 text-right tabular-nums">{prices.length ? (Math.min(...prices) === Math.max(...prices) ? taka(prices[0]) : `${taka(Math.min(...prices))}–${taka(Math.max(...prices))}`) : "—"}</td>
                       <td className={`p-3 text-right tabular-nums ${stock <= 0 ? "text-tone-red" : ""}`}>{stock}</td>
-                      <td className="p-3">{p.active ? <Pill tone="green">Active</Pill> : <Pill tone="gray">Inactive</Pill>}</td>
+                      <td className="p-3">{p.active ? <Pill tone="green">Active</Pill> : <Pill tone="gray">Inactive</Pill>}{(p.preOrder || p.variants.some((v) => isPreOrderSku(v.sku))) && <Pill tone="pink" className="ml-1">Pre-order</Pill>}</td>
                       <td className="p-3 text-right">
                         {can("products.manage") && (
                           <Button variant="ghost" size="sm" onClick={() => setEditing({
-                            id: p._id, name: p.name, category: p.category ?? "", imageUrl: p.imageUrl ?? "", active: p.active,
+                            id: p._id, name: p.name, category: p.category ?? "", imageUrl: p.imageUrl ?? "", active: p.active, preOrder: !!p.preOrder,
                             variants: p.variants.map((v) => ({ id: v._id, sku: v.sku, title: v.title, weightKg: v.weightKg, price: v.price, purchasePrice: v.purchasePrice, active: v.active })),
                           })}>Edit</Button>
                         )}
@@ -161,6 +162,7 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
           <div className="space-y-1.5"><Label>Category</Label><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="Sandals" /></div>
           <div className="space-y-1.5"><Label>Image URL</Label><Input value={f.imageUrl} onChange={(e) => setF({ ...f, imageUrl: e.target.value })} placeholder="https://…" /></div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> Active (can be sold)</label>
+          <label className="flex items-center gap-2 text-sm"><Switch checked={f.preOrder} onCheckedChange={(v) => setF({ ...f, preOrder: v })} /> Pre-order product (takes long to arrive — orders go to the Pre-Order tab). SKUs starting with “PO-” count as pre-order automatically.</label>
         </div>
 
         <div className="rounded-md border border-dashed p-3">
@@ -208,7 +210,7 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
               setBusy(true)
               try {
                 await save({
-                  id: f.id, name: f.name, category: f.category || undefined, imageUrl: f.imageUrl || undefined, active: f.active,
+                  id: f.id, name: f.name, category: f.category || undefined, imageUrl: f.imageUrl || undefined, active: f.active, preOrder: f.preOrder,
                   variants: f.variants.map((v) => ({ ...v, attrs: undefined })),
                 })
                 toast.success("Product saved")

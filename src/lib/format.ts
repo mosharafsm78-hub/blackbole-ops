@@ -18,6 +18,7 @@ export const STATUS_TONE: Record<OrderStatus, Tone> = {
   on_hold: "orange",
   approved: "blue",
   processing: "violet",
+  pre_order: "pink",
   ready_to_ship: "indigo",
   in_transit: "cyan",
   delivered_due: "teal",

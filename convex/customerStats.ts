@@ -5,7 +5,7 @@ import type { Doc } from "./_generated/dataModel"
 
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])
 const RETURNED = new Set(["pending_returned", "returned", "damaged"])
-const OPEN = new Set(["pending", "on_hold", "approved", "processing", "ready_to_ship", "in_transit"])
+const OPEN = new Set(["pending", "on_hold", "approved", "processing", "pre_order", "ready_to_ship", "in_transit"])
 
 export type CustomerStats = { orders: number; delivered: number; returned: number; cancelled: number; open: number; spent: number; lastOrderAt?: number; successRate: number | null }
 

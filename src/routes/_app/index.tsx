@@ -30,6 +30,7 @@ const QUEUE = [
   { tab: "on_hold", label: "On hold", sub: "waiting on customer", cls: "bg-tone-orange-bg text-tone-orange" },
   { tab: "approved", label: "Approved", sub: "to print & pack", cls: "bg-tone-blue-bg text-tone-blue" },
   { tab: "processing", label: "Processing", sub: "packing now", cls: "bg-tone-violet-bg text-tone-violet" },
+  { tab: "pre_order", label: "Pre-Order", sub: "waiting for product", cls: "bg-tone-pink-bg text-tone-pink" },
   { tab: "ready_to_ship", label: "Ready to ship", sub: "waiting for pickup", cls: "bg-tone-indigo-bg text-tone-indigo" },
   { tab: "in_transit", label: "With courier", sub: "on the way", cls: "bg-tone-cyan-bg text-tone-cyan" },
 ]
@@ -73,7 +74,7 @@ function Dashboard() {
       {/* today's work */}
       <section>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today's work</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           {QUEUE.map((q) => (
             <Link key={q.tab} to="/orders" search={{ tab: q.tab }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", q.cls)}>
               <div className="text-sm font-semibold">{q.label}</div>

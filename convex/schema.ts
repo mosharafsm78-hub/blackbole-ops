@@ -7,6 +7,7 @@ export const orderStatus = v.union(
   v.literal("on_hold"),
   v.literal("approved"),
   v.literal("processing"),
+  v.literal("pre_order"),
   v.literal("ready_to_ship"),
   v.literal("in_transit"),
   v.literal("delivered_due"),
@@ -81,6 +82,7 @@ export default defineSchema({
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     active: v.boolean(),
+    preOrder: v.optional(v.boolean()), // takes long to arrive; orders with it go to the Pre-Order tab
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
   }).searchIndex("search_name", { searchField: "name" }),
@@ -307,6 +309,7 @@ export default defineSchema({
     noteCount: v.optional(v.number()),
     itemCount: v.optional(v.number()),
     hasUpsell: v.optional(v.boolean()),
+    preOrder: v.optional(v.boolean()), // has a pre-order product (SKU "PO-…" or product marked pre-order)
     returnedQty: v.optional(v.number()),
     purchaseCost: v.optional(v.number()),
     codCost: v.optional(v.number()),

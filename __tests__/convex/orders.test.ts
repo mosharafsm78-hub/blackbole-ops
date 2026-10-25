@@ -438,3 +438,37 @@ describe("Nuport status sync", () => {
     expect(counts!.cancelled).toBe(1)
   })
 })
+
+describe("pre-order", () => {
+  it("approving an order with a PO- product sends it to Pre-Order, then it can go on to Processing", async () => {
+    const { t, as, locationId } = await setup()
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Retro Chunky Sole Sneaker", active: true,
+      variants: [{ sku: "PO-RCS-BR-41", title: "41", weightKg: 0.5, price: 2490, purchasePrice: 900, active: true }],
+    })
+    const po = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "PO-RCS-BR-41")).unique()))!
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, po._id))
+    expect((await t.run((ctx) => ctx.db.get(orderId)))!.preOrder).toBe(true)
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    expect((await t.run((ctx) => ctx.db.get(orderId)))!.status).toBe("pre_order")
+    const counts = await as.query(api.orders.counts, {})
+    expect(counts!.pre_order).toBe(1)
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "processing" })
+    expect((await t.run((ctx) => ctx.db.get(orderId)))!.status).toBe("processing")
+  })
+
+  it("a product switched to pre-order counts too; normal products still go to Approved", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    expect((await t.run((ctx) => ctx.db.get(orderId)))!.status).toBe("approved")
+    await t.run(async (ctx) => { await ctx.db.patch(v41.productId, { preOrder: true }) })
+    const { orderId: o2 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    await as.mutation(api.orders.changeStatus, { ids: [o2], to: "approved" })
+    expect((await t.run((ctx) => ctx.db.get(o2)))!.status).toBe("pre_order")
+    // one-time back-fill moves the earlier Approved one too
+    const r = await t.mutation(internal.orders.markPreOrders, {})
+    expect(r.moved).toBe(1)
+    expect((await t.run((ctx) => ctx.db.get(orderId)))!.status).toBe("pre_order")
+  })
+})
