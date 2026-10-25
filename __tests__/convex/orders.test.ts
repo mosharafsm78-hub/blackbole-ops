@@ -555,3 +555,13 @@ describe("daily scoreboard", () => {
     expect(await t.query(internal.stats.ready, {})).toBe(true)
   })
 })
+
+describe("shopify cart line notes", () => {
+  it("never crashes on carts whose notes come as an object or are missing", async () => {
+    const { preOrderFullPrice } = await import("../../convex/shopify")
+    expect(preOrderFullPrice({ price: "1584", quantity: 1, properties: { "Full price": "Tk 3,168" } })).toBe(3168)
+    expect(preOrderFullPrice({ price: "1584", quantity: 1, properties: {} })).toBeNull()
+    expect(preOrderFullPrice({ price: "1584", quantity: 1, properties: null })).toBeNull()
+    expect(preOrderFullPrice({ price: "1584", quantity: 1 })).toBeNull()
+  })
+})

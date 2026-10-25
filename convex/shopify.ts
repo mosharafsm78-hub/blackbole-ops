@@ -140,7 +140,11 @@ const taka = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.]/g, "")) || 
 
 /** Full unit price of a pre-order line sold with an advance (from the line's "Full price" / "Due on delivery" notes), else null. */
 export function preOrderFullPrice(l: any): number | null {
-  const props: { name: string; value: unknown }[] = (l.properties ?? l.custom_attributes ?? []).map((p: any) => ({ name: String(p.name ?? p.key ?? ""), value: p.value }))
+  // Orders send a list of {name, value}; carts/checkouts may send a plain object {name: value} or nothing
+  const raw = l?.properties ?? l?.custom_attributes ?? []
+  const props: { name: string; value: unknown }[] = Array.isArray(raw)
+    ? raw.map((p: any) => ({ name: String(p?.name ?? p?.key ?? ""), value: p?.value }))
+    : raw && typeof raw === "object" ? Object.entries(raw).map(([name, value]) => ({ name, value })) : []
   const get = (k: string) => props.find((p) => p.name.trim().toLowerCase() === k)?.value
   const full = taka(get("full price"))
   if (full > 0) return full
