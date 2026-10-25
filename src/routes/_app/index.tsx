@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
@@ -101,10 +101,10 @@ function Dashboard() {
                 <h2 className="text-sm font-semibold">Orders per day</h2>
                 <span className="text-xs text-muted-foreground">{n.totalOrders} orders · {taka(n.totalSales)}</span>
               </div>
-              <p className="mb-3 text-xs text-muted-foreground">How many orders came in each day (cancelled not counted). Hover a day to see its sales.</p>
+              <p className="mb-3 text-xs text-muted-foreground">How many orders came in each day (cancelled not counted). The number on each point is that day’s orders; hover to see its sales.</p>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={n.daily.map((d: any) => ({ ...d, label: new Date(`${d.day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) }))} margin={{ left: -18, right: 8, top: 6 }}>
+                  <AreaChart data={n.daily.map((d: any) => ({ ...d, label: new Date(`${d.day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) }))} margin={{ left: -18, right: 12, top: 22 }}>
                     <defs>
                       <linearGradient id="ordersFill" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="hsl(var(--tone-blue))" stopOpacity={0.35} />
@@ -113,14 +113,25 @@ function Dashboard() {
                     </defs>
                     <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
                     <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" interval="preserveStartEnd" minTickGap={24} />
-                    <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="orders" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" />
+                    <YAxis yAxisId="sales" hide />
                     <Tooltip
                       contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 12 }}
                       formatter={(val: any, name: any) => (name === "orders" ? [`${val} orders`, "Orders"] : [taka(Number(val)), "Sales"])}
                       labelFormatter={(l: any) => l}
                     />
-                    <Area type="monotone" dataKey="orders" stroke="hsl(var(--tone-blue))" strokeWidth={2.5} fill="url(#ordersFill)" dot={n.daily.length <= 14 ? { r: 3, fill: "hsl(var(--tone-blue))" } : false} activeDot={{ r: 5 }} />
-                    <Area type="monotone" dataKey="sales" stroke="none" fill="none" />
+                    <Area yAxisId="orders" type="monotone" dataKey="orders" stroke="hsl(var(--tone-blue))" strokeWidth={2.5} fill="url(#ordersFill)" dot={n.daily.length <= 45 ? { r: 3, fill: "hsl(var(--tone-blue))" } : false} activeDot={{ r: 5 }}>
+                      <LabelList
+                        dataKey="orders" position="top" offset={8} fontSize={n.daily.length > 31 ? 9 : 11} fontWeight={600} fill="hsl(var(--foreground))"
+                        // every day up to a month; for longer ranges every 2nd/3rd day so numbers don't overlap
+                        content={(p: any) => {
+                          const step = n.daily.length > 62 ? 3 : n.daily.length > 31 ? 2 : 1
+                          if (p.index % step !== 0 && p.index !== n.daily.length - 1) return null
+                          return <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize={n.daily.length > 31 ? 9 : 11} fontWeight={600} fill="hsl(var(--foreground))">{p.value}</text>
+                        }}
+                      />
+                    </Area>
+                    <Area yAxisId="sales" type="monotone" dataKey="sales" stroke="none" fill="none" />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
