@@ -1088,10 +1088,12 @@ export const checkDueNow = action({
   },
 })
 
-/** Timer entry for the Pathao checks (runs around the clock, every interval). */
+/** Timer entry for the Pathao checks. Paused 11 pm – 8 am Bangladesh time: Pathao does no work then. */
 export const cronTick = internalAction({
   args: { job: v.union(v.literal("status"), v.literal("money"), v.literal("due")) },
   handler: async (ctx, { job }): Promise<void> => {
+    const hourBD = new Date(Date.now() + 6 * 3600000).getUTCHours()
+    if (hourBD >= 23 || hourBD < 8) return
     if (job === "status") await ctx.runAction(internal.pathao.syncAll, {})
     else if (job === "money") await ctx.runAction(internal.pathao.syncMoney, {})
     else await ctx.runAction(internal.pathao.checkDue, {})
