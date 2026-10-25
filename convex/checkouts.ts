@@ -156,3 +156,29 @@ export const convert = mutation({
     return res
   },
 })
+
+/** One-time demo cart for a screenshot (clearly marked as a demo). */
+export const addDemo = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const exists = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", "demo-1")).first()
+    if (exists) return "exists"
+    const vars = (await ctx.db.query("variants").take(400)).filter((v) => v.active !== false && v.price > 0)
+    const pick = vars.filter((v) => /BHSS|SH-/.test(v.sku)).slice(0, 2)
+    const chosen = pick.length ? pick : vars.slice(0, 2)
+    const items: Doc<"checkouts">["items"] = []
+    for (const vr of chosen.slice(0, 2)) {
+      const p = await ctx.db.get(vr.productId)
+      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: p?.imageUrl, price: vr.price, qty: 1, discount: 0, weightKg: vr.weightKg })
+    }
+    const subtotal = items.reduce((s, i) => s + i.price, 0)
+    const now = Date.now()
+    await ctx.db.insert("checkouts", {
+      checkoutId: "demo-1", customerName: "Demo Customer (test)", phone: "01700000000", email: "demo@example.com",
+      address: "House 12, Road 5, Dhanmondi, Dhaka", cityName: "Dhaka", items, subtotal, discount: 0, deliveryFee: 90,
+      total: subtotal + 90, recoveryUrl: "https://blackbole.com/", shopCreatedAt: now - 40 * 60000, shopUpdatedAt: now - 35 * 60000,
+      status: "open", callCount: 0,
+    })
+    return "added"
+  },
+})
