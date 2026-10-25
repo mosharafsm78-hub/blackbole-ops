@@ -507,3 +507,12 @@ describe("product search (new order)", () => {
     expect(r[0].available).toBe(10)
   })
 })
+
+describe("product search does not show loose matches", () => {
+  it("a SKU piece does not list other products whose name starts with the same letters", async () => {
+    const { as } = await setup()
+    await as.mutation(api.catalog.saveProduct, { name: "Brinkley Breeze Sandal", active: true, variants: [{ sku: "BB-SAN-CDS-42", title: "42", weightKg: 0.4, price: 1980, purchasePrice: 700, active: true }] })
+    expect((await as.query(api.catalog.searchVariants, { q: "HSS-BR" })).map((r) => r.sku)).toEqual([])
+    expect((await as.query(api.catalog.searchVariants, { q: "brinkley" })).map((r) => r.sku)).toEqual(["BB-SAN-CDS-42"])
+  })
+})

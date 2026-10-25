@@ -165,7 +165,7 @@ export const searchVariants = query({
       for (const p of hits) {
         for (const vr of await ctx.db.query("variants").withIndex("by_product", (x) => x.eq("productId", p._id)).take(40)) {
           const text = `${p.name} ${vr.title} ${vr.sku}`.toLowerCase()
-          if (words.every((w) => text.includes(w)) || words.length === 1) byName.push(vr)
+          if (words.every((w) => text.includes(w))) byName.push(vr)
         }
       }
       const seen = new Set<string>()
