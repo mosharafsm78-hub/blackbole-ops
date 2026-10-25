@@ -135,6 +135,19 @@ export const webhook = httpAction(async (ctx, req) => {
   }
 })
 
+const taka = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.]/g, "")) || 0
+
+/** Full unit price of a pre-order line sold with an advance (from the line's "Full price" / "Due on delivery" notes), else null. */
+export function preOrderFullPrice(l: any): number | null {
+  const props: { name: string; value: unknown }[] = (l.properties ?? l.custom_attributes ?? []).map((p: any) => ({ name: String(p.name ?? p.key ?? ""), value: p.value }))
+  const get = (k: string) => props.find((p) => p.name.trim().toLowerCase() === k)?.value
+  const full = taka(get("full price"))
+  if (full > 0) return full
+  const due = taka(get("due on delivery"))
+  if (due > 0) return num(l.price) + due / (num(l.quantity) || 1)
+  return null
+}
+
 /** Shopify line items → our order items (matched to our products by SKU). */
 async function mapLines(ctx: any, lines: any[]) {
   const skus = lines.map((l) => String(l.sku ?? "").trim()).filter(Boolean)
@@ -147,13 +160,16 @@ async function mapLines(ctx: any, lines: any[]) {
     if (!match) unmatched.push(sku)
     const disc = (l.discount_allocations ?? []).reduce((s: number, d: any) => s + num(d.amount), 0) || num(l.total_discount)
     itemDiscountTotal += disc
+    // Pre-order with advance: Shopify charges only the advance; the line says "Full price Tk 3,168 · Due on delivery Tk 1,584".
+    // Keep the FULL price on the item so the rest shows as due and Pathao collects it.
+    const full = preOrderFullPrice(l)
     return {
       variantId: match ? (match.variantId as any) : undefined,
       sku: sku.toUpperCase(),
       name: match?.name ?? String(l.title ?? sku),
       attrs: match?.title ?? (l.variant_title || undefined),
       imageUrl: match?.imageUrl,
-      price: num(l.price),
+      price: full ?? num(l.price),
       qty: num(l.quantity) || 1,
       discount: disc,
       weightKg: match?.weightKg ?? num(l.grams) / 1000,

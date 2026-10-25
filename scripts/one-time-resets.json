@@ -29,5 +29,38 @@
         "BlackBole Calder Slide Mule"
       ]
     }
+  },
+  {
+    "id": "2026-10-25-pre-order-full-prices",
+    "fn": "orders:fixPreOrderPrices",
+    "args": {
+      "rows": [
+        {
+          "invoice": "BB-11634",
+          "sku": "PO-PLD-BK-40",
+          "fullPrice": 3168
+        },
+        {
+          "invoice": "BB-11643",
+          "sku": "PO-APS-BE-44",
+          "fullPrice": 2902
+        },
+        {
+          "invoice": "BB-11643",
+          "sku": "PO-APS-BK-44",
+          "fullPrice": 2902
+        },
+        {
+          "invoice": "BB-11643",
+          "sku": "PO-APS-BL-44",
+          "fullPrice": 2902
+        },
+        {
+          "invoice": "BB-11651",
+          "sku": "PO-RCS-BR-39",
+          "fullPrice": 3070
+        }
+      ]
+    }
   }
 ]

@@ -1191,3 +1191,24 @@ export const markPreOrders = internalMutation({
     return { products, flagged, moved, roles }
   },
 })
+
+/** One-time: pre-order lines were saved at the advance price only. Put the full price back so the rest shows as due on delivery. */
+export const fixPreOrderPrices = internalMutation({
+  args: { rows: v.array(v.object({ invoice: v.string(), sku: v.string(), fullPrice: v.number() })) },
+  handler: async (ctx, { rows }) => {
+    const done: string[] = []
+    for (const r of rows) {
+      const no = Number(r.invoice.replace(/\D/g, ""))
+      const o = await ctx.db.query("orders").withIndex("by_invoice", (q) => q.eq("invoiceNo", no)).filter((q) => q.eq(q.field("deletedAt"), undefined)).first()
+      if (!o || o.consignmentId) continue
+      let changed = false
+      const items = o.items.map((i) => (i.sku.toUpperCase() === r.sku.toUpperCase() && i.price < r.fullPrice ? ((changed = true), { ...i, price: r.fullPrice }) : i))
+      if (!changed) continue
+      const t = orderTotals(items, o.discount, o.deliveryFee, o.paidAmount)
+      await ctx.db.patch(o._id, { items, subtotal: t.subtotal, total: t.total, due: t.due, preOrder: true, updatedAt: Date.now() })
+      await logOrder(ctx, o._id, `Pre-order advance: ${r.sku} full price ৳${r.fullPrice}. Total now ৳${t.total}, paid ৳${o.paidAmount}, due on delivery ৳${t.due}`, "System")
+      done.push(`${r.invoice} ${r.sku} → due ৳${t.due}`)
+    }
+    return done
+  },
+})
