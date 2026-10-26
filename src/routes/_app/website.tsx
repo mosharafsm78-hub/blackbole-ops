@@ -337,7 +337,11 @@ function ProductIndex({ rows, collections }: { rows: Rows | null | undefined; co
                       <td className="hidden py-2.5 pr-3 md:table-cell">{r.setUp ? <StatusBadge on={r.published && r.active} label={r.published && !r.active ? "Inactive in Ops" : undefined} /> : <StatusBadge on={false} label="Not added" />}</td>
                       <td className="hidden py-2.5 pr-3 sm:table-cell"><Inventory r={r} /></td>
                       <td className="hidden py-2.5 pr-3 text-muted-foreground lg:table-cell">{r.type || "—"}</td>
-                      <td className="py-2.5 pr-4 text-right tabular-nums">{r.variants ? (r.minPrice === r.maxPrice ? taka(r.minPrice) : `${taka(r.minPrice)}–${taka(r.maxPrice)}`) : "—"}</td>
+                      <td className="py-2.5 pr-4 text-right tabular-nums">
+                        {!r.variants ? "—" : r.preOrder ? (
+                          <><div>{r.fullMin === r.fullMax ? taka(r.fullMin) : `${taka(r.fullMin)}–${taka(r.fullMax)}`}</div><div className="text-[11px] text-muted-foreground">Book {r.minPrice === r.maxPrice ? taka(r.minPrice) : `${taka(r.minPrice)}–${taka(r.maxPrice)}`}</div></>
+                        ) : r.minPrice === r.maxPrice ? taka(r.minPrice) : `${taka(r.minPrice)}–${taka(r.maxPrice)}`}
+                      </td>
                     </tr>
                   )
                 })}

@@ -157,7 +157,7 @@ function ProductForm({ data }: { data: Data }) {
             <MediaGrid images={f.images} onChange={(v) => set("images", v)} onFiles={onFiles} uploading={uploading} defaultAlt={f.title} />
           </Section>
 
-          <Variants f={f} set={set} />
+          <Variants f={f} set={set} preOrder={preOrder} />
 
           <PageContent f={f} setMf={setMf} />
 
@@ -188,10 +188,21 @@ function ProductForm({ data }: { data: Data }) {
             {preOrder ? (
               <div className="space-y-3">
                 <Field label="Supplier" hint="Shown as a small badge on the product."><Input value={f.mf[K.supplier] ?? ""} onChange={(e) => setMf(K.supplier, e.target.value)} placeholder="e.g. Doris Chen" /></Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Ready in (days)"><Input value={f.mf[K.preDays] ?? ""} onChange={(e) => setMf(K.preDays, e.target.value)} placeholder="15–20" /></Field>
-                  <Field label="Booking (৳)"><Input inputMode="numeric" value={f.mf[K.preFee] ?? ""} onChange={(e) => setMf(K.preFee, e.target.value.replace(/[^\d]/g, ""))} placeholder="Default" /></Field>
-                </div>
+                <Field label="Comes from">
+                  <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+                    {(["china", "bd"] as const).map((o) => {
+                      const on = o === "bd" ? !!f.mf[K.preFee] : !f.mf[K.preFee]
+                      return (
+                        <button key={o} type="button" onClick={() => setMf(K.preFee, o === "bd" ? (f.mf[K.preFee] || "90") : "")}
+                          className={cn("rounded-md py-1.5 text-sm font-medium transition-colors", on ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                          {o === "china" ? "China" : "Bangladesh"}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Field>
+                <PreOrderMoney f={f} bd={!!f.mf[K.preFee]} />
+                <Field label="Ready in (days)"><Input value={f.mf[K.preDays] ?? ""} onChange={(e) => setMf(K.preDays, e.target.value)} placeholder="15–20" /></Field>
                 <Field label="Note title"><Input value={f.mf[K.preTitle] ?? ""} onChange={(e) => setMf(K.preTitle, e.target.value)} placeholder="Being made right now" /></Field>
                 <Field label="Note text"><Textarea rows={3} value={f.mf[K.preText] ?? ""} onChange={(e) => setMf(K.preText, e.target.value)} /></Field>
               </div>
@@ -226,12 +237,33 @@ function ProductForm({ data }: { data: Data }) {
   )
 }
 
+/** What the shopper pays: the website price is the booking money; the full price is the "Full price" column. */
+function PreOrderMoney({ f, bd }: { f: Form; bd: boolean }) {
+  const v = f.vars.find((x) => x.active) ?? f.vars[0]
+  if (!v) return null
+  const full = Number(v.compareAt) > v.price ? Number(v.compareAt) : v.price * 2
+  const ok = Number(v.compareAt) > v.price
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed">
+      <div className="mb-1 font-medium text-foreground">How the shopper pays</div>
+      {bd ? (
+        <p className="text-muted-foreground">Pays the <b className="text-foreground">{taka(v.price)}</b> booking online (it is the delivery charge, no extra delivery). Pays <b className="text-foreground">{taka(full - v.price)}</b> in cash on delivery. Full price {taka(full)}.</p>
+      ) : (
+        <p className="text-muted-foreground">Pays <b className="text-foreground">{taka(v.price)}</b> booking + delivery online. Pays <b className="text-foreground">{taka(full - v.price)}</b> in cash on delivery. Full price {taka(full)}.</p>
+      )}
+      <p className="mt-1.5 text-muted-foreground">Booking money = the price in Ops ({bd ? "৳90 for Bangladesh" : "৳500 for China"}). Full price = the “Full price” column below.</p>
+      {!ok && <p className="mt-1.5 font-medium text-tone-red">Full price is missing, so the website uses twice the booking. Fill it in below.</p>}
+      {v.price !== (bd ? 90 : 500) && <p className="mt-1.5 font-medium text-tone-amber">The price in Ops is {taka(v.price)}, not the usual {bd ? "৳90" : "৳500"} booking. Check it on Products.</p>}
+    </div>
+  )
+}
+
 function Note({ children }: { children: React.ReactNode }) {
   return <p className="mt-3 flex gap-2 rounded-md bg-tone-amber-bg px-2.5 py-2 text-xs text-tone-amber"><AlertTriangle className="mt-px size-3.5 shrink-0" /><span>{children}</span></p>
 }
 
 // ---------------------------------------------------------------- variants
-function Variants({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; preOrder: boolean }) {
   const { props, drag, over } = useReorder(f.vars, (v) => set("vars", v))
   const [editOpts, setEditOpts] = useState(false)
   const setVar = (i: number, patch: Partial<Var>) => set("vars", f.vars.map((x, j) => (j === i ? { ...x, ...patch } : x)))
@@ -242,7 +274,10 @@ function Variants({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Fo
   }
   const total = f.vars.reduce((s, v) => s + v.stock, 0)
   return (
-    <Section title="Sizes & prices" sub={`${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · ${total} in stock · price and stock come live from Ops`} flush
+    <Section title="Sizes & prices" flush
+      sub={preOrder
+        ? `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · pre-order: the Ops price is the booking money, the full price is set here`
+        : `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · ${total} in stock · price and stock come live from Ops`}
       action={<>
         {f.vars.length > 1 && <Button size="sm" variant="ghost" title="Sort by size (39, 40, 41…)" onClick={() => {
           const key = (v: Var) => f.options.map((o) => v.options[o] ?? "").join(" ") || v.title
@@ -271,15 +306,15 @@ function Variants({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Fo
                 <th className="w-8" />
                 {f.options.map((o, i) => <th key={i} className="py-2 pr-3 font-medium">{o || `Option ${i + 1}`}</th>)}
                 <th className="py-2 pr-3 font-medium">SKU</th>
-                <th className="py-2 pr-3 text-right font-medium">Price</th>
-                <th className="py-2 pr-3 font-medium">Compare-at</th>
+                <th className="py-2 pr-3 text-right font-medium">{preOrder ? "Booking" : "Price"}</th>
+                <th className="py-2 pr-3 font-medium">{preOrder ? "Full price" : "Compare-at"}</th>
                 <th className="py-2 pr-4 text-right font-medium">Stock</th>
               </tr>
             </thead>
             <tbody>
               {f.vars.map((v, i) => {
                 const cmp = Number(v.compareAt)
-                const badCmp = v.compareAt && cmp <= v.price
+                const badCmp = preOrder ? !(cmp > v.price) : !!v.compareAt && cmp <= v.price
                 return (
                   <tr key={v.id} {...props(i)} className={cn("border-b last:border-0", !v.active && "opacity-50", drag === i && "opacity-40", over === i && drag !== i && "bg-primary/5")}>
                     <td className="cursor-grab pl-2 text-muted-foreground/60 active:cursor-grabbing"><GripVertical className="size-4" /></td>
@@ -291,8 +326,8 @@ function Variants({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Fo
                     <td className="py-1.5 pr-3">
                       <div className="relative w-28">
                         <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">৳</span>
-                        <Input className={cn("h-8 pl-6", badCmp && "border-tone-red")} inputMode="numeric" value={v.compareAt} placeholder="—"
-                          title={badCmp ? "Compare-at should be higher than the price" : "Crossed-out price"}
+                        <Input className={cn("h-8 pl-6", badCmp && "border-tone-red")} inputMode="numeric" value={v.compareAt} placeholder={preOrder ? "Required" : "—"}
+                          title={preOrder ? "Full price of the pair. The shopper pays it minus the booking on delivery." : badCmp ? "Compare-at should be higher than the price" : "Crossed-out price"}
                           onChange={(e) => setVar(i, { compareAt: e.target.value.replace(/[^\d]/g, "") })} />
                       </div>
                     </td>

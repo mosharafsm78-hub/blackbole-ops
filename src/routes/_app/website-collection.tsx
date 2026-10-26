@@ -211,7 +211,7 @@ function Products({ items, onChange, all, info }: { items: string[]; onChange: (
                 <div className="min-w-0 flex-1">
                   {p ? <Link to="/website-product" search={{ id: p._id }} className="block truncate text-sm font-medium hover:underline" draggable={false}>{p.title}</Link>
                     : <span className="block truncate text-sm text-tone-red">Missing product ({h})</span>}
-                  {p && <span className="text-xs text-muted-foreground">{p.preOrder ? "Pre-order" : p.stock > 0 ? `${p.stock} in stock` : "Sold out"} · {taka(p.price)}</span>}
+                  {p && <span className="text-xs text-muted-foreground">{p.preOrder ? `Pre-order · book ${taka(p.price)}` : `${p.stock > 0 ? `${p.stock} in stock` : "Sold out"} · ${taka(p.price)}`}</span>}
                 </div>
                 {p && !p.published && <StatusBadge on={false} />}
                 <Button size="icon" variant="ghost" className="size-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" onClick={() => onChange(items.filter((x) => x !== h))} aria-label="Remove from collection"><X className="size-4" /></Button>

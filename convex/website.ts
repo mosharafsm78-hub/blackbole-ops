@@ -410,13 +410,15 @@ export const products = query({
     const all = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt)
     const variants = await ctx.db.query("variants").collect()
     const stock = await availableByVariantMap(ctx)
-    const count = new Map<string, { n: number; min: number; max: number; stock: number; inStock: number; noSku: number }>()
+    const count = new Map<string, { n: number; min: number; max: number; stock: number; inStock: number; noSku: number; fullMin: number; fullMax: number }>()
     const parented = new Map<string, string>() // product → product whose website page shows its variants
     for (const vr of variants) {
       const owner = (vr.web?.parent ?? vr.productId) as string
       if (vr.web?.parent) parented.set(vr.productId as string, vr.web.parent)
       if (!vr.active) continue
-      const c = count.get(owner) ?? { n: 0, min: Infinity, max: 0, stock: 0, inStock: 0, noSku: 0 }
+      const c = count.get(owner) ?? { n: 0, min: Infinity, max: 0, stock: 0, inStock: 0, noSku: 0, fullMin: Infinity, fullMax: 0 }
+      const full = typeof vr.web?.compareAt === "number" && vr.web.compareAt > vr.price ? vr.web.compareAt : vr.price * 2
+      c.fullMin = Math.min(c.fullMin, full); c.fullMax = Math.max(c.fullMax, full)
       const a = Math.max(0, stock.get(vr._id as string) ?? 0)
       c.n++; c.min = Math.min(c.min, vr.price); c.max = Math.max(c.max, vr.price); c.stock += a; if (a > 0) c.inStock++
       if (vr.sku.startsWith("WEB-")) c.noSku++
@@ -435,6 +437,7 @@ export const products = query({
           _id: p._id, name: p.name, title: w.title || p.name, handle: p.handle ?? null, active: p.active,
           image: w.images?.[0]?.url ?? p.imageUrl ?? null, published: !!w.published, setUp: !!p.handle && !!p.web,
           variants: c?.n ?? 0, minPrice: c ? c.min : 0, maxPrice: c ? c.max : 0,
+          fullMin: c && c.fullMin !== Infinity ? c.fullMin : 0, fullMax: c ? c.fullMax : 0,
           stock: c?.stock ?? 0, sizesInStock: c?.inStock ?? 0, noSku: c?.noSku ?? 0,
           preOrder: !!p.preOrder || isPreTag(w.tags),
           type: (w.type || p.category || "") as string,
