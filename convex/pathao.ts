@@ -980,18 +980,33 @@ export const setExchangeOfInternal = internalMutation({
 /** Exchange orders with no Pathao parcel (e.g. copied from Nuport): find the earlier order Pathao booked the
  *  exchange under (it has an EB… or RE… parcel), connect them, and link the parcels. */
 export const exchangesWithoutParcel = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { fresh: v.optional(v.boolean()) },
+  handler: async (ctx, { fresh }) => {
     const rows = await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(600)
-    return rows.filter((o) => !o.deletedAt && !o.consignmentId && !["cancelled", "returned", "damaged", "delivered_paid"].includes(o.status)).map((o) => o._id)
+    const since = Date.now() - 6 * 3600000 // the automatic run skips ones it looked at in the last 6 hours
+    return rows.filter((o) => !o.deletedAt && !o.consignmentId && !["cancelled", "returned", "damaged", "delivered_paid"].includes(o.status)
+      && (fresh || !o.exchangeCheckedAt || o.exchangeCheckedAt < since)).map((o) => o._id)
   },
 })
+export const markExchangeChecked = internalMutation({
+  args: { ids: v.array(v.id("orders")) },
+  handler: async (ctx, { ids }) => { for (const id of ids) await ctx.db.patch(id, { exchangeCheckedAt: Date.now() }) },
+})
 
+/** Button on the Exchange tab. */
 export const findExchangeParcels = action({
   args: {},
   handler: async (ctx): Promise<{ checked: number; linked: string[]; notFound: string[] }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
-    const ids: Id<"orders">[] = await ctx.runQuery(internal.pathao.exchangesWithoutParcel, {})
+    return await ctx.runAction(internal.pathao.findExchangeParcelsRun, { fresh: true })
+  },
+})
+
+/** Runs by itself every hour (cron) and from the button: links exchange orders to the parcels Pathao made for them. */
+export const findExchangeParcelsRun = internalAction({
+  args: { fresh: v.optional(v.boolean()) },
+  handler: async (ctx, { fresh }): Promise<{ checked: number; linked: string[]; notFound: string[] }> => {
+    const ids: Id<"orders">[] = await ctx.runQuery(internal.pathao.exchangesWithoutParcel, { fresh })
     const linked: string[] = [], notFound: string[] = []
     for (const id of ids.slice(0, 40)) {
       try {
@@ -1019,6 +1034,7 @@ export const findExchangeParcels = action({
         ;(done ? linked : notFound).push(me)
       } catch { notFound.push(String(id)) }
     }
+    await ctx.runMutation(internal.pathao.markExchangeChecked, { ids: ids.slice(0, 40) })
     return { checked: Math.min(ids.length, 40), linked, notFound }
   },
 })
@@ -1272,12 +1288,13 @@ export const checkDueNow = action({
 
 /** Timer entry for the Pathao checks. Paused 11 pm – 8 am Bangladesh time: Pathao does no work then. */
 export const cronTick = internalAction({
-  args: { job: v.union(v.literal("status"), v.literal("money"), v.literal("due")) },
+  args: { job: v.union(v.literal("status"), v.literal("money"), v.literal("due"), v.literal("exchange")) },
   handler: async (ctx, { job }): Promise<void> => {
     const hourBD = new Date(Date.now() + 6 * 3600000).getUTCHours()
     if (hourBD >= 23 || hourBD < 8) return
     if (job === "status") await ctx.runAction(internal.pathao.syncAll, {})
     else if (job === "money") await ctx.runAction(internal.pathao.syncMoney, {})
+    else if (job === "exchange") await ctx.runAction(internal.pathao.findExchangeParcelsRun, {})
     else await ctx.runAction(internal.pathao.checkDue, {})
   },
 })
