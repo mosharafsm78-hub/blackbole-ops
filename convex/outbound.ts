@@ -14,6 +14,7 @@ export const context = internalQuery({
       webhook: (await getSetting<any>(ctx, "webhook")) ?? null,
       sms: (await getSetting<any>(ctx, "sms")) ?? null,
       contact: (await getSetting<any>(ctx, "contactPoints")) ?? null,
+      email: (await getSetting<any>(ctx, "email")) ?? null,
     }
   },
 })
@@ -26,11 +27,11 @@ export const logWebhook = internalMutation({
 })
 
 export const logSms = internalMutation({
-  args: { phone: v.string(), text: v.string(), orderId: v.optional(v.id("orders")), status: v.string(), error: v.optional(v.string()) },
+  args: { phone: v.string(), text: v.string(), orderId: v.optional(v.id("orders")), status: v.string(), error: v.optional(v.string()), channel: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const order = a.orderId ? await ctx.db.get(a.orderId) : null
     await ctx.db.insert("smsLogs", { ...a, customerId: order?.customerId, at: Date.now() })
-    if (order && a.status === "sent") {
+    if (order && a.status === "sent" && a.channel !== "email") {
       const c = await ctx.db.get(order.customerId)
       if (c) await ctx.db.patch(c._id, { smsCount: (c.smsCount ?? 0) + 1 })
     }
@@ -125,6 +126,18 @@ export async function sendSms(sms: any, phone11: string, text: string): Promise<
   }
 }
 
+/** The customer message for an order status (same text for SMS and email). */
+export function orderMessage(order: any, status: string, sms: any, contact: any): string | null {
+  const tpl = sms?.templates?.[status] || DEFAULT_SMS[status]
+  if (!tpl) return null
+  const amount = sms?.valuePreference === "due" ? order.due : order.total
+  return fill(tpl, {
+    name: order.customerName.split(" ")[0], invoice: invoiceLabel(order), amount: String(Math.round(amount)),
+    status: STATUS_LABEL[status as OrderStatus] ?? status, courier: order.deliveryPartnerName ?? "courier",
+    tracking: order.consignmentId ?? "", hotline: contact?.hotline ?? "", whatsapp: contact?.whatsapp ?? "",
+  })
+}
+
 export const sendOrderSms = internalAction({
   args: { orderId: v.id("orders"), status: v.string() },
   handler: async (ctx, { orderId, status }) => {
@@ -144,3 +157,5 @@ export const sendOrderSms = internalAction({
 })
 
 export const smsSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "sms")) ?? null })
+
+export const emailSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "email")) ?? null })

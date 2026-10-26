@@ -104,7 +104,12 @@ export const commSettings = query({
     if (!s) return null
     const sms = (await getSetting<any>(ctx, "sms")) ?? {}
     const contact = (await getSetting<any>(ctx, "contactPoints")) ?? {}
+    const email = (await getSetting<any>(ctx, "email")) ?? {}
     return {
+      email: {
+        enabled: !!email.enabled, address: email.address ?? "support@blackbole.com", fromName: email.fromName ?? "BlackBole",
+        host: email.host ?? "smtp.hostinger.com", port: email.port ?? 465, hasPassword: !!email.password, // password never leaves the server
+      },
       sms: {
         enabled: !!sms.enabled, statuses: sms.statuses ?? SMS_STATUSES, templates: sms.templates ?? {},
         urlTemplate: sms.urlTemplate ?? "", method: sms.method ?? "GET", valuePreference: sms.valuePreference ?? "total",
@@ -127,6 +132,10 @@ export const saveCommSettings = mutation({
       apiKey: v.optional(v.string()), secretKey: v.optional(v.string()), // blank = keep the saved one
     }),
     contact: v.object({ hotline: v.string(), hotlineEnabled: v.boolean(), whatsapp: v.string(), whatsappEnabled: v.boolean() }),
+    email: v.optional(v.object({
+      enabled: v.boolean(), address: v.string(), fromName: v.string(), host: v.string(), port: v.number(),
+      password: v.optional(v.string()), // blank = keep the saved one
+    })),
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
@@ -138,6 +147,12 @@ export const saveCommSettings = mutation({
     if (a.sms.enabled && provider !== "reve" && !a.sms.urlTemplate.includes("{message}")) throw new ConvexError("The SMS gateway URL must contain {message} and {phone}")
     await setSetting(ctx, "sms", { ...a.sms, provider, senderId: a.sms.senderId?.trim() || "BLACKBOLE", apiKey, secretKey })
     await setSetting(ctx, "contactPoints", a.contact)
+    if (a.email) {
+      const oldE = (await getSetting<any>(ctx, "email")) ?? {}
+      const password = a.email.password?.trim() || oldE.password
+      if (a.email.enabled && (!a.email.address.includes("@") || !password)) throw new ConvexError("Add the mailbox address and its password first")
+      await setSetting(ctx, "email", { ...a.email, address: a.email.address.trim(), password })
+    }
   },
 })
 

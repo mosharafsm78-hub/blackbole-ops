@@ -46,7 +46,7 @@ function SettingsPage() {
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="shopify">Shopify</TabsTrigger>
           <TabsTrigger value="pathao">Pathao</TabsTrigger>
-          <TabsTrigger value="sms">SMS</TabsTrigger>
+          <TabsTrigger value="sms">SMS & Email</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
           <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
@@ -222,22 +222,28 @@ function SmsTab() {
   const info = useQuery(api.admin.commSettings)
   const save = useMutation(api.admin.saveCommSettings)
   const test = useAction(api.admin.testSms)
+  const testMail = useAction(api.emailNode.testEmail)
+  const [em, setEm] = useState<any>(null)
+  const [mailPass, setMailPass] = useState("")
+  const [testTo, setTestTo] = useState("")
   const [f, setF] = useState<any>(null)
   const [apiKey, setApiKey] = useState("")
   const [secretKey, setSecretKey] = useState("")
   const [testPhone, setTestPhone] = useState("")
   const [busy, setBusy] = useState(false)
   useEffect(() => { if (info && !f) setF({ ...info.sms, contact: info.contact }) }, [info, f])
-  if (!info || !f) return <Loading />
+  useEffect(() => { if (info && !em) setEm(info.email) }, [info, em])
+  if (!info || !f || !em) return <Loading />
   const saved = info.sms.hasKeys
   const set = (patch: any) => setF({ ...f, ...patch })
   const doSave = async () => {
     setBusy(true)
     try {
       const { contact, hasKeys: _h, ...sms } = f
-      await save({ sms: { ...sms, provider: "reve", apiKey: apiKey || undefined, secretKey: secretKey || undefined }, contact })
-      setApiKey(""); setSecretKey("")
-      toast.success("SMS settings saved")
+      const { hasPassword: _p, ...mail } = em
+      await save({ sms: { ...sms, provider: "reve", apiKey: apiKey || undefined, secretKey: secretKey || undefined }, contact, email: { ...mail, port: Number(mail.port) || 465, password: mailPass || undefined } })
+      setApiKey(""); setSecretKey(""); setMailPass("")
+      toast.success("Settings saved")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
   return (
@@ -252,6 +258,28 @@ function SmsTab() {
           <div className="space-y-1.5"><Label>Sender ID (name customers see)</Label><Input value={f.senderId} onChange={(e) => set({ senderId: e.target.value })} /></div>
         </div>
         <label className="mt-4 flex items-center gap-2 text-sm"><Switch checked={f.enabled} onCheckedChange={(v) => set({ enabled: v })} data-testid="sms-enabled" /> Send automatic SMS to customers</label>
+      </Section>
+
+      <Section
+        title="Email (same messages)"
+        sub={<>Customers who gave an email get the same message by email, at the same moments. Sent from your BlackBole mailbox. {info.email.hasPassword ? <Pill tone="green">Password saved</Pill> : <Pill tone="amber">Not connected</Pill>}</>}
+      >
+        <div className="grid max-w-2xl gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5"><Label>Send from (mailbox)</Label><Input value={em.address} onChange={(e) => setEm({ ...em, address: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Mailbox password</Label><Input type="password" name="mailbox-password" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={mailPass} onChange={(e) => setMailPass(e.target.value)} placeholder={info.email.hasPassword ? "Saved — leave blank to keep" : ""} /></div>
+          <div className="space-y-1.5"><Label>Sender name</Label><Input value={em.fromName} onChange={(e) => setEm({ ...em, fromName: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Mail server</Label><Input value={em.host} onChange={(e) => setEm({ ...em, host: e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Port</Label><Input value={String(em.port)} onChange={(e) => setEm({ ...em, port: e.target.value })} inputMode="numeric" /></div>
+        </div>
+        <label className="mt-4 flex items-center gap-2 text-sm"><Switch checked={em.enabled} onCheckedChange={(v) => setEm({ ...em, enabled: v })} /> Send automatic emails to customers</label>
+        <div className="mt-3 flex max-w-md gap-2">
+          <Input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="your@email.com" inputMode="email" />
+          <Button variant="outline" disabled={busy || !testTo} onClick={async () => {
+            setBusy(true)
+            try { const r = await testMail({ to: testTo }); r.ok ? toast.success("Test email sent") : toast.error(r.error ?? "Not sent") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Send test email</Button>
+        </div>
+        <div className="mt-4"><Button disabled={busy} onClick={doSave}>{busy ? "Saving…" : "Save"}</Button></div>
       </Section>
 
       <Section title="When to send" sub="Tick the moments a customer gets a message. Write in English (Bangla letters cost more per SMS). {name} {invoice} {amount} {courier} {tracking} {hotline} are filled in automatically.">
@@ -303,7 +331,7 @@ function SmsTab() {
           <div className="divide-y text-sm">
             {info.recent.map((m: any) => (
               <div key={m._id} className="flex flex-wrap items-start gap-2 py-2">
-                <Pill tone={m.status === "sent" ? "green" : "red"}>{m.status === "sent" ? "Sent" : "Failed"}</Pill>
+                <Pill tone={m.status === "sent" ? "green" : "red"}>{m.channel === "email" ? "Email · " : "SMS · "}{m.status === "sent" ? "Sent" : "Failed"}</Pill>
                 <span className="font-medium">{m.phone}</span>
                 <span className="text-muted-foreground">{dateTime(m.at)}</span>
                 <span className="basis-full text-muted-foreground">{m.text}{m.error ? <span className="text-tone-red"> — {m.error}</span> : null}</span>

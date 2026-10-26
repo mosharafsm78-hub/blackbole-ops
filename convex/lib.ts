@@ -172,7 +172,7 @@ export async function notify(ctx: MutationCtx, title: string, body: string, orde
   await ctx.db.insert("notifications", { kind, title, body, orderId, readBy: [], at: Date.now() })
 }
 
-/** Fire outgoing integrations for an order status: webhook + customer SMS. */
+/** Fire outgoing integrations for an order status: webhook + customer SMS + customer email. */
 export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, status: OrderStatus) {
   const hook = await getSetting<any>(ctx, "webhook")
   if (hook?.url && (hook.events ?? []).includes(STATUS_EVENT[status])) {
@@ -181,6 +181,11 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   const sms = await getSetting<any>(ctx, "sms")
   if (sms?.enabled && (sms.statuses ?? []).includes(status)) {
     await ctx.scheduler.runAfter(0, internal.outbound.sendOrderSms, { orderId, status })
+  }
+  // Same message by email when the customer gave an email address (checked in the action)
+  const email = await getSetting<any>(ctx, "email")
+  if (email?.enabled && (sms?.statuses ?? []).includes(status)) {
+    await ctx.scheduler.runAfter(0, internal.emailNode.sendOrderEmail, { orderId, status })
   }
 }
 

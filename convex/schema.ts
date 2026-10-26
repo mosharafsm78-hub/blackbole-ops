@@ -435,6 +435,7 @@ export default defineSchema({
     customerId: v.optional(v.id("customers")),
     status: v.string(),
     error: v.optional(v.string()),
+    channel: v.optional(v.string()), // "email" for emails; SMS when empty
     at: v.number(),
   }).index("by_at", ["at"]),
 
