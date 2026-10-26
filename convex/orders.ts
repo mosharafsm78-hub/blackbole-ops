@@ -255,6 +255,8 @@ export const counts = query({
       for (const st of tab.statuses) out[`st:${st}`] = get(st) // sub-tabs (Payment Due / Collected, Pending Returned / Returned / Damaged)
     }
     out.all = all
+    // Exchange tab (any status): exchange orders still open + the last ones finished
+    out.exchange = (await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(1000)).filter((o) => !o.deletedAt).length
     return out
   },
 })
@@ -403,6 +405,12 @@ export const list = query({
     if (a.search?.trim()) {
       const found = await findOrders(ctx, a.search)
       return { rows: await dupesIfSmall(ctx, found.slice(0, limit), limit), hasMore: false }
+    }
+    if (f.tab === "exchange") {
+      // Exchange tab: every exchange order, any status (newest first), other filters still apply
+      const ex = (await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(3000))
+        .filter((o) => matches(o, { ...f, tab: "all" }))
+      return { rows: await dupesIfSmall(ctx, ex.slice(0, limit), limit), hasMore: ex.length > limit }
     }
     const tab = STATUS_TABS.find((t) => t.key === f.tab)
     let rows: Doc<"orders">[] = []

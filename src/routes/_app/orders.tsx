@@ -137,7 +137,7 @@ function OrdersPage() {
 
       {/* Status tabs */}
       <div className="mb-4 flex gap-2 overflow-x-auto rounded-xl border bg-card p-2">
-        {[{ key: "all", label: "All" }, ...STATUS_TABS].map((t) => {
+        {[{ key: "all", label: "All" }, ...STATUS_TABS.flatMap((t) => (t.key === "flagged" ? [{ key: "exchange", label: "Exchange" }, t] : [t]))].map((t) => {
           const tone = TAB_TONE[t.key] ?? "gray"
           const active = search.tab === t.key
           return (

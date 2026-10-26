@@ -74,5 +74,5 @@ export function startOfDayBD(d = new Date()) {
 /** Colour for each order-list tab (matches the status colours). */
 export const TAB_TONE: Record<string, Tone> = {
   all: "gray", pending: "amber", on_hold: "orange", approved: "blue", processing: "violet", ready_to_ship: "indigo",
-  in_transit: "cyan", delivered: "green", flagged: "red", cancelled: "gray",
+  in_transit: "cyan", delivered: "green", exchange: "pink", flagged: "red", cancelled: "gray",
 }

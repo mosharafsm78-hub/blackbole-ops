@@ -339,6 +339,7 @@ export default defineSchema({
     courierLinkedBy: v.optional(v.string()), // how we found the Pathao parcel: order no / manual
   })
     .index("by_status", ["status", "createdAt"])
+    .index("by_exchange", ["isExchange", "createdAt"])
     .index("by_status_changed", ["status", "statusChangedAt"])
     .index("by_deleted", ["deletedAt"])
     .index("by_delivered", ["deliveredAt"])
