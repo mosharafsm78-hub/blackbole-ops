@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle, Truck } from "lucide-react"
+import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
 import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
@@ -63,6 +63,7 @@ function OrdersPage() {
   const me = useMe()
   const [limit, setLimit] = useState(100)
   const [selected, setSelected] = useState<Set<Id<"orders">>>(new Set())
+  const softDelete = useMutation(api.orders.softDelete)
   const [statusOpen, setStatusOpen] = useState(false)
   const syncNow = useAction(api.pathao.syncNow)
   const counts = useQuery(api.orders.counts)
@@ -281,6 +282,17 @@ function OrdersPage() {
               onClick={() => window.open(`/print?ids=${[...selected].join(",")}`, "_blank")}
             >
               <Printer className="size-4" /> Print invoices
+            </Button>
+          </Perm>
+          <Perm perm="orders.delete">
+            <Button
+              size="sm" variant="outline" className="text-destructive" disabled={selected.size === 0 || selectedRows.some((r) => r.status !== "cancelled")}
+              title="Only cancelled orders can be deleted (test or duplicate orders). They go to the recycle bin and can be restored."
+              onClick={async () => {
+                try { await softDelete({ ids: [...selected] }); toast.success(`${selected.size} order(s) deleted`); setSelected(new Set()) } catch (e) { toast.error(errMsg(e)) }
+              }}
+            >
+              <Trash2 className="size-4" /> Delete
             </Button>
           </Perm>
           <Perm perm="orders.export">
