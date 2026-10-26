@@ -144,7 +144,7 @@ export function ProductBuilder({ open, onOpenChange, onCreated, preset }: {
 
         <div className="rounded-md border bg-muted/40 p-3">
           <Label className="text-xs text-muted-foreground">Product name</Label>
-          <Input className="mt-1 font-medium" value={name} onChange={(e) => setCustomName(e.target.value)} data-testid="pb-name" />
+          <Input className="mt-1 font-medium" value={customName ?? autoName} onChange={(e) => setCustomName(e.target.value)} data-testid="pb-name" />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-4">
