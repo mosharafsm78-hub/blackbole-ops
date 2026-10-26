@@ -3,9 +3,10 @@
 // Cloudflare to rebuild (env WEBSITE_DEPLOY_HOOK, debounced ~2 min). Stock and prices stay live from Ops.
 // Contract: blackbole-storefront/OPS-WEBSITE-CONTRACT.md. Nothing here changes orders, stock or couriers.
 //
-// products.web  = { id, title, html, vendor, type, tags, category, seo, options, images, mf, createdAt, publishedAt, published, updatedAt }
+// products.web  = { id, title, html, vendor, type, tags, category, seo, options, images, mf, createdAt, publishedAt, published, updatedAt,
+//                   archived?, templateSuffix? }  — archived: Shopify's "Archived" status (never on the website)
 // products.handle = URL handle (indexed)
-// variants.web  = { id, compareAt, options, image, pos?, parent? }  — parent: the Ops product whose website page
+// variants.web  = { id, compareAt, options, image, pos?, parent?, price?, barcode? }  — parent: the Ops product whose website page
 //                 shows this variant when it lives in another Ops product (e.g. Ops splits colours into products).
 import { v, ConvexError } from "convex/values"
 import { action, httpAction, internalAction, internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server"
@@ -110,6 +111,7 @@ export function buildCatalog(input: {
       options,
       images: Array.isArray(w.images) && w.images.length ? w.images : p.imageUrl ? [{ url: p.imageUrl, alt: title, w: null, h: null }] : [],
       mf: w.mf ?? {},
+      ...(typeof w.templateSuffix === "string" && w.templateSuffix ? { templateSuffix: w.templateSuffix } : {}),
       createdAt: w.createdAt ?? new Date(p.createdAt).toISOString(),
       publishedAt: w.publishedAt ?? new Date(p.createdAt).toISOString(),
       variants,
@@ -530,6 +532,35 @@ export const importCatalog = action({
 })
 
 // ---------------- Website page: queries ----------------
+export type WebStatus = "active" | "draft" | "archived" | "new"
+/** Shopify-style status: Active = on the website, Draft = set up but hidden, Archived = put away, New = not on the website yet. */
+export function productStatus(p: { handle?: string; web?: any }): WebStatus {
+  if (!p.handle || !p.web) return "new"
+  if (p.web.published) return "active"
+  return p.web.archived ? "archived" : "draft"
+}
+
+/** Product page layouts in the live theme ("product", "product.wide"…), as template suffixes ("" = default). */
+async function productTemplates(ctx: QueryCtx): Promise<string[]> {
+  try {
+    const live = await ctx.db.query("webThemes").withIndex("by_role", (q) => q.eq("role", "live")).first()
+    if (!live) return [""]
+    const t = JSON.parse(live.json)?.templates ?? {}
+    const out = Object.keys(t).filter((k) => k.startsWith("product.")).map((k) => k.slice("product.".length)).filter(Boolean)
+    return ["", ...new Set(out)]
+  } catch { return [""] }
+}
+
+/** Product page layouts of the live theme (for Add product → Theme template). */
+export const productTemplateList = query({
+  args: {},
+  handler: async (ctx) => {
+    const s = await currentStaff(ctx)
+    if (!s || !canManage(s.perms)) return [""]
+    return await productTemplates(ctx)
+  },
+})
+
 export const products = query({
   args: {},
   handler: async (ctx) => {
@@ -575,6 +606,9 @@ export const products = query({
           hasDescription: String(w.html ?? p.description ?? "").replace(/<[^>]*>/g, "").trim().length > 0,
           partOf: partOf && !c ? names.get(partOf) ?? null : null,
           updatedAt: (w.updatedAt ?? p.createdAt) as number,
+          status: productStatus(p),
+          vendor: String(w.vendor ?? ""),
+          tags: (Array.isArray(w.tags) ? w.tags.map(String) : []) as string[],
         }
       })
       .sort((a, b) => Number(b.published) - Number(a.published) || b.updatedAt - a.updatedAt)
@@ -592,8 +626,17 @@ export const product = query({
     const linked = (await ctx.db.query("variants").collect()).filter((vr) => vr.web?.parent === id && vr.productId !== id)
     const variants = [...own.filter((vr) => !vr.web?.parent || vr.web.parent === id), ...linked]
       .sort((a, b) => (a.web?.pos ?? 1e9) - (b.web?.pos ?? 1e9) || a.title.localeCompare(b.title, undefined, { numeric: true }))
-      .map((vr) => ({ _id: vr._id, sku: vr.sku, title: vr.title, price: vr.price, active: vr.active, web: vr.web ?? null }))
+      .map((vr) => ({ _id: vr._id, sku: vr.sku, title: vr.title, price: vr.price, active: vr.active, web: vr.web ?? null, cost: vr.purchasePrice, weightKg: vr.weightKg }))
     const stock = await availableByVariantMap(ctx)
+    // stock per location (read-only here; stock is managed in Ops)
+    const locs = (await ctx.db.query("locations").collect()).filter((l) => l.active)
+    const byLoc = new Map<string, Record<string, { available: number; committed: number }>>()
+    for (const vr of variants) {
+      const m: Record<string, { available: number; committed: number }> = {}
+      for (const r of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).collect())
+        m[r.locationId as string] = { available: r.available, committed: r.processing }
+      byLoc.set(vr._id as string, m)
+    }
     const collections = (await ctx.db.query("webCollections").collect())
       .sort((a, b) => a.title.localeCompare(b.title))
       .map((c) => ({ _id: c._id, handle: c.handle, title: c.title, count: c.productHandles.length, member: !!p.handle && c.productHandles.includes(p.handle) }))
@@ -611,7 +654,10 @@ export const product = query({
     const sort = (x: Set<string>) => [...x].sort((a, b) => a.localeCompare(b))
     return {
       product: { _id: p._id, name: p.name, handle: p.handle ?? "", web: p.web ?? null, preOrder: !!p.preOrder, active: p.active, imageUrl: p.imageUrl ?? null, description: p.description ?? "", category: p.category ?? "" },
-      variants: variants.map((vr) => ({ ...vr, stock: Math.max(0, stock.get(vr._id as string) ?? 0) })),
+      variants: variants.map((vr) => ({ ...vr, stock: Math.max(0, stock.get(vr._id as string) ?? 0), byLocation: byLoc.get(vr._id as string) ?? {} })),
+      locations: locs.sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault) || a.name.localeCompare(b.name)).map((l) => ({ _id: l._id as string, name: l.name, sellable: !l.noCourier })),
+      templates: await productTemplates(ctx),
+      status: productStatus(p),
       collections,
       suggest: { types: sort(types), vendors: sort(vendors), tags: sort(tags) },
       siblings: siblings.sort((a, b) => a.title.localeCompare(b.title)),
@@ -726,6 +772,48 @@ export const bulkPublish = mutation({
   },
 })
 
+/** Status for one product (Shopify: Active / Draft / Archived). Archived products are never on the website. */
+async function setStatus(ctx: MutationCtx, id: Id<"products">, status: "active" | "draft" | "archived") {
+  await publish(ctx, id, status === "active")
+  const p = (await ctx.db.get(id))!
+  await ctx.db.patch(id, { web: { ...p.web, archived: status === "archived" ? true : undefined } })
+}
+
+export const bulkStatus = mutation({
+  args: { ids: v.array(v.id("products")), status: v.union(v.literal("active"), v.literal("draft"), v.literal("archived")) },
+  handler: async (ctx, { ids, status }) => {
+    await requireWebsite(ctx)
+    for (const id of ids.slice(0, 500)) await setStatus(ctx, id, status)
+    await queueRebuild(ctx)
+    return ids.length
+  },
+})
+
+/** Adds or removes tags on website products (products not on the website yet are skipped). */
+export const bulkTags = mutation({
+  args: { ids: v.array(v.id("products")), tags: v.array(v.string()), add: v.boolean() },
+  handler: async (ctx, { ids, tags, add }) => {
+    await requireWebsite(ctx)
+    const list = [...new Set(tags.map((t) => t.trim()).filter(Boolean))]
+    if (!list.length) throw new ConvexError("Add a tag first")
+    const lower = new Set(list.map((t) => t.toLowerCase()))
+    let n = 0
+    for (const id of ids.slice(0, 500)) {
+      const p = await ctx.db.get(id)
+      if (!p || p.deletedAt || !p.web) continue
+      const cur: string[] = Array.isArray(p.web.tags) ? p.web.tags.map(String) : []
+      const next = add
+        ? [...cur, ...list.filter((t) => !cur.some((c) => c.toLowerCase() === t.toLowerCase()))]
+        : cur.filter((t) => !lower.has(t.toLowerCase()))
+      if (next.length === cur.length && next.every((t, i) => t === cur[i])) continue
+      await ctx.db.patch(id, { web: { ...p.web, tags: next, updatedAt: Date.now() } })
+      n++
+    }
+    if (n) await queueRebuild(ctx)
+    return n
+  },
+})
+
 export const bulkCollection = mutation({
   args: { ids: v.array(v.id("products")), collection: v.id("webCollections"), add: v.boolean() },
   handler: async (ctx, { ids, collection, add }) => {
@@ -763,7 +851,14 @@ export const saveProduct = mutation({
     images: v.array(imageV),
     mf: v.record(v.string(), v.string()),
     published: v.boolean(),
-    variants: v.array(v.object({ id: v.id("variants"), price: v.optional(v.union(v.number(), v.null())), compareAt: v.union(v.number(), v.null()), options: v.record(v.string(), v.string()), image: v.optional(v.union(v.string(), v.null())) })),
+    // Shopify status; when given it decides `published` (Archived = hidden and put away)
+    status: v.optional(v.union(v.literal("active"), v.literal("draft"), v.literal("archived"))),
+    templateSuffix: v.optional(v.string()),
+    category: v.optional(v.union(v.string(), v.null())), // product category (text); left as it is when not sent
+    variants: v.array(v.object({
+      id: v.id("variants"), price: v.optional(v.union(v.number(), v.null())), compareAt: v.union(v.number(), v.null()), options: v.record(v.string(), v.string()), image: v.optional(v.union(v.string(), v.null())),
+      barcode: v.optional(v.string()), cost: v.optional(v.number()), weightKg: v.optional(v.number()),
+    })),
     collections: v.array(v.id("webCollections")),
   },
   handler: async (ctx, a) => {
@@ -777,19 +872,24 @@ export const saveProduct = mutation({
     const oldHandle = p.handle
     const now = new Date().toISOString()
     const optNames = a.options.map((o) => o.trim()).filter(Boolean)
+    const published = a.status ? a.status === "active" : a.published
+    const archived = a.status ? a.status === "archived" : !published && !!p.web?.archived
     await ctx.db.patch(a.id, {
       handle,
       web: {
         ...(p.web ?? {}),
+        archived: archived || undefined,
+        templateSuffix: a.templateSuffix === undefined ? p.web?.templateSuffix : a.templateSuffix.trim() || undefined,
+        category: a.category === undefined ? p.web?.category ?? null : a.category?.trim() || null,
         title: a.title.trim(), html: a.html, vendor: a.vendor.trim(), type: a.type.trim(),
         tags: [...new Set(a.tags.map((t) => t.trim()).filter(Boolean))],
         seo: { title: a.seo.title.trim(), description: a.seo.description.trim() },
         options: optNames.map((name) => ({ name, values: [] })), // values are rebuilt from the variants in the catalog
         images: a.images.map((i) => ({ url: i.url, alt: i.alt ?? "", w: i.w ?? null, h: i.h ?? null })),
         mf: a.mf,
-        published: a.published,
+        published,
         createdAt: p.web?.createdAt ?? now,
-        publishedAt: p.web?.publishedAt ?? (a.published ? now : undefined),
+        publishedAt: p.web?.publishedAt ?? (published ? now : undefined),
         updatedAt: Date.now(),
       },
     })
@@ -799,10 +899,14 @@ export const saveProduct = mutation({
       const opts: Record<string, string> = {}
       for (const n of optNames) if (x.options[n]?.trim()) opts[n] = x.options[n].trim()
       await ctx.db.patch(x.id, {
+        // cost and weight are Ops fields (cost per item, courier weight): only changed when sent
+        ...(typeof x.cost === "number" && x.cost >= 0 ? { purchasePrice: Math.round(x.cost) } : {}),
+        ...(typeof x.weightKg === "number" && x.weightKg > 0 ? { weightKg: x.weightKg } : {}),
         web: {
           ...(vr.web ?? {}), id: vr.web?.id ?? newVariantId(vr._creationTime + i),
           price: x.price === undefined ? vr.web?.price : x.price && x.price > 0 ? Math.round(x.price) : undefined,
           compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: x.image ?? vr.web?.image ?? null, pos: i,
+          barcode: x.barcode === undefined ? vr.web?.barcode : x.barcode.trim() || undefined,
         },
       })
     }
@@ -901,7 +1005,10 @@ export const createProduct = mutation({
       compareAt: v.union(v.number(), v.null()),
       cost: v.number(),
       weightKg: v.number(),
+      barcode: v.optional(v.string()),
     })),
+    templateSuffix: v.optional(v.string()),
+    category: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     await requireWebsite(ctx)
@@ -928,11 +1035,12 @@ export const createProduct = mutation({
     await ctx.db.patch(productId, {
       handle,
       web: {
-        id: `ops:${productId}`, title, html: a.html, vendor: a.vendor.trim() || "BlackBole", type: a.type.trim(), tags, category: null,
+        id: `ops:${productId}`, title, html: a.html, vendor: a.vendor.trim() || "BlackBole", type: a.type.trim(), tags, category: a.category?.trim() || null,
         seo: { title: a.seo.title.trim(), description: a.seo.description.trim() },
         options: optNames.map((name) => ({ name, values: [] })),
         images: a.images.map((i) => ({ url: i.url, alt: i.alt ?? "", w: i.w ?? null, h: i.h ?? null })),
         mf: a.mf, published: a.published, createdAt: iso, publishedAt: a.published ? iso : undefined, updatedAt: now,
+        ...(a.templateSuffix?.trim() ? { templateSuffix: a.templateSuffix.trim() } : {}),
       },
     })
     for (const [i, x] of a.variants.entries()) {
@@ -941,7 +1049,7 @@ export const createProduct = mutation({
       await ctx.db.insert("variants", {
         productId, sku: skus[i], title: x.title.trim() || "Default", weightKg: x.weightKg > 0 ? x.weightKg : 0.5,
         price: Math.round(x.fullPrice > 0 ? x.fullPrice : x.price), purchasePrice: Math.max(0, Math.round(x.cost)), active: true, createdAt: now,
-        web: { id: newVariantId(now + i), price: Math.round(x.price), compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: null, pos: i },
+        web: { id: newVariantId(now + i), price: Math.round(x.price), compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: null, pos: i, ...(x.barcode?.trim() ? { barcode: x.barcode.trim() } : {}) },
       })
     }
     for (const cid of a.collections) {

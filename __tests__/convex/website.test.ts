@@ -148,3 +148,85 @@ describe("website add product", () => {
     })).rejects.toThrow(/already used/)
   })
 })
+
+describe("website product status, bulk edits and Shopify fields", () => {
+  async function imported() {
+    const { t, as } = await setup()
+    stubExport()
+    await as.action(api.website.importCatalog, {})
+    vi.unstubAllGlobals()
+    vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    const byHandle = (h: string) => t.run(async (ctx) => (await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", h)).first())!)
+    return { t, as, sandal: await byHandle("harbor-shore-sandal"), loafer: await byHandle("city-loafer") }
+  }
+  const feed = async (t: any) => (await (await t.fetch("/website/catalog", { headers: { "X-Feed-Key": FEED_KEY } })).json()).products as any[]
+
+  it("archives and re-activates in bulk; archived products leave the website feed", async () => {
+    const { t, as, sandal, loafer } = await imported()
+    await as.mutation(api.website.bulkStatus, { ids: [loafer._id], status: "archived" })
+    let rows = (await as.query(api.website.products, {}))!
+    expect(rows.find((r) => r._id === loafer._id)!.status).toBe("archived")
+    expect(rows.find((r) => r._id === sandal._id)!.status).toBe("active")
+    expect((await feed(t)).map((p) => p.handle)).toEqual(["harbor-shore-sandal"])
+
+    await as.mutation(api.website.bulkStatus, { ids: [loafer._id], status: "draft" })
+    rows = (await as.query(api.website.products, {}))!
+    expect(rows.find((r) => r._id === loafer._id)!.status).toBe("draft")
+    await as.mutation(api.website.bulkStatus, { ids: [loafer._id], status: "active" })
+    expect((await feed(t)).map((p) => p.handle).sort()).toEqual(["city-loafer", "harbor-shore-sandal"])
+  })
+
+  it("adds and removes tags in bulk (case-insensitive), skipping products not on the website", async () => {
+    const { t, as, sandal, loafer } = await imported()
+    const opsOnly = await t.run((ctx) => ctx.db.insert("products", { name: "Ops only", active: true, createdAt: 0 }))
+    const n = await as.mutation(api.website.bulkTags, { ids: [sandal._id, loafer._id, opsOnly], tags: ["Summer", "MEN"], add: true })
+    expect(n).toBe(2)
+    const tagsOf = async (id: any) => ((await t.run((ctx) => ctx.db.get(id))) as any).web?.tags
+    expect(await tagsOf(sandal._id)).toEqual(["men", "pre-order", "Summer"])
+    expect(await tagsOf(loafer._id)).toEqual(["Summer", "MEN"])
+    expect(await tagsOf(opsOnly)).toBeUndefined()
+    await as.mutation(api.website.bulkTags, { ids: [sandal._id, loafer._id], tags: ["summer", "men"], add: false })
+    expect(await tagsOf(sandal._id)).toEqual(["pre-order"])
+    expect(await tagsOf(loafer._id)).toEqual([])
+  })
+
+  it("editor saves status, template, category, barcode, and changes cost/weight only when sent", async () => {
+    const { t, as, sandal } = await imported()
+    const ed = (await as.query(api.website.product, { id: sandal._id }))!
+    expect(ed.status).toBe("active")
+    expect(ed.variants[0]).toMatchObject({ cost: 500, weightKg: 0.4, byLocation: {} })
+    expect(ed.templates).toEqual([""])
+    const base = {
+      id: sandal._id, handle: "harbor-shore-sandal", title: "Harbor", html: "", vendor: "BlackBole", type: "Sandals", tags: ["men", "pre-order"],
+      seo: { title: "", description: "" }, options: ["Size"], images: [], mf: { "bb26.short": "Light and soft" }, published: true, collections: [],
+    }
+    await as.mutation(api.website.saveProduct, {
+      ...base, status: "archived", templateSuffix: "wide", category: "Shoes > Sandals",
+      variants: ed.variants.map((x, i) => ({ id: x._id, compareAt: 1800, options: { Size: x.title }, barcode: i === 0 ? " 123 " : "", ...(i === 0 ? { cost: 650, weightKg: 0.7 } : {}) })),
+    })
+    const p: any = await t.run((ctx) => ctx.db.get(sandal._id))
+    expect(p.web).toMatchObject({ published: false, archived: true, templateSuffix: "wide", category: "Shoes > Sandals" })
+    const vs = await Promise.all(ed.variants.map((x) => t.run((ctx) => ctx.db.get(x._id))))
+    expect(vs.map((v: any) => [v.purchasePrice, v.weightKg, v.web.barcode])).toEqual([[650, 0.7, "123"], [500, 0.4, undefined]])
+    // Ops prices are never touched by the website editor
+    expect(vs.map((v: any) => v.price)).toEqual([1480, 1500])
+    expect(await feed(t)).toEqual([expect.objectContaining({ handle: "city-loafer" })])
+
+    // back to active: in the feed with its template; products without one carry no templateSuffix key
+    await as.mutation(api.website.saveProduct, { ...base, status: "active", variants: ed.variants.map((x) => ({ id: x._id, compareAt: 1800, options: { Size: x.title } })) })
+    const live = await feed(t)
+    expect(live.find((x) => x.handle === "harbor-shore-sandal")).toMatchObject({ templateSuffix: "wide", category: "Shoes > Sandals" })
+    expect("templateSuffix" in live.find((x) => x.handle === "city-loafer")).toBe(false)
+    expect(((await t.run((ctx) => ctx.db.get(sandal._id))) as any).web.archived).toBeUndefined()
+  })
+
+  it("shows stock per location in the editor", async () => {
+    const { t, as, sandal } = await imported()
+    const ed = (await as.query(api.website.product, { id: sandal._id }))!
+    const loc = ed.locations[0]
+    expect(loc).toBeTruthy()
+    await t.run((ctx) => ctx.db.insert("stock", { variantId: ed.variants[0]._id, locationId: loc._id as any, available: 7, processing: 2, inTransit: 0, returning: 0, damaged: 0 }))
+    const again = (await as.query(api.website.product, { id: sandal._id }))!
+    expect(again.variants[0].byLocation[loc._id]).toEqual({ available: 7, committed: 2 })
+  })
+})
