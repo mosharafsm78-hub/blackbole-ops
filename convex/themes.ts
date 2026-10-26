@@ -252,14 +252,30 @@ export const rename = mutation({
   },
 })
 
+/** Deletes a theme from the library, or the draft (the preview site then shows the live theme). Never the live one. */
 export const remove = mutation({
   args: { id: v.id("webThemes") },
   handler: async (ctx, { id }) => {
     await requireManage(ctx)
     const t = await ctx.db.get(id)
     if (!t) return
-    if (t.role !== "archived") throw new ConvexError("Only an archived theme can be deleted.")
+    if (t.role === "live") throw new ConvexError("The live theme can't be deleted. Publish another theme first.")
     await ctx.db.delete(id)
+    if (t.role === "draft") await queueDraftBuild(ctx)
+  },
+})
+
+/** Shopify's Duplicate: a copy of any theme goes into the theme library (it can be copied to the draft from there). */
+export const duplicate = mutation({
+  args: { id: v.id("webThemes") },
+  handler: async (ctx, { id }) => {
+    const s = await requireManage(ctx)
+    const src = await ctx.db.get(id)
+    if (!src) throw new ConvexError("This theme was deleted.")
+    const base = src.name.replace(/\s*\((old )?draft\)$/i, "").replace(/^Copy of /i, "")
+    const nid = await ctx.db.insert("webThemes", { name: `Copy of ${base}`.slice(0, 80), role: "archived", json: src.json, updatedAt: Date.now(), updatedBy: s.staff.name })
+    await trimArchived(ctx)
+    return { id: nid }
   },
 })
 

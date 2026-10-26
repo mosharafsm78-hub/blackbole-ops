@@ -3,10 +3,12 @@
 // Astro pages that read them). Every field is optional: an empty field means "use the website's built-in value",
 // shown as the placeholder.
 
-export type FieldType = "text" | "textarea" | "url" | "collection" | "image" | "video" | "number" | "tiles" | "heromap"
+export type FieldType = "text" | "textarea" | "url" | "collection" | "image" | "video" | "number" | "tiles" | "heromap" | "color"
 export type ThemeField = { id: string; label: string; type: FieldType; placeholder?: string; help?: string; min?: number; max?: number
   /** the website's built-in file (public/assets/files/) used while the field is empty */
-  def?: string }
+  def?: string
+  /** false: the editor preview can't show this field before saving (it shows once the preview site rebuilds) */
+  live?: boolean }
 export type ThemeSection = {
   /** id in the page (home page: also the id used for order / hide) */
   id: string
@@ -105,23 +107,23 @@ export const THEME_PAGES: ThemePage[] = [
   {
     id: "product", title: "Product page", path: "/products/", note: "Applies to every product page.",
     sections: [
-      { id: "main", title: "Product details", template: "product", section: "main", live: false, fields: [
-        { id: "pair_collection", label: "“Pair it with” collection", type: "collection", placeholder: "watches" },
+      { id: "main", title: "Product details", template: "product", section: "main", fields: [
+        { id: "pair_collection", label: "“Pair it with” collection", type: "collection", help: "Up to three products from this collection under the buy buttons. Empty: no “Pair it with” row." },
         { id: "pre_booking", label: "Pre-order booking money (Tk)", type: "number", placeholder: "500", min: 0 },
         { id: "advance_code", label: "Pay in advance: discount code", type: "text", placeholder: "ADVANCE5", help: "Create this code in Website → Discounts." },
         { id: "advance_pct", label: "Pay in advance: saving shown (%)", type: "number", placeholder: "5", min: 1, max: 20 },
-        { id: "other_brands", label: "Other brands we stock", type: "textarea", help: "Comma separated. Products with these words in the title don't get the BlackBole story." },
+        { id: "other_brands", label: "Other brands we stock", type: "textarea", live: false, help: "Comma separated. Products with these words in the title don't get the BlackBole story." },
       ] },
-      { id: "explore", title: "Explore & combo", template: "product", section: "explore", live: false, fields: EXPLORE() },
+      { id: "explore", title: "Explore & combo", template: "product", section: "explore", fields: EXPLORE() },
     ],
   },
   {
     id: "collection", title: "Collection page", path: "/collections/", note: "Applies to every collection page except Pre-Order.",
     sections: [
-      { id: "main", title: "Header pictures", template: "collection", section: "main", live: false, fields: [
+      { id: "main", title: "Header pictures", template: "collection", section: "main", fields: [
         { id: "hero_map", label: "Header pictures by collection", type: "heromap", help: "Up to two pictures at the top of a collection. Collections not listed use their own picture." },
       ] },
-      { id: "explore", title: "Explore & combo", template: "collection", section: "explore", live: false, fields: EXPLORE() },
+      { id: "explore", title: "Explore & combo", template: "collection", section: "explore", fields: EXPLORE() },
     ],
   },
   {
@@ -221,6 +223,100 @@ export const parseHeroMap = (v: string) => String(v ?? "").split("\n").map((l) =
   return i > 0 ? { handle: l.slice(0, i).trim(), files: l.slice(i + 1).split(",").map((x) => x.trim()).filter(Boolean).slice(0, 2) } : { handle: l, files: [] as string[] }
 })
 export const formatHeroMap = (rows: { handle: string; files: string[] }[]) => rows.filter((r) => r.handle.trim()).map((r) => `${r.handle.trim()}:${r.files.filter(Boolean).slice(0, 2).join(",")}`).join("\n")
+
+// ---------- theme settings (global, Shopify's "Theme settings") ----------
+// Only what the website really reads: the colours (blackbole-storefront src/lib/theme-vars.js → CSS variables).
+// Stored in the theme's global settings next to the old Shopify ones (settings.current). Empty = the built-in colour.
+// Logo, favicon and fonts are fixed in the website's code; the announcement bar and contact details are in
+// Website → Settings.
+export type ThemeSettingsGroup = { id: string; title: string; help?: string; fields: ThemeField[] }
+const color = (id: string, label: string, placeholder: string, help?: string): ThemeField => ({ id, label, type: "color", placeholder, help })
+export const THEME_SETTINGS: ThemeSettingsGroup[] = [
+  { id: "colors", title: "Colours", help: "Every page except the home page's own sections.", fields: [
+    color("bb_color_bg", "Background", "#FBF9F4"),
+    color("bb_color_tile", "Picture and panel background", "#F1EDE4", "Behind product photos, the announcement bar and soft panels."),
+    color("bb_color_text", "Text and buttons", "#1C1915"),
+    color("bb_color_text2", "Secondary text", "#6F6A61"),
+    color("bb_color_line", "Lines and borders", "#E4DFD4"),
+    color("bb_color_band", "Dark band", "#211A15", "The combo band on product and collection pages."),
+    color("bb_color_band_text", "Dark band text", "#EEE8DD"),
+  ] },
+  { id: "home_colors", title: "Home page colours", help: "The home page sections have their own, brighter palette.", fields: [
+    color("bb_home_bg", "Background", "#FFFFFF"),
+    color("bb_home_bg2", "Second background", "#F4F2EE", "Behind “Our promise” and the leather test."),
+    color("bb_home_text", "Text and buttons", "#121110"),
+    color("bb_home_text2", "Secondary text", "#6E6A63"),
+    color("bb_home_line", "Lines and borders", "#E3DFD8"),
+    color("bb_home_dark", "Dark labels", "#161512"),
+    color("bb_home_dark_text", "Dark label text", "#E9E4DA"),
+  ] },
+]
+export const THEME_SETTING_FIELDS = THEME_SETTINGS.flatMap((g) => g.fields)
+export const isHexColor = (v: unknown) => typeof v === "string" && /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim())
+
+/** The theme's global settings (Shopify keeps them under settings.current). */
+export function getGlobals(d: ThemeData): Record<string, any> {
+  const s = d.settings ?? {}
+  return s.current && typeof s.current === "object" && !Array.isArray(s.current) ? s.current : s
+}
+
+/** Returns a copy of the theme with one global setting changed. Empty values are removed (= website default). */
+export function setGlobal(d: ThemeData, key: string, value: any): ThemeData {
+  const s = d.settings ?? {}
+  const nested = s.current && typeof s.current === "object" && !Array.isArray(s.current)
+  const g = { ...(nested ? s.current : s) }
+  if (value == null || (typeof value === "string" && value.trim() === "")) delete g[key]
+  else g[key] = value
+  return { ...d, settings: nested ? { ...s, current: g } : g }
+}
+
+// ---------- what the editor sends to the preview page (public/js/bb-editor.js on the website) ----------
+export function previewMessage(page: ThemePage, d: ThemeData, selected: string | null, inspector: boolean) {
+  const values: Record<string, any> = {}
+  for (const sec of page.sections) Object.assign(values, getSettings(d, sec.template, sec.section))
+  const g = getGlobals(d)
+  const globals: Record<string, string> = {}
+  for (const f of THEME_SETTING_FIELDS) globals[f.id] = isHexColor(g[f.id]) ? String(g[f.id]).trim() : f.placeholder ?? ""
+  return {
+    type: "bb:theme" as const,
+    sections: page.sections.map((x) => ({
+      id: x.id, title: x.title,
+      fields: x.live === false ? [] : x.fields.filter((f) => f.live !== false).map((f) => ({
+        id: f.id, type: f.type, def: f.def ?? "",
+        // tiles and header pictures: the website's built-in list stands in for an empty field
+        placeholder: f.placeholder ?? (f.type === "tiles" ? TILE_DEFAULTS[f.id] ?? "" : f.type === "heromap" ? HEROMAP_DEFAULT : ""),
+      })),
+    })),
+    values,
+    globals,
+    layout: page.id === "home" ? homeLayout(d) : [],
+    selected,
+    inspector,
+  }
+}
+
+// ---------- undo / redo ----------
+export type History<T> = { past: T[]; present: T; future: T[]; group: string | null; at: number }
+export const HISTORY_LIMIT = 100
+/** Typing in one field within this time is one undo step. */
+export const HISTORY_GROUP_MS = 1000
+
+export const historyInit = <T,>(present: T): History<T> => ({ past: [], present, future: [], group: null, at: 0 })
+
+/** A new state. Changes to the same field (`group`) in quick succession merge into one undo step. */
+export function historyPush<T>(h: History<T>, next: T, group: string | null = null, now = Date.now()): History<T> {
+  if (next === h.present) return h
+  if (group && group === h.group && now - h.at < HISTORY_GROUP_MS) return { ...h, present: next, future: [], at: now }
+  return { past: [...h.past, h.present].slice(-HISTORY_LIMIT), present: next, future: [], group, at: now }
+}
+export function historyUndo<T>(h: History<T>): History<T> {
+  if (!h.past.length) return h
+  return { past: h.past.slice(0, -1), present: h.past[h.past.length - 1], future: [h.present, ...h.future], group: null, at: 0 }
+}
+export function historyRedo<T>(h: History<T>): History<T> {
+  if (!h.future.length) return h
+  return { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1), group: null, at: 0 }
+}
 
 /** A file name from the old Shopify theme ("bb26-tile.jpg") or a full link → something an <img> can show. */
 export function previewSrc(v: string, site: string) {

@@ -1,14 +1,14 @@
 import { useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { Download, ExternalLink, History, Loader2, MoreHorizontal, Paintbrush, Pencil, RotateCcw, Rocket, Trash2, Copy } from "lucide-react"
+import { Download, ExternalLink, History, Loader2, MoreHorizontal, Paintbrush, Pencil, RotateCcw, Rocket, Trash2, Copy, CopyPlus } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { WebsiteGuard } from "@/components/app-shell"
 import { Loading } from "@/components/bits"
 import { WebsiteHeader, ago } from "@/components/content-ui"
-import { DRAFT_URL, LIVE_URL, PreviewBadge, SiteThumb, usePreviewState } from "@/components/theme-ui"
+import { DRAFT_URL, LIVE_URL, PreviewStatus, SiteThumb, usePreviewState } from "@/components/theme-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -29,6 +29,7 @@ function Themes() {
   const copyToDraft = useMutation(api.themes.copyToDraft)
   const remove = useMutation(api.themes.remove)
   const rebuildPreview = useMutation(api.themes.rebuildPreview)
+  const duplicate = useMutation(api.themes.duplicate)
   const [confirm, setConfirm] = useState<null | { title: string; text: string; button: string; run: () => Promise<unknown> }>(null)
   const [renaming, setRenaming] = useState<Meta | null>(null)
   const preview = usePreviewState(o?.draft?.updatedAt, !!o?.draft && !!o?.draftHook)
@@ -37,6 +38,8 @@ function Themes() {
   if (o === null) return null
   const ask = (title: string, text: string, button: string, run: () => Promise<unknown>) => setConfirm({ title, text, button, run })
   const previous = o.archived.find((a) => a.publishedAt) ?? o.archived[0]
+  const dup = async (t: Meta) => { try { await duplicate({ id: t._id }); toast.success(`Copy of “${t.name}” is in the theme library`) } catch (e) { toast.error(errMsg(e)) } }
+  const rebuild = async () => { try { await rebuildPreview({}); toast.success("Preview site is rebuilding"); setTimeout(preview.recheck, 2000) } catch (e) { toast.error(errMsg(e)) } }
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -55,7 +58,10 @@ function Themes() {
                   <span className="rounded-full bg-tone-green/15 px-2 py-0.5 text-xs font-medium text-tone-green">Live</span>
                   <span className="text-xs text-muted-foreground">What customers see now</span>
                 </div>
-                <h2 className="mt-2 text-lg font-semibold">{o.live.name}</h2>
+                <div className="mt-2 flex items-center gap-1">
+                  <h2 className="text-lg font-semibold">{o.live.name}</h2>
+                  <ThemeMenu onRename={() => setRenaming(o.live as Meta)} onDuplicate={() => dup(o.live as Meta)} />
+                </div>
                 <p className="text-sm text-muted-foreground">{o.live.publishedAt ? `Published ${ago(o.live.publishedAt)}${o.live.publishedBy ? ` by ${o.live.publishedBy}` : ""}` : ""}</p>
                 {o.liveBuild?.pending && <p className="mt-1 text-xs text-tone-blue">Website updating — live in about a minute.</p>}
                 <div className="mt-auto flex flex-wrap gap-2 pt-4">
@@ -83,11 +89,12 @@ function Themes() {
                 <div className="flex flex-col p-4 md:pl-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-tone-blue/15 px-2 py-0.5 text-xs font-medium text-tone-blue">Draft</span>
-                    <PreviewBadge state={preview.state} hook={o.draftHook} />
+                    <PreviewStatus hook={o.draftHook} state={preview.state} builtAt={preview.builtAt} build={o.draftBuild} last={o.draftLastBuild} onRebuild={rebuild} />
                   </div>
                   <div className="mt-2 flex items-center gap-1">
                     <h2 className="text-lg font-semibold">{o.draft.name}</h2>
-                    <Button size="icon" variant="ghost" className="size-7" onClick={() => setRenaming(o.draft as Meta)} aria-label="Rename"><Pencil className="size-3.5" /></Button>
+                    <ThemeMenu onRename={() => setRenaming(o.draft as Meta)} onDuplicate={() => dup(o.draft as Meta)}
+                      onDelete={() => ask("Delete the draft?", `“${o.draft!.name}” and its unpublished changes are deleted for good. The preview site then shows the live theme. Tip: Duplicate first to keep a copy in the library.`, "Delete", async () => { await remove({ id: o.draft!._id }); toast.success("Draft deleted") })} />
                   </div>
                   <p className="text-sm text-muted-foreground">Saved {ago(o.draft.updatedAt)}{o.draft.updatedBy ? ` by ${o.draft.updatedBy}` : ""}. Changes here never touch the live website until you publish.</p>
                   <p className="mt-1 text-sm">Preview site: <a href={DRAFT_URL} target="_blank" rel="noreferrer" className="font-medium underline underline-offset-2">{DRAFT_URL.replace("https://", "")}</a></p>
@@ -98,7 +105,7 @@ function Themes() {
                     <Button size="sm" variant="outline" onClick={() => ask("Publish the draft?", `“${o.draft!.name}” becomes the live website in about a minute. The current live theme goes to the theme library — one click on Roll back brings it back.`, "Publish", async () => { await publish({ id: o.draft!._id }); toast.success("Published — live in about a minute") })}>
                       <Rocket className="size-4" /> Publish
                     </Button>
-                    {o.draftHook && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={async () => { await rebuildPreview({}); toast.success("Preview site is rebuilding"); setTimeout(preview.recheck, 2000) }}>Rebuild preview</Button>}
+                    {o.draftHook && <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={rebuild}>Rebuild preview</Button>}
                   </div>
                 </div>
               </div>
@@ -132,6 +139,7 @@ function Themes() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={async () => { try { await copyToDraft({ id: t._id }); toast.success("Copied to the draft") } catch (e) { toast.error(errMsg(e)) } }}><Copy className="size-4" /> Copy to draft</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setRenaming(t as Meta)}><Pencil className="size-4" /> Rename</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => dup(t as Meta)}><CopyPlus className="size-4" /> Duplicate</DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-tone-red" onClick={() => ask("Delete this theme?", `“${t.name}” is removed from the library for good.`, "Delete", async () => { await remove({ id: t._id }) })}><Trash2 className="size-4" /> Delete</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -154,6 +162,20 @@ function Themes() {
       </Dialog>
       <RenameDialog theme={renaming} onClose={() => setRenaming(null)} />
     </div>
+  )
+}
+
+/** ⋯ menu next to a theme's name: Rename, Duplicate and (not for the live theme) Delete. */
+function ThemeMenu({ onRename, onDuplicate, onDelete }: { onRename: () => void; onDuplicate: () => void; onDelete?: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="size-7" aria-label="Theme actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onClick={onRename}><Pencil className="size-4" /> Rename</DropdownMenuItem>
+        <DropdownMenuItem onClick={onDuplicate}><CopyPlus className="size-4" /> Duplicate</DropdownMenuItem>
+        {onDelete && <><DropdownMenuSeparator /><DropdownMenuItem className="text-tone-red" onClick={onDelete}><Trash2 className="size-4" /> Delete</DropdownMenuItem></>}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

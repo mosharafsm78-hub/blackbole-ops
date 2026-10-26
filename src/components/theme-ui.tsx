@@ -54,6 +54,59 @@ export function PreviewBadge({ state, hook }: { state: PreviewState; hook: boole
   )
 }
 
+export type DraftBuild = { due: number; pending: boolean; queuedAt?: number } | null | undefined
+export type LastBuild = { at: number; ok: boolean; status: number } | null | undefined
+
+const since = (t: number, now: number) => {
+  const s = Math.max(0, Math.round((now - t) / 1000))
+  return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`
+}
+
+/** Where the preview site's build is: waiting for more saves, building, up to date or failed — in plain words. */
+export function previewStatus(o: { hook: boolean; state: PreviewState; builtAt: number; build: DraftBuild; last: LastBuild; now: number }) {
+  const { hook, state, builtAt, build, last, now } = o
+  type S = { label: string; tone: "green" | "blue" | "amber" | "red" | "muted"; detail: string; busy?: boolean; retry?: boolean }
+  const s = (label: string, tone: S["tone"], detail: string, extra: Partial<S> = {}): S => ({ label, tone, detail, ...extra })
+  if (!hook) return s("Preview site not connected", "amber", "The preview site needs a one-time setup: a Cloudflare deploy hook for the “draft” branch in the Convex setting WEBSITE_DRAFT_HOOK. Live editing still works; saved changes reach the website when you publish.")
+  if (build?.pending) {
+    const wait = Math.ceil((build.due - now) / 1000)
+    return wait > 0
+      ? s(`Preview build starts in ${wait} s`, "blue", "Saves close together are built once: the preview site starts building about 45 seconds after the last save and takes 1–3 minutes.", { busy: true })
+      : s("Starting preview build…", "blue", "Asking Cloudflare to build the preview site.", { busy: true })
+  }
+  if (last && !last.ok && last.at >= (build?.queuedAt ?? 0) && state !== "ready")
+    return s("Preview build failed", "red", `Cloudflare didn't accept the build request ${since(last.at, now)} (${last.status ? `HTTP ${last.status}` : "no answer"}). Check the deploy hook in WEBSITE_DRAFT_HOOK, then rebuild.`, { retry: true })
+  if (state === "updating") {
+    const started = last?.at ? ` Build requested ${since(last.at, now)}.` : ""
+    return last?.at && now - last.at > 10 * 60 * 1000
+      ? s("Preview build is taking long", "amber", `The preview site still shows an older save.${started} Cloudflare may have failed the build; try rebuilding.`, { retry: true })
+      : s("Preview building… (1–3 min)", "blue", `The preview site is building your last save.${started} The preview reloads by itself when it's ready.`, { busy: true })
+  }
+  if (state === "ready") return s("Preview up to date", "green", `The preview site shows your last save${builtAt ? ` (saved ${since(builtAt, now)})` : ""}.`)
+  if (state === "offline") return s("Preview site not reachable", "amber", "The preview site didn't answer. It may still be building for the first time.", { retry: true })
+  return s("Checking preview…", "muted", "Asking the preview site which save it shows.")
+}
+
+const TONE = { green: "bg-tone-green/15 text-tone-green", blue: "bg-tone-blue/15 text-tone-blue", amber: "bg-tone-amber/15 text-tone-amber", red: "bg-tone-red/15 text-tone-red", muted: "bg-muted text-muted-foreground" }
+
+/** The preview build status badge; hover for the details. Offers a rebuild when the build failed or got stuck. */
+export function PreviewStatus({ hook, state, builtAt, build, last, onRebuild, className }: {
+  hook: boolean; state: PreviewState; builtAt: number; build: DraftBuild; last: LastBuild; onRebuild?: () => void; className?: string
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
+  const st = previewStatus({ hook, state, builtAt, build, last, now })
+  return (
+    <span className={cn("inline-flex items-center gap-1.5", className)}>
+      <span title={st.detail} className={cn("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", TONE[st.tone])}>
+        {st.busy && <span className="size-1.5 animate-pulse rounded-full bg-current" />}
+        {st.label}
+      </span>
+      {st.retry && onRebuild && <button type="button" onClick={onRebuild} className="whitespace-nowrap text-xs font-medium underline underline-offset-2">Rebuild</button>}
+    </span>
+  )
+}
+
 /** A small live picture of a website page (scaled-down iframe), like Shopify's theme thumbnails. */
 export function SiteThumb({ url, className }: { url: string; className?: string }) {
   return (

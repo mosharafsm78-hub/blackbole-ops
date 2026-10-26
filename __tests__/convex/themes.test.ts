@@ -85,7 +85,23 @@ describe("website themes", () => {
     expect(o.archived.some((a) => a._id === before && a.name.endsWith("(old draft)"))).toBe(true)
     await as.mutation(api.themes.rename, { id: nd, name: "  Eid look  " })
     expect((await as.query(api.themes.overview, {}))!.draft!.name).toBe("Eid look")
-    await expect(as.mutation(api.themes.remove, { id: nd })).rejects.toThrow(/archived/)
+    await expect(as.mutation(api.themes.remove, { id: o.live!._id })).rejects.toThrow(/live theme/)
+
+    // duplicate: a copy in the library, same data, the original untouched
+    const { id: copy } = await as.mutation(api.themes.duplicate, { id: nd })
+    o = (await as.query(api.themes.overview, {}))!
+    expect(o.archived[0]._id).toBe(copy)
+    expect(o.archived[0].name).toBe("Copy of Eid look")
+    expect(o.draft!._id).toBe(nd)
+    expect((await as.query(api.themes.get, { id: copy }))!.data).toEqual((await as.query(api.themes.get, { id: nd }))!.data)
+
+    // the draft can be deleted (the preview then shows the live theme); a copy can become the draft again
+    await as.mutation(api.themes.remove, { id: nd })
+    o = (await as.query(api.themes.overview, {}))!
+    expect(o.draft).toBeNull()
+    expect(title(await feed("draft"))).toBe("The Veyron Collection")
+    await as.mutation(api.themes.copyToDraft, { id: copy })
+    expect((await as.query(api.themes.overview, {}))!.draft!.name).toBe("Copy of Eid look (draft)")
   })
 
   it("keeps only the newest archived themes", async () => {
