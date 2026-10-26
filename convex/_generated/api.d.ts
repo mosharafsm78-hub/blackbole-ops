@@ -15,6 +15,7 @@ import type * as customers from "../customers.js";
 import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
+import type * as marketingFeed from "../marketingFeed.js";
 import type * as migrate from "../migrate.js";
 import type * as orders from "../orders.js";
 import type * as outbound from "../outbound.js";
@@ -42,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   http: typeof http;
   lib: typeof lib;
+  marketingFeed: typeof marketingFeed;
   migrate: typeof migrate;
   orders: typeof orders;
   outbound: typeof outbound;
