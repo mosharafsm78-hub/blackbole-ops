@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values"
-import { httpAction, query } from "./_generated/server"
+import { httpAction, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -95,6 +95,15 @@ export async function matchByName(ctx: { db: any }, title: string, variant?: str
   const size = norm((variant ?? "").replace(/eu\s*/gi, ""))
   if (!want) return null
   const hits: Doc<"products">[] = await ctx.db.query("products").withSearchIndex("search_name", (q: any) => q.search("name", title)).take(25)
+  // First and most exact: product name + size name together use the same words as the order line
+  // (e.g. Shopify "Brinkley Breeze Sandal for Men" + "Khaki Green / 39" = our "Brinkley Breeze Sandal for Men - Khaki Green" + "39")
+  const all = norm(`${title} ${variant ?? ""}`.replace(/\beu\b/gi, "")).split(" ").filter(Boolean).sort().join(" ")
+  for (const p of hits) {
+    if (p.deletedAt || p.active === false) continue
+    const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(liveVariant)
+    const hit = vars.find((x) => norm(`${p.name} ${x.title}`).split(" ").filter(Boolean).sort().join(" ") === all)
+    if (hit) return hit
+  }
   for (const exact of [true, false]) {
     for (const p of hits) {
       if (p.deletedAt || p.active === false) continue
@@ -115,6 +124,21 @@ export async function matchByName(ctx: { db: any }, title: string, variant?: str
   }
   return null
 }
+
+/** Shopify order lines without a SKU: find our product by name + size. */
+export const variantsByName = internalQuery({
+  args: { lines: v.array(v.object({ key: v.string(), title: v.string(), variant: v.optional(v.string()) })) },
+  handler: async (ctx, { lines }) => {
+    const out: Record<string, { variantId: string; sku: string; weightKg: number; imageUrl?: string; name: string; title: string }> = {}
+    for (const l of lines) {
+      const vr = await matchByName(ctx, l.title, l.variant)
+      if (!vr) continue
+      const p = await ctx.db.get(vr.productId)
+      out[l.key] = { variantId: vr._id, sku: vr.sku, weightKg: vr.weightKg, imageUrl: p?.imageUrl, name: p?.name ?? vr.sku, title: vr.title }
+    }
+    return out
+  },
+})
 
 /** Link order/cart lines that have no product yet (by name + size). */
 export async function linkItems<T extends { variantId?: any; sku: string; name: string; attrs?: string; weightKg: number; imageUrl?: string }>(ctx: { db: any }, items: T[]): Promise<{ items: T[]; linked: number }> {

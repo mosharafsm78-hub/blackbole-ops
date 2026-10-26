@@ -14,6 +14,10 @@ describe("match product by name + size", () => {
       }
       const old = await ctx.db.insert("products", { name: "BlackBole Harbor Shore Sandal For Men - Black", active: true, createdAt: 0 })
       await ctx.db.insert("variants", { productId: old, sku: "OLD-43-DELETED", title: "43", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
+      const bk = await ctx.db.insert("products", { name: "Brinkley Breeze Sandal for Men - Khaki Green", active: true, createdAt: 0 })
+      await ctx.db.insert("variants", { productId: bk, sku: "BB-SAN-BBS-KG-39", title: "39", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
+      const bb = await ctx.db.insert("products", { name: "Brinkley Breeze Sandal for Men", active: true, createdAt: 0 })
+      await ctx.db.insert("variants", { productId: bb, sku: "BB-SAN-BBS-39", title: "39", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
       const g = await ctx.db.insert("products", { name: "BlackBole Pathfinder Boot", active: true, createdAt: 0 })
       out.grey43 = await ctx.db.insert("variants", { productId: g, sku: "PF-GREY-43", title: "Grey / 43", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
       return out
@@ -23,5 +27,7 @@ describe("match product by name + size", () => {
     const grey = await t.run((ctx) => matchByName(ctx, "BlackBole Pathfinder Boot - Grey", "43"))
     expect(grey?.sku).toBe("PF-GREY-43")
     expect(await t.run((ctx) => matchByName(ctx, "Something else", "43"))).toBeNull()
+    const kg = await t.run((ctx) => matchByName(ctx, "Brinkley Breeze Sandal for Men", "Khaki Green / 39"))
+    expect(kg?.sku).toBe("BB-SAN-BBS-KG-39")
   })
 })

@@ -157,11 +157,16 @@ export function preOrderFullPrice(l: any): number | null {
 async function mapLines(ctx: any, lines: any[]) {
   const skus = lines.map((l) => String(l.sku ?? "").trim()).filter(Boolean)
   const found = await ctx.runQuery(internal.shopify.variantsBySku, { skus })
+  // lines with no SKU (or an unknown one) in Shopify: match by product name + size instead
+  const noSku = lines.map((l, i) => ({ l, key: String(i) })).filter(({ l }) => !found[String(l.sku ?? "").trim()])
+  const byName: Record<string, any> = noSku.length
+    ? await ctx.runQuery(internal.checkouts.variantsByName, { lines: noSku.map(({ l, key }) => ({ key, title: String(l.title ?? ""), variant: l.variant_title ? String(l.variant_title) : undefined })) })
+    : {}
   const unmatched: string[] = []
   let itemDiscountTotal = 0
-  const items = lines.map((l) => {
-    const sku = String(l.sku ?? "").trim() || `SHOPIFY-${l.variant_id ?? l.id}`
-    const match = found[String(l.sku ?? "").trim()]
+  const items = lines.map((l, i) => {
+    const match = found[String(l.sku ?? "").trim()] ?? byName[String(i)]
+    const sku = match?.sku ?? (String(l.sku ?? "").trim() || `SHOPIFY-${l.variant_id ?? l.id}`)
     if (!match) unmatched.push(sku)
     const disc = (l.discount_allocations ?? []).reduce((s: number, d: any) => s + num(d.amount), 0) || num(l.total_discount)
     itemDiscountTotal += disc
