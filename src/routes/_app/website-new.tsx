@@ -68,7 +68,7 @@ function NewProduct() {
     const names: string[] = ((w.options ?? []).map((o: any) => String(o?.name ?? "")).filter(Boolean) as string[])
     const optNames = names.length ? names : ["Size"]
     const vs = source.variants.filter((v) => v.active)
-    const opts = optNames.map((n, i) => ({ name: n, values: [...new Set(vs.map((v) => String((v.web?.options ?? {})[n] ?? (optNames.length === 1 ? v.title : v.title.split(" / ")[i] ?? ""))).filter(Boolean))] }))
+    const opts = optNames.map((n, i) => ({ name: n, values: [...new Set<string>(vs.map((v) => String((v.web?.options ?? {})[n] ?? (optNames.length === 1 ? v.title : v.title.split(" / ")[i] ?? ""))).filter(Boolean))] }))
     const rows: Record<string, Row> = {}
     for (const v of vs) {
       const o: Record<string, string> = {}

@@ -14,6 +14,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, setSetting } from "./lib"
 import { hasPerm } from "./rules"
+import { finishCollections, type Rules, type SortKey } from "./websiteRules"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
 const REBUILD_DELAY = 2 * 60 * 1000
@@ -125,6 +126,8 @@ export function buildCatalog(input: {
       image: c.image ?? null,
       seo: { title: c.seo?.title ?? "", description: c.seo?.description ?? "" },
       productHandles: c.productHandles.filter((h) => live.has(h)),
+      rules: (c.rules ?? null) as Rules | null,
+      sort: (c.sort ?? "manual") as SortKey,
     }))
   return { products, collections, updatedAt: Date.now() }
 }
@@ -162,7 +165,33 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 export const catalogHttp = httpAction(async (ctx, req) => {
   const key = process.env.MARKETING_FEED_KEY
   if (!key || key.length < 24 || req.headers.get("X-Feed-Key") !== key) return json({ error: "Invalid feed key" }, 401)
-  return json(await ctx.runQuery(internal.website.catalogData, {}))
+  const data: any = await ctx.runQuery(internal.website.catalogData, {})
+  // pairs sold per website product in the last 90 days → "Best selling" order; then fill automatic collections
+  const sold: Record<string, number> = await ctx.runQuery(internal.website.soldByHandle, {})
+  for (const p of data.products) p.sold = sold[p.handle] ?? 0
+  finishCollections(data.products, data.collections)
+  return json(data)
+})
+
+/** Pairs sold per website product (by page handle) in the last 90 days, cancelled orders left out. */
+export const soldByHandle = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const since = Date.now() - 90 * 24 * 60 * 60 * 1000
+    const products = await ctx.db.query("products").collect()
+    const handleOf = new Map(products.filter((p) => p.handle && !p.deletedAt).map((p) => [p._id as string, p.handle as string]))
+    const ownerOf = new Map<string, string>()
+    for (const vr of await ctx.db.query("variants").collect()) ownerOf.set(vr._id as string, (vr.web?.parent ?? vr.productId) as string)
+    const out: Record<string, number> = {}
+    for await (const o of ctx.db.query("orders").withIndex("by_creation_time", (q) => q.gt("_creationTime", since))) {
+      if (o.deletedAt || o.status === "cancelled") continue
+      for (const i of o.items) {
+        const h = i.variantId ? handleOf.get(ownerOf.get(i.variantId as string) ?? "") : undefined
+        if (h) out[h] = (out[h] ?? 0) + (i.qty || 1)
+      }
+    }
+    return out
+  },
 })
 
 // ---------------- rebuild (debounced) ----------------
@@ -388,6 +417,8 @@ export const importCollectionsChunk = internalMutation({
         handle, title: String(c.title ?? handle), html: c.html ?? "", image: c.image ?? null,
         seo: { title: c.seo?.title ?? "", description: c.seo?.description ?? "" },
         productHandles: Array.isArray(c.productHandles) ? c.productHandles.map(String) : [], updatedAt: Date.now(),
+        rules: c.rules && Array.isArray(c.rules.conditions) && c.rules.conditions.length ? c.rules : undefined,
+        sort: typeof c.sort === "string" ? c.sort : undefined,
       }
       const cur = await ctx.db.query("webCollections").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
       if (cur) await ctx.db.patch(cur._id, row)
@@ -544,15 +575,19 @@ async function productInfoByHandle(ctx: QueryCtx) {
   const prods = (await ctx.db.query("products").collect()).filter((p) => p.handle && !p.deletedAt)
   const variants = await ctx.db.query("variants").collect()
   const stock = await availableByVariantMap(ctx)
-  const agg = new Map<string, { stock: number; min: number; n: number }>()
+  const agg = new Map<string, { stock: number; min: number; n: number; prices: number[]; compareAts: number[] }>()
   for (const vr of variants) {
     if (!vr.active) continue
     const owner = (vr.web?.parent ?? vr.productId) as string
-    const a = agg.get(owner) ?? { stock: 0, min: Infinity, n: 0 }
+    const a = agg.get(owner) ?? { stock: 0, min: Infinity, n: 0, prices: [], compareAts: [] }
     a.stock += Math.max(0, stock.get(vr._id as string) ?? 0); a.min = Math.min(a.min, webPrice(vr)); a.n++
+    a.prices.push(webPrice(vr)); if (typeof vr.web?.compareAt === "number" && vr.web.compareAt > 0) a.compareAts.push(vr.web.compareAt)
     agg.set(owner, a)
   }
-  type Info = { _id: Id<"products">; title: string; published: boolean; image: string | null; stock: number; price: number; preOrder: boolean; type: string }
+  type Info = {
+    _id: Id<"products">; title: string; published: boolean; image: string | null; stock: number; price: number; preOrder: boolean; type: string
+    tags: string[]; vendor: string; prices: number[]; compareAts: number[]; createdAt: string
+  }
   return new Map<string, Info>(prods.map((p): [string, Info] => {
     const w: any = p.web ?? {}
     const a = agg.get(p._id as string)
@@ -560,6 +595,8 @@ async function productInfoByHandle(ctx: QueryCtx) {
       _id: p._id, title: (w.title || p.name) as string, published: !!w.published,
       image: (w.images?.[0]?.url ?? p.imageUrl ?? null) as string | null,
       stock: a?.stock ?? 0, price: a && a.n ? a.min : 0, preOrder: !!p.preOrder || isPreTag(w.tags), type: (w.type || p.category || "") as string,
+      tags: Array.isArray(w.tags) ? w.tags.map(String) : [], vendor: String(w.vendor ?? ""), prices: a?.prices ?? [], compareAts: a?.compareAts ?? [],
+      createdAt: String(w.publishedAt || w.createdAt || new Date(p.createdAt).toISOString()),
     }]
   }))
 }
@@ -596,7 +633,7 @@ export const collection = query({
     if (id && !c) return { missing: true as const }
     return {
       missing: false as const,
-      collection: c ? { _id: c._id, handle: c.handle, title: c.title, html: c.html ?? "", image: c.image ?? null, seo: c.seo ?? { title: "", description: "" }, productHandles: c.productHandles } : null,
+      collection: c ? { _id: c._id, handle: c.handle, title: c.title, html: c.html ?? "", image: c.image ?? null, seo: c.seo ?? { title: "", description: "" }, productHandles: c.productHandles, rules: (c.rules ?? null) as Rules | null, sort: (c.sort ?? "manual") as SortKey } : null,
       products: [...info.entries()].map(([handle, x]) => ({ handle, ...x })).sort((a, b) => Number(b.published) - Number(a.published) || a.title.localeCompare(b.title)),
     }
   },
@@ -743,6 +780,8 @@ export const saveCollection = mutation({
     image: v.union(v.string(), v.null()),
     seo: v.object({ title: v.string(), description: v.string() }),
     productHandles: v.array(v.string()),
+    rules: v.optional(v.union(v.null(), v.object({ match: v.union(v.literal("all"), v.literal("any")), conditions: v.array(v.object({ field: v.string(), op: v.string(), values: v.array(v.string()) })) }))),
+    sort: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     await requireWebsite(ctx)
@@ -750,7 +789,8 @@ export const saveCollection = mutation({
     const handle = slugify(a.handle || a.title)
     const clash = await ctx.db.query("webCollections").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
     if (clash && clash._id !== a.id) throw new ConvexError(`A collection with the handle "${handle}" already exists`)
-    const row = { handle, title: a.title.trim(), html: a.html, image: a.image || null, seo: a.seo, productHandles: [...new Set(a.productHandles)], updatedAt: Date.now() }
+    const rules = a.rules && a.rules.conditions.length ? a.rules : undefined
+    const row = { handle, title: a.title.trim(), html: a.html, image: a.image || null, seo: a.seo, productHandles: [...new Set(a.productHandles)], rules, sort: a.sort || undefined, updatedAt: Date.now() }
     const id = a.id ? (await ctx.db.patch(a.id, row), a.id) : await ctx.db.insert("webCollections", row)
     await queueRebuild(ctx)
     return id

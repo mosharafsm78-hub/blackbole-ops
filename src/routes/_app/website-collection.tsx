@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { FIELD_LABEL, OPS_FOR, OP_LABEL, isAutomatic, matchesRules, type Condition, type RuleField, type RuleOp, type Rules, type SortKey } from "@/convex/websiteRules"
 
 export const Route = createFileRoute("/_app/website-collection")({
   validateSearch: (s: Record<string, unknown>) => ({ id: String(s.id ?? "") }),
@@ -24,7 +25,7 @@ export const Route = createFileRoute("/_app/website-collection")({
 
 type Data = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.website.collection>>>, { missing: false }>
 type Prod = Data["products"][number]
-type Form = { title: string; handle: string; html: string; image: string; seoTitle: string; seoDesc: string; items: string[] }
+type Form = { title: string; handle: string; html: string; image: string; seoTitle: string; seoDesc: string; items: string[]; rules: Rules | null; sort: SortKey }
 
 function Editor() {
   const { id } = Route.useSearch()
@@ -45,6 +46,7 @@ function CollectionForm({ data }: { data: Data }) {
   const start: Form = useMemo(() => ({
     title: c?.title ?? "", handle: c?.handle ?? "", html: c?.html ?? "", image: c?.image ?? "",
     seoTitle: c?.seo?.title ?? "", seoDesc: c?.seo?.description ?? "", items: c?.productHandles ?? [],
+    rules: (c?.rules as Rules | null) ?? null, sort: ((c?.sort as SortKey) ?? "manual"),
   }), []) // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState<Form>(start)
   const [saved, setSaved] = useState<Form>(start)
@@ -62,7 +64,8 @@ function CollectionForm({ data }: { data: Data }) {
     try {
       const id = await save({
         id: c?._id, title: f.title, handle: f.handle || f.title, html: f.html, image: f.image.trim() || null,
-        seo: { title: f.seoTitle, description: f.seoDesc }, productHandles: f.items,
+        seo: { title: f.seoTitle, description: f.seoDesc }, productHandles: auto ? autoList : f.items,
+        rules: auto ? { match: f.rules!.match, conditions: f.rules!.conditions.map((x) => ({ field: x.field, op: x.op, values: x.values, ...(x.all ? { all: true } : {}) })) } as any : null, sort: f.sort,
       })
       markSaved(f); setSaved(f)
       toast.success("Collection saved — live on the website in about 3 minutes")
@@ -70,7 +73,19 @@ function CollectionForm({ data }: { data: Data }) {
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
 
-  const live = f.items.filter((h) => info.get(h)?.published).length
+  const auto = isAutomatic(f.rules)
+  // automatic collection: preview of what the website will show (same rules engine as the website build)
+  const autoList = useMemo(() => {
+    if (!auto) return f.items
+    const hits = data.products.filter((p) => matchesRules({ tags: p.tags, type: p.type, vendor: p.vendor, title: p.title, prices: p.prices, compareAts: p.compareAts, inStock: p.stock > 0 || p.preOrder }, f.rules))
+    const set = new Set(hits.map((p) => p.handle))
+    const kept = f.items.filter((h) => set.has(h))
+    const added = hits.filter((p) => !kept.includes(p.handle)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((p) => p.handle)
+    return [...added, ...kept]
+  }, [auto, f.rules, f.items, data.products])
+  const sorted = useMemo(() => sortHandles(auto ? autoList : f.items, f.sort, info), [auto, autoList, f.items, f.sort, info])
+  const shown = auto ? sorted : f.items
+  const live = shown.filter((h) => info.get(h)?.published).length
   return (
     <div className="mx-auto max-w-6xl pb-24">
       <SaveBar dirty={dirty} saving={saving} onSave={onSave} onDiscard={() => setF(saved)} message={isNew ? "New collection" : "Unsaved changes"} />
@@ -91,7 +106,20 @@ function CollectionForm({ data }: { data: Data }) {
             </div>
           </Section>
 
-          <Products items={f.items} onChange={(v) => set("items", v)} all={data.products} info={info} />
+          <Section title="Collection type" sub={auto ? "Automatic: products that match the conditions join by themselves, also new ones." : "Manual: you choose the products."}>
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+              {[false, true].map((a) => (
+                <button key={String(a)} type="button" onClick={() => set("rules", a ? (f.rules && f.rules.conditions.length ? f.rules : { match: "all", conditions: [{ field: "tag", op: "is", values: [""] }] }) : null)}
+                  className={cn("rounded-md py-1.5 text-sm font-medium transition-colors", auto === a ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                  {a ? "Automatic" : "Manual"}
+                </button>
+              ))}
+            </div>
+            {f.rules && <RulesEditor rules={f.rules} onChange={(v) => set("rules", v)} />}
+          </Section>
+
+          {auto ? <AutoProducts list={sorted} info={info} sort={f.sort} onSort={(v) => set("sort", v)} />
+            : <Products items={f.items} onChange={(v) => set("items", v)} all={data.products} info={info} sort={f.sort} onSort={(v) => set("sort", v)} />}
 
           <SeoCard site={SITE_URL} path="collections" handle={f.handle} onHandle={(v) => set("handle", v)}
             title={f.seoTitle} onTitle={(v) => set("seoTitle", v)} desc={f.seoDesc} onDesc={(v) => set("seoDesc", v)}
@@ -101,10 +129,10 @@ function CollectionForm({ data }: { data: Data }) {
         <div className="space-y-4">
           <Section title="Summary">
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <div><dt className="text-xs text-muted-foreground">Products</dt><dd className="text-lg font-semibold tabular-nums">{f.items.length}</dd></div>
+              <div><dt className="text-xs text-muted-foreground">Products</dt><dd className="text-lg font-semibold tabular-nums">{shown.length}</dd></div>
               <div><dt className="text-xs text-muted-foreground">On website</dt><dd className="text-lg font-semibold tabular-nums">{live}</dd></div>
             </dl>
-            {f.items.length > live && <p className="mt-2 text-xs text-muted-foreground">{f.items.length - live} hidden product{f.items.length - live > 1 ? "s are" : " is"} in this collection but won't show.</p>}
+            {shown.length > live && <p className="mt-2 text-xs text-muted-foreground">{shown.length - live} hidden product{shown.length - live > 1 ? "s are" : " is"} in this collection but won't show.</p>}
           </Section>
 
           <Section title="Image" sub="Used on collection tiles. Without one, the first product photo is used.">
@@ -142,7 +170,92 @@ function CollectionForm({ data }: { data: Data }) {
   )
 }
 
-function Products({ items, onChange, all, info }: { items: string[]; onChange: (v: string[]) => void; all: Prod[]; info: Map<string, Prod> }) {
+const SORTS: [SortKey, string][] = [["manual", "Manual (drag)"], ["best", "Best selling"], ["newest", "Newest first"], ["oldest", "Oldest first"], ["price-asc", "Price, low to high"], ["price-desc", "Price, high to low"], ["title-asc", "Title A–Z"], ["title-desc", "Title Z–A"]]
+
+function sortHandles(list: string[], sort: SortKey, info: Map<string, Prod>) {
+  const g = (h: string) => info.get(h)
+  const cmp: Partial<Record<SortKey, (a: Prod, b: Prod) => number>> = {
+    newest: (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt), oldest: (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+    "price-asc": (a, b) => a.price - b.price, "price-desc": (a, b) => b.price - a.price,
+    "title-asc": (a, b) => a.title.localeCompare(b.title), "title-desc": (a, b) => b.title.localeCompare(a.title),
+  }
+  const fn = cmp[sort]
+  if (!fn) return list
+  return [...list].sort((a, b) => { const x = g(a), y = g(b); return x && y ? fn(x, y) : 0 })
+}
+
+function SortSelect({ sort, onSort }: { sort: SortKey; onSort: (v: SortKey) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild><Button size="sm" variant="ghost"><ArrowDownUp className="size-3.5" /> {SORTS.find(([k]) => k === sort)?.[1]}</Button></DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {SORTS.map(([k, l]) => <DropdownMenuItem key={k} onClick={() => onSort(k)}>{l}{k === "best" ? " (from Ops sales, 90 days)" : ""}</DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function RulesEditor({ rules, onChange }: { rules: Rules; onChange: (r: Rules) => void }) {
+  const setC = (i: number, patch: Partial<Condition>) => onChange({ ...rules, conditions: rules.conditions.map((c, j) => (j === i ? { ...c, ...patch } : c)) })
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="flex items-center gap-2 text-sm">
+        Products must match
+        <select value={rules.match} onChange={(e) => onChange({ ...rules, match: e.target.value as "all" | "any" })} className="h-8 rounded-md border bg-background px-2 text-sm">
+          <option value="all">all conditions</option><option value="any">any condition</option>
+        </select>
+      </div>
+      {rules.conditions.map((c, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <select value={c.field} onChange={(e) => { const field = e.target.value as RuleField; setC(i, { field, op: OPS_FOR[field][0], values: field === "stock" ? ["0"] : [""] }) }} className="h-9 rounded-md border bg-background px-2 text-sm">
+            {(Object.keys(FIELD_LABEL) as RuleField[]).map((k) => <option key={k} value={k}>{FIELD_LABEL[k]}</option>)}
+          </select>
+          {c.field === "stock" ? <span className="text-sm text-muted-foreground">is in stock (or pre-order)</span> : (
+            <>
+              <select value={c.op} onChange={(e) => setC(i, { op: e.target.value as RuleOp })} className="h-9 rounded-md border bg-background px-2 text-sm">
+                {OPS_FOR[c.field].map((o) => <option key={o} value={o}>{OP_LABEL[o]}</option>)}
+              </select>
+              <Input value={c.values.join(", ")} onChange={(e) => setC(i, { values: e.target.value.split(",").map((x) => x.trim()) })}
+                placeholder={c.field === "tag" ? "e.g. bb-men" : c.field === "price" || c.field === "compareAt" ? "e.g. 2000" : "e.g. Sandals"} className="h-9 min-w-40 flex-1" />
+              {c.field === "tag" && c.op === "is" && c.values.filter(Boolean).length > 1 && (
+                <label className="flex items-center gap-1 text-xs text-muted-foreground"><input type="checkbox" checked={!!c.all} onChange={(e) => setC(i, { all: e.target.checked })} /> needs all these tags</label>
+              )}
+            </>
+          )}
+          <Button size="icon" variant="ghost" className="size-9" aria-label="Remove condition" onClick={() => onChange({ ...rules, conditions: rules.conditions.filter((_, j) => j !== i) })}><X className="size-4" /></Button>
+        </div>
+      ))}
+      <Button size="sm" variant="outline" onClick={() => onChange({ ...rules, conditions: [...rules.conditions, { field: "tag", op: "is", values: [""] }] })}><Plus className="size-4" /> Add condition</Button>
+    </div>
+  )
+}
+
+function AutoProducts({ list, info, sort, onSort }: { list: string[]; info: Map<string, Prod>; sort: SortKey; onSort: (v: SortKey) => void }) {
+  return (
+    <Section title="Products" sub={`${list.length} product${list.length === 1 ? "" : "s"} match right now · updates by itself`} flush action={<SortSelect sort={sort} onSort={onSort} />}>
+      {list.length === 0 ? <div className="border-t px-4 py-10 text-center text-sm text-muted-foreground">No product matches these conditions yet.</div> : (
+        <ol className="max-h-[36rem] overflow-auto border-t">
+          {list.map((h, i) => {
+            const p = info.get(h)
+            return (
+              <li key={h} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
+                <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{i + 1}</span>
+                <Thumb url={p?.image ?? null} />
+                <div className="min-w-0 flex-1">
+                  {p ? <Link to="/website-product" search={{ id: p._id }} className="block truncate text-sm font-medium hover:underline">{p.title}</Link> : <span className="text-sm">{h}</span>}
+                  {p && <span className="text-xs text-muted-foreground">{p.preOrder ? `Pre-order · book ${taka(p.price)}` : `${p.stock > 0 ? `${p.stock} in stock` : "Sold out"} · ${taka(p.price)}`}</span>}
+                </div>
+                {p && !p.published && <StatusBadge on={false} />}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+    </Section>
+  )
+}
+
+function Products({ items, onChange, all, info, sort, onSort }: { items: string[]; onChange: (v: string[]) => void; all: Prod[]; info: Map<string, Prod>; sort: SortKey; onSort: (v: SortKey) => void }) {
   const { props, drag, over } = useReorder(items, onChange)
   const [q, setQ] = useState("")
   const [filter, setFilter] = useState("")
@@ -155,10 +268,10 @@ function Products({ items, onChange, all, info }: { items: string[]; onChange: (
   }))
   const fs = filter.trim().toLowerCase()
   return (
-    <Section title="Products" sub={`${items.length} product${items.length === 1 ? "" : "s"} · drag to set the order shoppers see`} flush
-      action={items.length > 1 && (
+    <Section title="Products" sub={`${items.length} product${items.length === 1 ? "" : "s"} · ${sort === "manual" ? "drag to set the order shoppers see" : "the website orders them by the sort you chose"}`} flush
+      action={<><SortSelect sort={sort} onSort={onSort} />{sort === "manual" && items.length > 1 && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild><Button size="sm" variant="ghost"><ArrowDownUp className="size-3.5" /> Sort</Button></DropdownMenuTrigger>
+          <DropdownMenuTrigger asChild><Button size="sm" variant="ghost">Reorder once</Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => sortBy((a, b) => a.title.localeCompare(b.title))}>Title A–Z</DropdownMenuItem>
             <DropdownMenuItem onClick={() => sortBy((a, b) => a.price - b.price)}>Price, low to high</DropdownMenuItem>
@@ -167,7 +280,7 @@ function Products({ items, onChange, all, info }: { items: string[]; onChange: (
             <DropdownMenuItem onClick={() => sortBy((a, b) => Number(b.published) - Number(a.published))}>Hidden last</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      )}>
+      )}</>}>
       <div className="flex gap-2 px-4 pb-3">
         {items.length > 8 && (
           <div className="relative flex-1">

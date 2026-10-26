@@ -561,6 +561,9 @@ export default defineSchema({
     image: v.optional(v.union(v.string(), v.null())),
     seo: v.optional(v.any()),
     productHandles: v.array(v.string()),
+    // Automatic collection (Shopify smart collection): products matching these rules join by themselves
+    rules: v.optional(v.any()), // { match: "all"|"any", conditions: [{ field, op, values }] } — see convex/websiteRules.ts
+    sort: v.optional(v.string()), // manual | best | newest | oldest | price-asc | price-desc | title-asc | title-desc
     updatedAt: v.number(),
   }).index("by_handle", ["handle"]),
 
