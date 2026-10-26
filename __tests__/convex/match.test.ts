@@ -12,6 +12,8 @@ describe("match product by name + size", () => {
         const p = await ctx.db.insert("products", { name, active: true, createdAt: 0 })
         for (const s of ["42", "43"]) out[`${name}|${s}`] = await ctx.db.insert("variants", { productId: p, sku: `${name}-${s}`, title: s, weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
       }
+      const old = await ctx.db.insert("products", { name: "BlackBole Harbor Shore Sandal For Men - Black", active: true, createdAt: 0 })
+      await ctx.db.insert("variants", { productId: old, sku: "OLD-43-DELETED", title: "43", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
       const g = await ctx.db.insert("products", { name: "BlackBole Pathfinder Boot", active: true, createdAt: 0 })
       out.grey43 = await ctx.db.insert("variants", { productId: g, sku: "PF-GREY-43", title: "Grey / 43", weightKg: 0.5, price: 1, purchasePrice: 0, active: true })
       return out

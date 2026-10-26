@@ -82,6 +82,9 @@ export const markOrdered = internalMutation({
 // pressing "Confirm order" still show up in Abandoned carts. One lead per phone; a real order closes it.
 const leadItem = v.object({ id: v.optional(v.number()), sku: v.optional(v.string()), qty: v.number(), price: v.number(), title: v.string(), variant: v.optional(v.string()) })
 
+/** Old products were kept with "-DELETED" SKUs; never link to those. */
+const liveVariant = (v: Doc<"variants">) => v.active !== false && !/-DELETED$/i.test(v.sku)
+
 const norm = (t: string) => t.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim()
 
 /** Find our product size from a name + size text (e.g. "BlackBole Harbor Shore Sandal For Men - Black", "EU 43").
@@ -94,12 +97,12 @@ export async function matchByName(ctx: { db: any }, title: string, variant?: str
   const hits: Doc<"products">[] = await ctx.db.query("products").withSearchIndex("search_name", (q: any) => q.search("name", title)).take(25)
   for (const exact of [true, false]) {
     for (const p of hits) {
-      if (p.deletedAt) continue
+      if (p.deletedAt || p.active === false) continue
       const pn = norm(p.name)
       // second pass: product named without the colour, colour sits in the size ("Black / 43")
       const extra = exact ? "" : want.startsWith(pn + " ") ? want.slice(pn.length + 1) : null
       if (exact ? pn !== want : extra === null) continue
-      const vars: Doc<"variants">[] = await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()
+      const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(liveVariant)
       const target = norm(`${extra ?? ""} ${size}`)
       const tw = target.split(" ").filter(Boolean)
       const found = vars.find((x) => norm(x.title) === target)
@@ -118,7 +121,10 @@ export async function linkItems<T extends { variantId?: any; sku: string; name: 
   let linked = 0
   const out: T[] = []
   for (const i of items) {
-    if (i.variantId) { out.push(i); continue }
+    if (i.variantId) {
+      const cur = await ctx.db.get(i.variantId)
+      if (cur && liveVariant(cur)) { out.push(i); continue }
+    }
     const vr = await matchByName(ctx, i.name.split(" · ")[0], i.attrs)
     if (!vr) { out.push(i); continue }
     const p = await ctx.db.get(vr.productId)
@@ -135,7 +141,7 @@ export const relinkOpen = internalMutation({
     const fixed: string[] = []
     for (const st of ["pending", "on_hold", "approved", "processing", "ready_to_ship", "pre_order", "pre_order_bd"] as const) {
       for (const o of await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()) {
-        if (o.deletedAt || o.consignmentId || o.items.every((i) => i.variantId)) continue
+        if (o.deletedAt || o.consignmentId) continue
         const { items, linked } = await linkItems(ctx, o.items)
         if (!linked) continue
         const reserved = STATUS_BUCKET[o.status as OrderStatus] !== "available"
@@ -148,7 +154,7 @@ export const relinkOpen = internalMutation({
       }
     }
     for (const c of await ctx.db.query("checkouts").collect()) {
-      if (c.orderId || c.items.every((i) => i.variantId)) continue
+      if (c.orderId) continue
       const { items, linked } = await linkItems(ctx, c.items)
       if (linked) await ctx.db.patch(c._id, { items })
     }
