@@ -355,7 +355,9 @@ export default defineSchema({
     .index("by_phone", ["phone"])
     .index("by_consignment", ["consignmentId"])
     .index("by_courier_invoice", ["courierInvoiceId"])
-    .index("by_auto_approve", ["autoApproveAt"]),
+    .index("by_auto_approve", ["autoApproveAt"])
+    // For BlackBole Marketing OS: pulls orders changed since its last sync (convex/marketingFeed.ts)
+    .index("by_updated", ["updatedAt"]),
 
   // Order timeline: system logs, internal notes and customer-care calls
   orderEvents: defineTable({

@@ -5,6 +5,7 @@ import { webhook as pathaoWebhook } from "./pathao"
 import { orders as apiOrders } from "./publicApi"
 import { handler as migrateHandler } from "./migrate"
 import { codLeadHttp } from "./checkouts"
+import { orders as marketingOrders, stock as marketingStock } from "./marketingFeed"
 
 const http = httpRouter()
 
@@ -19,5 +20,8 @@ http.route({ path: "/migrate", method: "OPTIONS", handler: migrateHandler })
 // Website COD popup: customer's number as soon as it's typed (abandoned COD form leads)
 http.route({ path: "/cod-lead", method: "POST", handler: codLeadHttp })
 http.route({ path: "/cod-lead", method: "OPTIONS", handler: codLeadHttp })
+// Read-only feed for BlackBole Marketing OS (needs MARKETING_FEED_KEY)
+http.route({ path: "/marketing/orders", method: "GET", handler: marketingOrders })
+http.route({ path: "/marketing/stock", method: "GET", handler: marketingStock })
 
 export default http
