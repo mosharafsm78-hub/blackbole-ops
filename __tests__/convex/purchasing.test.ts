@@ -21,6 +21,10 @@ async function setup() {
   return { t, as, locationId, supplierId, v41: created.variants[0].variantId, v42: created.variants[1].variantId }
 }
 
+const fakeFile = async (t: ReturnType<typeof makeT>) => ({
+  storageId: await t.run((ctx) => ctx.storage.store(new Blob(["slip"]))), name: "slip.png", type: "image/png",
+})
+
 const stockOf = (t: ReturnType<typeof makeT>, variantId: any) =>
   t.run((ctx) => ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", variantId)).first())
 
@@ -29,7 +33,7 @@ describe("purchases", () => {
     const { t, as, locationId, supplierId, v41, v42 } = await setup()
     const id = await as.mutation(api.purchasing.savePO, {
       supplierId, locationId, lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }, { variantId: v42, orderedQty: 10, unitCost: 500 }],
-      discount: 0, shippingCost: 1000, otherCost: 0, status: "ordered",
+      discount: 0, shippingCost: 1000, otherCost: 0, status: "ordered", supplierRef: "PI-1", invoiceFile: await fakeFile(t),
     })
     // 10000 goods + 1000 shipping = 11000, landed cost 550 per pair
     let po = (await as.query(api.purchasing.getPO, { id }))!
@@ -53,13 +57,13 @@ describe("purchases", () => {
     if (po.missing) return
     expect(po.po.status).toBe("received")
 
-    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 4000, method: "Bank transfer" })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 4000, method: "Bank transfer", slipId: (await fakeFile(t)).storageId })
     const sup = (await as.query(api.purchasing.listSuppliers, {})).find((s) => s._id === supplierId)!
     expect(sup).toMatchObject({ purchased: 11000, paid: 4000, due: 7000 })
 
     // supplier-level payment: previous due first, then oldest purchase, extra becomes advance
     await as.mutation(api.purchasing.saveSupplier, { id: supplierId, name: "Guangzhou Factory", openingDue: 2000, active: true })
-    const r = await as.mutation(api.purchasing.paySupplier, { id: supplierId, amount: 10000, method: "Cash" })
+    const r = await as.mutation(api.purchasing.paySupplier, { id: supplierId, amount: 10000, method: "Cash", slipId: (await fakeFile(t)).storageId })
     expect(r.applied).toEqual(["previous due 2000", "PO-0001 7000", "advance 1000"])
     const st = (await as.query(api.purchasing.supplierStatement, { id: supplierId }))!
     expect(st.due).toBe(-1000)
@@ -78,12 +82,12 @@ describe("purchases", () => {
   })
 
   it("supplier summary shows pairs, shoes, paid and due for the dates", async () => {
-    const { as, locationId, supplierId, v41, v42 } = await setup()
+    const { t, as, locationId, supplierId, v41, v42 } = await setup()
     const id = await as.mutation(api.purchasing.savePO, {
       supplierId, locationId, lines: [{ variantId: v41, orderedQty: 12, unitCost: 500 }, { variantId: v42, orderedQty: 8, unitCost: 500 }],
-      discount: 0, shippingCost: 0, otherCost: 0, status: "ordered",
+      discount: 0, shippingCost: 0, otherCost: 0, status: "ordered", supplierRef: "PI-2", invoiceFile: await fakeFile(t),
     })
-    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 3000, method: "bKash", reference: "TRX1" })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 3000, method: "bKash", reference: "TRX1", slipId: (await fakeFile(t)).storageId })
     const day = 86400000
     const sum = (await as.query(api.purchasing.summary, { from: Date.now() - day, to: Date.now() + day }))!
     expect(sum.totals).toMatchObject({ purchases: 1, pairs: 20, received: 0, value: 10000, paid: 3000, dueNow: 7000 })
@@ -93,5 +97,19 @@ describe("purchases", () => {
     // outside the dates: nothing ordered or paid, but what we owe stays visible
     const old = (await as.query(api.purchasing.summary, { from: 0, to: Date.now() - 10 * day }))!
     expect(old.totals).toMatchObject({ purchases: 0, pairs: 0, paid: 0, dueNow: 7000 })
+  })
+})
+
+describe("purchase rules", () => {
+  it("needs invoice no. + invoice file to place, and a slip for every payment", async () => {
+    const { t, as, locationId, supplierId, v41 } = await setup()
+    const base = { supplierId, locationId, lines: [{ variantId: v41, orderedQty: 1, unitCost: 500 }], discount: 0, shippingCost: 0, otherCost: 0 }
+    await expect(as.mutation(api.purchasing.savePO, { ...base, status: "ordered" })).rejects.toThrow(/invoice/)
+    await expect(as.mutation(api.purchasing.savePO, { ...base, status: "ordered", supplierRef: "PI-9" })).rejects.toThrow(/Attach the supplier invoice/)
+    const draft = await as.mutation(api.purchasing.savePO, { ...base })
+    await expect(as.mutation(api.purchasing.setPOStatus, { id: draft, status: "ordered" })).rejects.toThrow(/invoice/)
+    const id = await as.mutation(api.purchasing.savePO, { ...base, status: "ordered", supplierRef: "PI-9", invoiceFile: await fakeFile(t) })
+    await expect(as.mutation(api.purchasing.addSupplierPayment, { id, amount: 100, method: "Cash" })).rejects.toThrow(/slip/)
+    await expect(as.mutation(api.purchasing.paySupplier, { id: supplierId, amount: 100, method: "Cash" })).rejects.toThrow(/slip/)
   })
 })
