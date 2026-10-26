@@ -18,6 +18,7 @@ import { Route as AppCourierPaymentsRouteImport } from './routes/_app/courier-pa
 import { Route as AppCustomerRouteImport } from './routes/_app/customer'
 import { Route as AppCustomersRouteImport } from './routes/_app/customers'
 import { Route as AppDeliveryPartnersRouteImport } from './routes/_app/delivery-partners'
+import { Route as AppDispatchRouteImport } from './routes/_app/dispatch'
 import { Route as AppImportRouteImport } from './routes/_app/import'
 import { Route as AppInventoryRouteImport } from './routes/_app/inventory'
 import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
@@ -76,6 +77,11 @@ const AppCustomersRoute = AppCustomersRouteImport.update({
 const AppDeliveryPartnersRoute = AppDeliveryPartnersRouteImport.update({
   id: '/delivery-partners',
   path: '/delivery-partners',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppDispatchRoute = AppDispatchRouteImport.update({
+  id: '/dispatch',
+  path: '/dispatch',
   getParentRoute: () => AppRoute,
 } as any)
 const AppImportRoute = AppImportRouteImport.update({
@@ -163,6 +169,7 @@ export interface FileRoutesByFullPath {
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
   '/delivery-partners': typeof AppDeliveryPartnersRoute
+  '/dispatch': typeof AppDispatchRoute
   '/import': typeof AppImportRoute
   '/inventory': typeof AppInventoryRoute
   '/new-order': typeof AppNewOrderRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByTo {
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
   '/delivery-partners': typeof AppDeliveryPartnersRoute
+  '/dispatch': typeof AppDispatchRoute
   '/import': typeof AppImportRoute
   '/inventory': typeof AppInventoryRoute
   '/new-order': typeof AppNewOrderRoute
@@ -214,6 +222,7 @@ export interface FileRoutesById {
   '/_app/customer': typeof AppCustomerRoute
   '/_app/customers': typeof AppCustomersRoute
   '/_app/delivery-partners': typeof AppDeliveryPartnersRoute
+  '/_app/dispatch': typeof AppDispatchRoute
   '/_app/import': typeof AppImportRoute
   '/_app/inventory': typeof AppInventoryRoute
   '/_app/new-order': typeof AppNewOrderRoute
@@ -242,6 +251,7 @@ export interface FileRouteTypes {
     | '/customer'
     | '/customers'
     | '/delivery-partners'
+    | '/dispatch'
     | '/import'
     | '/inventory'
     | '/new-order'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/customer'
     | '/customers'
     | '/delivery-partners'
+    | '/dispatch'
     | '/import'
     | '/inventory'
     | '/new-order'
@@ -292,6 +303,7 @@ export interface FileRouteTypes {
     | '/_app/customer'
     | '/_app/customers'
     | '/_app/delivery-partners'
+    | '/_app/dispatch'
     | '/_app/import'
     | '/_app/inventory'
     | '/_app/new-order'
@@ -380,6 +392,13 @@ declare module '@tanstack/react-router' {
       path: '/delivery-partners'
       fullPath: '/delivery-partners'
       preLoaderRoute: typeof AppDeliveryPartnersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/dispatch': {
+      id: '/_app/dispatch'
+      path: '/dispatch'
+      fullPath: '/dispatch'
+      preLoaderRoute: typeof AppDispatchRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/import': {
@@ -496,6 +515,7 @@ interface AppRouteChildren {
   AppCustomerRoute: typeof AppCustomerRoute
   AppCustomersRoute: typeof AppCustomersRoute
   AppDeliveryPartnersRoute: typeof AppDeliveryPartnersRoute
+  AppDispatchRoute: typeof AppDispatchRoute
   AppImportRoute: typeof AppImportRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppNewOrderRoute: typeof AppNewOrderRoute
@@ -519,6 +539,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCustomerRoute: AppCustomerRoute,
   AppCustomersRoute: AppCustomersRoute,
   AppDeliveryPartnersRoute: AppDeliveryPartnersRoute,
+  AppDispatchRoute: AppDispatchRoute,
   AppImportRoute: AppImportRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppNewOrderRoute: AppNewOrderRoute,

@@ -336,6 +336,7 @@ export default defineSchema({
     .index("by_deleted", ["deletedAt"])
     .index("by_delivered", ["deliveredAt"])
     .index("by_approved", ["approvedAt"])
+    .index("by_shipped", ["shippedAt"])
     .index("by_shipping", ["shippingDate"])
     .index("by_invoice_code", ["invoiceCode"])
     .index("by_created", ["createdAt"])

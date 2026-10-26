@@ -40,6 +40,7 @@ const NAV = [
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view", color: "bg-tone-teal-bg text-tone-teal", group: "Stock" },
   { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
   { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },
+  { to: "/dispatch", label: "Dispatch report", icon: Truck, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Insights" },
   { to: "/courier-payments", label: "Pathao payments", icon: Wallet, perm: "orders.view", color: "bg-tone-green-bg text-tone-green", group: "Insights" },
   { to: "/delivery-partners", label: "Delivery partners", icon: Truck, perm: "partners.manage", color: "bg-tone-red-bg text-tone-red", group: "Setup" },
   { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage", color: "bg-tone-gray-bg text-tone-gray", group: "Setup" },
