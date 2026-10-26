@@ -140,3 +140,24 @@ export function finishCollections<C extends CatCollection>(products: CatProduct[
   }
   return collections
 }
+
+// ---------------- plain-English summaries (Shopify's "Product tag is equal to X") ----------------
+const SUMMARY_OP: Record<RuleOp, string> = {
+  is: "is equal to", is_not: "is not equal to", contains: "contains", not_contains: "does not contain", lt: "is less than", gt: "is greater than", eq: "is equal to",
+}
+
+/** One condition in words, e.g. "Product tag is equal to bb-men". */
+export function describeCondition(c: Condition): string {
+  if (c.field === "stock") return "Inventory stock is greater than 0"
+  const vals = (c.values ?? []).map((x) => String(x).trim()).filter(Boolean)
+  const money = c.field === "price" || c.field === "compareAt"
+  const shown = vals.map((x) => (money && Number.isFinite(Number(x)) ? `৳${Number(x).toLocaleString("en-US")}` : x))
+  const joiner = c.all ? " and " : " or "
+  return `${FIELD_LABEL[c.field] ?? c.field} ${SUMMARY_OP[c.op] ?? c.op} ${shown.length ? shown.join(joiner) : "(empty)"}`
+}
+
+/** Every condition in words; empty for a manual collection. */
+export function describeRules(rules: Rules | null | undefined): string[] {
+  if (!isAutomatic(rules)) return []
+  return rules!.conditions.filter((c) => c && c.field).map(describeCondition)
+}

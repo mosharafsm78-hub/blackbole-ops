@@ -19,7 +19,7 @@ export const WEBSITE_NAV: Item[] = [
   {
     key: "products", label: "Products", to: "/website", search: { tab: "products", view: "live" }, icon: Tag,
     subs: [
-      { key: "collections", label: "Collections", to: "/website", search: { tab: "collections", view: "live" } },
+      { key: "collections", label: "Collections", to: "/website-collections" },
       { key: "inventory", label: "Inventory", to: "/website-inventory" },
     ],
   },
@@ -54,7 +54,7 @@ export function websiteNavKey(path: string, search: Record<string, unknown> = {}
   const page = p.slice("/website-".length)
   switch (page) {
     case "product": case "new": return "products"
-    case "collection": return "collections"
+    case "collection": case "collections": return "collections"
     case "inventory": return "inventory"
     case "discounts": case "discount": return "discounts"
     case "files": return "files"

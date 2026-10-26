@@ -43,7 +43,7 @@ export function summaryLine(d: Pick<Doc<"discounts">, "type" | "value" | "scope"
 export type WebsiteTab = "products" | "collections" | "inventory" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "themes" | "files" | "settings"
 const MOBILE_TABS: { k: WebsiteTab; label: string; to: string; search?: Record<string, string> }[] = [
   { k: "products", label: "Products", to: "/website", search: { tab: "products", view: "live" } },
-  { k: "collections", label: "Collections", to: "/website", search: { tab: "collections", view: "live" } },
+  { k: "collections", label: "Collections", to: "/website-collections" },
   { k: "inventory", label: "Inventory", to: "/website-inventory" },
   { k: "discounts", label: "Discounts", to: "/website-discounts" },
   { k: "files", label: "Files", to: "/website-files" },

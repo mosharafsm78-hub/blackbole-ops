@@ -25,21 +25,23 @@ export const Route = createFileRoute("/_app/website-collection")({
 
 type Data = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.website.collection>>>, { missing: false }>
 type Prod = Data["products"][number]
-type Form = { title: string; handle: string; html: string; image: string; seoTitle: string; seoDesc: string; items: string[]; rules: Rules | null; sort: SortKey }
+type Meta = NonNullable<ReturnType<typeof useQuery<typeof api.websiteCollections.meta>>>
+type Form = { title: string; handle: string; html: string; image: string; seoTitle: string; seoDesc: string; items: string[]; rules: Rules | null; sort: SortKey; published: boolean; template: string }
 
 function Editor() {
   const { id } = Route.useSearch()
   const data = useQuery(api.website.collection, id ? { id: id as Id<"webCollections"> } : {})
-  if (data === undefined) return <Loading />
-  if (data === null) return null
-  if (data.missing) return <p className="py-16 text-center text-sm text-muted-foreground">Collection not found. <Link to="/website" search={{ tab: "collections", view: "live" }} className="underline">Back to collections</Link></p>
-  return <TooltipProvider delayDuration={200}><CollectionForm key={data.collection?._id ?? "new"} data={data} /></TooltipProvider>
+  const meta = useQuery(api.websiteCollections.meta, id ? { id: id as Id<"webCollections"> } : {})
+  if (data === undefined || meta === undefined) return <Loading />
+  if (data === null || meta === null) return null
+  if (data.missing) return <p className="py-16 text-center text-sm text-muted-foreground">Collection not found. <Link to="/website-collections" className="underline">Back to collections</Link></p>
+  return <TooltipProvider delayDuration={200}><CollectionForm key={data.collection?._id ?? "new"} data={data} meta={meta} /></TooltipProvider>
 }
 
-function CollectionForm({ data }: { data: Data }) {
+function CollectionForm({ data, meta }: { data: Data; meta: Meta }) {
   const c = data.collection
   const navigate = useNavigate()
-  const save = useMutation(api.website.saveCollection)
+  const save = useMutation(api.websiteCollections.save)
   const del = useMutation(api.website.deleteCollection)
   const uploadUrl = useMutation(api.website.uploadUrl)
   const fileUrl = useMutation(api.website.fileUrl)
@@ -47,6 +49,7 @@ function CollectionForm({ data }: { data: Data }) {
     title: c?.title ?? "", handle: c?.handle ?? "", html: c?.html ?? "", image: c?.image ?? "",
     seoTitle: c?.seo?.title ?? "", seoDesc: c?.seo?.description ?? "", items: c?.productHandles ?? [],
     rules: (c?.rules as Rules | null) ?? null, sort: ((c?.sort as SortKey) ?? "manual"),
+    published: meta.published, template: meta.templateSuffix ?? "",
   }), []) // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState<Form>(start)
   const [saved, setSaved] = useState<Form>(start)
@@ -65,10 +68,11 @@ function CollectionForm({ data }: { data: Data }) {
       const id = await save({
         id: c?._id, title: f.title, handle: f.handle || f.title, html: f.html, image: f.image.trim() || null,
         seo: { title: f.seoTitle, description: f.seoDesc }, productHandles: auto ? autoList : f.items,
-        rules: auto ? { match: f.rules!.match, conditions: f.rules!.conditions.map((x) => ({ field: x.field, op: x.op, values: x.values, ...(x.all ? { all: true } : {}) })) } as any : null, sort: f.sort,
+        rules: auto ? { match: f.rules!.match, conditions: f.rules!.conditions.map((x) => ({ field: x.field, op: x.op, values: x.values, ...(x.all ? { all: true } : {}) })) } : null, sort: f.sort,
+        published: f.published, templateSuffix: f.template || null,
       })
       markSaved(f); setSaved(f)
-      toast.success("Collection saved — live on the website in about a minute")
+      toast.success(f.published ? "Collection saved — live on the website in about a minute" : "Collection saved — hidden from the website")
       if (isNew) setTimeout(() => navigate({ to: "/website-collection", search: { id }, replace: true }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
@@ -91,8 +95,9 @@ function CollectionForm({ data }: { data: Data }) {
       <SaveBar dirty={dirty} saving={saving} onSave={onSave} onDiscard={() => setF(saved)} message={isNew ? "New collection" : "Unsaved changes"} />
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Button size="icon" variant="outline" className="size-8" asChild><Link to="/website" search={{ tab: "collections", view: "live" }} aria-label="Back to collections"><ArrowLeft className="size-4" /></Link></Button>
+        <Button size="icon" variant="outline" className="size-8" asChild><Link to="/website-collections" aria-label="Back to collections"><ArrowLeft className="size-4" /></Link></Button>
         <h1 className="min-w-0 flex-1 truncate text-xl font-semibold tracking-tight">{f.title || (isNew ? "New collection" : "Untitled collection")}</h1>
+        {c && !saved.published && <StatusBadge on={false} />}
         {c && <Button size="sm" variant="outline" asChild><a href={`${PREVIEW_URL}/collections/${saved.handle}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View</a></Button>}
         <Button size="sm" disabled={(!dirty && !isNew) || saving} onClick={onSave}>{saving ? "Saving" : "Save"}</Button>
       </div>
@@ -106,12 +111,12 @@ function CollectionForm({ data }: { data: Data }) {
             </div>
           </Section>
 
-          <Section title="Collection type" sub={auto ? "Automatic: products that match the conditions join by themselves, also new ones." : "Manual: you choose the products."}>
+          <Section title="Collection type" sub={auto ? "Smart: products that match the conditions join by themselves, new ones too." : "Manual: you pick the products one by one."}>
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
               {[false, true].map((a) => (
                 <button key={String(a)} type="button" onClick={() => set("rules", a ? (f.rules && f.rules.conditions.length ? f.rules : { match: "all", conditions: [{ field: "tag", op: "is", values: [""] }] }) : null)}
                   className={cn("rounded-md py-1.5 text-sm font-medium transition-colors", auto === a ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}>
-                  {a ? "Automatic" : "Manual"}
+                  {a ? "Smart" : "Manual"}
                 </button>
               ))}
             </div>
@@ -127,6 +132,17 @@ function CollectionForm({ data }: { data: Data }) {
         </div>
 
         <div className="space-y-4">
+          <Section title="Publishing" sub="Where this collection shows.">
+            <div className="space-y-2">
+              {([[true, "Visible on the website", "Has its own page on blackbole.com and can be linked from menus."], [false, "Hidden", "No page on the website. Menu links to it stop working until you show it again."]] as const).map(([on, label, hint]) => (
+                <label key={String(on)} className={cn("flex cursor-pointer gap-2.5 rounded-lg border p-2.5 text-sm transition-colors", f.published === on ? "border-primary/50 bg-primary/5" : "hover:bg-muted/40")}>
+                  <input type="radio" name="published" checked={f.published === on} onChange={() => set("published", on)} className="mt-0.5" />
+                  <span><span className="block font-medium">{label}</span><span className="text-xs text-muted-foreground">{hint}</span></span>
+                </label>
+              ))}
+            </div>
+          </Section>
+
           <Section title="Summary">
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <div><dt className="text-xs text-muted-foreground">Products</dt><dd className="text-lg font-semibold tabular-nums">{shown.length}</dd></div>
@@ -137,6 +153,14 @@ function CollectionForm({ data }: { data: Data }) {
 
           <Section title="Image" sub="Used on collection tiles. Without one, the first product photo is used.">
             <CollectionImage url={f.image} onChange={(v) => set("image", v)} upload={(files) => uploadImages(files, () => uploadUrl({}), (a) => fileUrl(a), f.title)} />
+          </Section>
+
+          <Section title="Theme template" sub="The page layout used for this collection.">
+            <select value={f.template} onChange={(e) => set("template", e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm">
+              <option value="">Default collection</option>
+              {[...new Set([...meta.templates, ...(f.template ? [f.template] : [])])].map((t) => <option key={t} value={t}>{t}{meta.templates.includes(t) ? "" : " (not in the live theme)"}</option>)}
+            </select>
+            {meta.templates.length === 0 && <p className="mt-2 text-xs text-muted-foreground">The live theme has one collection layout. Extra layouts added in <Link to="/website-themes" className="underline">Themes</Link> show up here.</p>}
           </Section>
 
           {c && (
@@ -160,7 +184,7 @@ function CollectionForm({ data }: { data: Data }) {
                 await del({ id: c!._id })
                 markSaved(f)
                 toast.success("Collection deleted")
-                setTimeout(() => navigate({ to: "/website", search: { tab: "collections", view: "live" } }), 0)
+                setTimeout(() => navigate({ to: "/website-collections" }), 0)
               } catch (e) { toast.error(errMsg(e)) }
             }}>Delete</Button>
           </DialogFooter>
@@ -231,12 +255,23 @@ function RulesEditor({ rules, onChange }: { rules: Rules; onChange: (r: Rules) =
 }
 
 function AutoProducts({ list, info, sort, onSort }: { list: string[]; info: Map<string, Prod>; sort: SortKey; onSort: (v: SortKey) => void }) {
+  const [filter, setFilter] = useState("")
+  const fs = filter.trim().toLowerCase()
   return (
     <Section title="Products" sub={`${list.length} product${list.length === 1 ? "" : "s"} match right now · updates by itself`} flush action={<SortSelect sort={sort} onSort={onSort} />}>
+      {list.length > 0 && (
+        <div className="px-4 pb-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in this collection" className="h-9 pl-8" />
+          </div>
+        </div>
+      )}
       {list.length === 0 ? <div className="border-t px-4 py-10 text-center text-sm text-muted-foreground">No product matches these conditions yet.</div> : (
         <ol className="max-h-[36rem] overflow-auto border-t">
           {list.map((h, i) => {
             const p = info.get(h)
+            if (fs && !(p?.title ?? h).toLowerCase().includes(fs)) return null
             return (
               <li key={h} className="flex items-center gap-3 border-b px-3 py-2 last:border-0">
                 <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">{i + 1}</span>
@@ -282,14 +317,14 @@ function Products({ items, onChange, all, info, sort, onSort }: { items: string[
         </DropdownMenu>
       )}</>}>
       <div className="flex gap-2 px-4 pb-3">
-        {items.length > 8 && (
+        {items.length > 0 && (
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find in this collection" className="h-9 pl-8" />
           </div>
         )}
         <Popover onOpenChange={(o) => !o && setQ("")}>
-          <PopoverTrigger asChild><Button variant="outline" className={cn(items.length <= 8 && "w-full")}><Plus className="size-4" /> Add products</Button></PopoverTrigger>
+          <PopoverTrigger asChild><Button variant="outline" className={cn(items.length === 0 && "w-full")}><Plus className="size-4" /> Add products</Button></PopoverTrigger>
           <PopoverContent align="end" className="w-80 p-0">
             <div className="relative border-b">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

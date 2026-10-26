@@ -117,7 +117,7 @@ export function buildCatalog(input: {
   }
   const live = new Set(products.map((p) => p.handle as string))
   const collections = input.collections
-    .slice()
+    .filter((c) => c.published !== false) // hidden collections (Website → Collections) leave the website
     .sort((a, b) => a.handle.localeCompare(b.handle))
     .map((c) => ({
       handle: c.handle,
@@ -128,6 +128,7 @@ export function buildCatalog(input: {
       productHandles: c.productHandles.filter((h) => live.has(h)),
       rules: (c.rules ?? null) as Rules | null,
       sort: (c.sort ?? "manual") as SortKey,
+      templateSuffix: c.templateSuffix ?? null,
     }))
   return { products, collections, updatedAt: Date.now() }
 }

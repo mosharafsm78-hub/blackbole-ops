@@ -564,6 +564,8 @@ export default defineSchema({
     // Automatic collection (Shopify smart collection): products matching these rules join by themselves
     rules: v.optional(v.any()), // { match: "all"|"any", conditions: [{ field, op, values }] } — see convex/websiteRules.ts
     sort: v.optional(v.string()), // manual | best | newest | oldest | price-asc | price-desc | title-asc | title-desc
+    published: v.optional(v.boolean()), // false = hidden from the website (missing = shown, like before)
+    templateSuffix: v.optional(v.string()), // theme layout "collection.<suffix>"; missing = the default collection layout
     updatedAt: v.number(),
   }).index("by_handle", ["handle"]),
 
