@@ -354,19 +354,6 @@ function SizePicker({ locationId, onAdd }: { locationId?: Id<"locations">; onAdd
   )
 }
 
-function ShopifySyncBadge({ receipt }: { receipt: { _id: Id<"receipts">; shopifySync?: any } }) {
-  const retry = useMutation(api.shopifyStock.retry)
-  const st = receipt.shopifySync
-  if (!st) return null
-  if (st.status === "done") return <span className="rounded bg-tone-green-bg px-1.5 py-0.5 text-[11px] font-semibold text-tone-green" title={st.missing ? `Not found in Shopify: ${st.missing.join(", ")}` : undefined}>Shopify +{st.pushed}{st.missing ? ` · ${st.missing.length} SKU not found` : ""}</span>
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px]">
-      <span className="rounded bg-tone-red-bg px-1.5 py-0.5 font-semibold text-tone-red" title={st.error}>Shopify {st.status === "skipped" ? "not linked" : "failed"}</span>
-      <button className="underline" onClick={async () => { try { await retry({ id: receipt._id }); toast.success("Sending to Shopify…") } catch (e) { toast.error(errMsg(e)) } }}>Retry</button>
-    </span>
-  )
-}
-
 function ShipDialog({ open, onOpenChange, tracking, onConfirm }: { open: boolean; onOpenChange: (o: boolean) => void; tracking: string; onConfirm: (t: string) => void }) {
   const [t, setT] = useState(tracking)
   useEffect(() => { if (open) setT(tracking) }, [open, tracking])
@@ -539,7 +526,7 @@ function History({ data }: { data: Data }) {
             {data.receipts.map((r) => (
               <li key={r._id} className="flex items-center justify-between gap-2 py-2">
                 <div><div className="font-medium">GRN-{r.code} · {r.totalQty} pcs{r.items.some((i) => i.damaged) ? ` · ${r.items.reduce((t, i) => t + (i.damaged ?? 0), 0)} damaged` : ""}</div><div className="text-xs text-muted-foreground">{dateTime(r.at)} · {r.byName}{r.note ? ` · ${r.note}` : ""}</div></div>
-                <div className="flex items-center gap-2"><ShopifySyncBadge receipt={r} />
+                <div className="flex items-center gap-2">
                 <Button size="xs" variant="outline" asChild><a href={`/labels?receipt=${r._id}`} target="_blank" rel="noreferrer"><Printer className="size-3" /> Labels</a></Button></div>
               </li>
             ))}

@@ -1,4 +1,3 @@
-import { queueReceipt } from "./shopifyStock"
 import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
@@ -264,7 +263,6 @@ export const receiveStock = mutation({
       await bumpStock(ctx, { variantId: i.variantId, locationId: a.locationId, bucket: "available", change: i.qty, reason: `Stock in GRN-${code}`, byName: me.staff.name, receiptId })
       if (a.updateCost && i.unitCost > 0) await ctx.db.patch(i.variantId, { purchasePrice: i.unitCost })
     }
-    await queueReceipt(ctx, receiptId)
     return code
   },
 })

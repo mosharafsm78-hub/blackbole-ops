@@ -103,6 +103,7 @@ export default defineSchema({
     imageUrl: v.optional(v.string()),
     active: v.boolean(),
     createdAt: v.optional(v.number()),
+    shopifyItemId: v.optional(v.string()), // Shopify inventory item (cached for the stock sync)
   })
     .index("by_sku", ["sku"])
     .index("by_product", ["productId"]),
@@ -454,6 +455,8 @@ export default defineSchema({
 
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
+  // products whose Shopify stock must be refreshed (live stock sync)
+  shopifyDirty: defineTable({ variantId: v.id("variants"), at: v.number() }).index("by_variant", ["variantId"]),
 
   // Daily scoreboard: numbers per day an order was made (kept up to date on every order change)
   dayStats: defineTable({ day: v.string(), st: v.any(), src: v.any(), it: v.any(), due: v.number(), q: v.number() }).index("by_day", ["day"]),

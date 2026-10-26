@@ -97,6 +97,9 @@ function ShopifyStockSync() {
   const [shopLocs, setShopLocs] = useState<{ id: string; name: string }[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const preview = useAction(api.shopifyStock.preview)
+  const pushAll = useAction(api.shopifyStock.pushAll)
+  const [pv, setPv] = useState<null | { total: number; same: number; notInShopify: number; changes: { sku: string; shopify: number; ops: number }[] }>(null)
   useEffect(() => {
     if (!st || loaded) return
     setShop(st.shop || "a88d34-65.myshopify.com"); setClientId(st.clientId); setOn(st.on)
@@ -109,8 +112,8 @@ function ShopifyStockSync() {
     setSecret("")
   }
   return (
-    <Section title="Stock in → Shopify" sub={st.on ? <Pill tone="green">On</Pill> : <Pill tone="gray">Off</Pill>}>
-      <p className="mb-3 text-sm text-muted-foreground">When goods are received in Ops (purchase “Receive goods” or Stock in), the same good pairs are added to Shopify stock automatically. Sales are not sent — Shopify already takes stock off when an order is placed.</p>
+    <Section title="Live stock → Shopify" sub={st.on ? <Pill tone="green">On</Pill> : <Pill tone="gray">Off</Pill>}>
+      <p className="mb-3 text-sm text-muted-foreground">Ops is the boss of stock. Every time stock changes in Ops (goods received, order approved or cancelled, return, adjustment) the website stock is set to the same number within a few seconds: available in the linked warehouses minus pairs in Pending / On Hold orders.</p>
       <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
         <div className="space-y-1.5"><Label>Shop domain</Label><Input value={shop} onChange={(e) => setShop(e.target.value)} placeholder="xxxx.myshopify.com" /></div>
         <div className="space-y-1.5"><Label>Client ID (Dev Dashboard app)</Label><Input value={clientId} onChange={(e) => setClientId(e.target.value)} /></div>
@@ -142,9 +145,35 @@ function ShopifyStockSync() {
         ))}
         {!shopLocs && <p className="text-xs text-muted-foreground">Click “Save & test connection” to load your Shopify locations.</p>}
       </div>
+      <div className="mt-4 rounded-md border p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { await doSave(); setPv(await preview()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Preview (changes nothing)</Button>
+          {st.on && <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { const r = await pushAll(); toast.success(`Shopify updated for ${r.pushed} products${r.missing ? ` · ${r.missing} SKUs not in Shopify` : ""}`) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Push all now</Button>}
+          {st.last && <span className="text-xs text-muted-foreground">Last update {dateTime(st.last.at)} · {st.last.count} products</span>}
+        </div>
+        {pv && (
+          <div className="mt-3 text-sm">
+            <div>{pv.total} products · <b className="text-tone-green">{pv.same} already the same</b> · <b className="text-tone-red">{pv.changes.length} will change</b> · {pv.notInShopify} not in Shopify</div>
+            {pv.changes.length > 0 && (
+              <div className="mt-2 max-h-72 overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted"><tr><th className="p-1.5 text-left">SKU</th><th className="p-1.5 text-right">Website now</th><th className="p-1.5 text-right">Will become (Ops)</th></tr></thead>
+                  <tbody>{pv.changes.slice(0, 300).map((c) => <tr key={c.sku} className="border-t"><td className="p-1.5 font-mono">{c.sku}</td><td className="p-1.5 text-right">{c.shopify}</td><td className={cn("p-1.5 text-right font-semibold", c.ops < c.shopify ? "text-tone-red" : "text-tone-green")}>{c.ops}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <label className="mt-4 flex items-center gap-2 text-sm">
-        <Switch checked={on} onCheckedChange={async (v) => { setOn(v); try { await doSave(v); toast.success(v ? "Stock sync switched on" : "Stock sync switched off") } catch (e) { setOn(!v); toast.error(errMsg(e)) } }} />
-        Add received stock to Shopify automatically
+        <Switch checked={on} onCheckedChange={async (v) => { if (v && !pv) { toast.error("Click Preview first to see what will change on the website"); return } if (v && !window.confirm(`Switch on? ${pv?.changes.length ?? 0} products will change on the website now.`)) return; setOn(v); try { await doSave(v); if (v) { const r = await pushAll(); toast.success(`Live sync on — Shopify updated for ${r.pushed} products`) } else toast.success("Stock sync switched off") } catch (e) { setOn(!v); toast.error(errMsg(e)) } }} />
+        Keep Shopify stock the same as Ops (live)
       </label>
       <div className="mt-2"><Button size="sm" disabled={busy} onClick={async () => { try { await doSave(); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) } }}>Save</Button></div>
     </Section>

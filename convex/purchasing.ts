@@ -2,7 +2,6 @@ import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
-import { queueReceipt } from "./shopifyStock"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
 
 // ---------------- Suppliers ----------------
@@ -360,7 +359,6 @@ export const receivePO = mutation({
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
     await ctx.db.patch(po._id, { items, status: done ? "received" : "partial", updatedAt: Date.now(), ...(done ? { receivedAt: Date.now() } : {}) })
-    await queueReceipt(ctx, receiptId)
     return { code, receiptId }
   },
 })
