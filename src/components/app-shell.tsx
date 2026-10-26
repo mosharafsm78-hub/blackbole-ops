@@ -198,7 +198,7 @@ function Layout({ children }: { children: React.ReactNode }) {
   const [q, setQ] = useState("")
 
   const side = (
-    <div className="flex h-full flex-col gap-6 p-3">
+    <div className="flex min-h-full flex-col gap-6 p-3">
       <Brand />
       <NavLinks onNavigate={() => setOpen(false)} />
       <div className="mt-auto border-t pt-3">
@@ -214,9 +214,9 @@ function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <aside className="no-print fixed inset-y-0 left-0 hidden w-56 border-r bg-card lg:block">{side}</aside>
+      <aside className="no-print fixed inset-y-0 left-0 hidden w-56 overflow-y-auto overscroll-contain border-r bg-card lg:block">{side}</aside>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="left" className="w-64 p-0">
+        <SheetContent side="left" className="w-64 overflow-y-auto p-0">
           <SheetTitle className="sr-only">Menu</SheetTitle>
           {side}
         </SheetContent>
