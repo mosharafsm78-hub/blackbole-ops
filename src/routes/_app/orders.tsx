@@ -6,7 +6,7 @@ import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
+import { EXCHANGE_SUBS, ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
@@ -161,6 +161,23 @@ function OrdersPage() {
 
       {/* Sub-tabs like Nuport: Delivered → Payment Due / Collected, Flagged → Pending Returned / Returned / Damaged */}
       {(() => {
+        if (search.tab === "exchange") {
+          const subs = [{ k: undefined as string | undefined, label: "All" }, ...EXCHANGE_SUBS.map((x) => ({ k: `ex:${x.key}` as string | undefined, label: x.label }))]
+          return (
+            <div className="-mt-2 mb-4 flex flex-wrap gap-2" data-testid="exchange-sub-tabs">
+              {subs.map((x) => {
+                const active = search.st === x.k
+                const n = x.k ? counts?.[x.k] : counts?.exchange
+                return (
+                  <button key={x.k ?? "all"} type="button" onClick={() => set({ st: x.k })}
+                    className={cn("flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium", active ? "border-foreground bg-foreground text-background" : "bg-card hover:bg-accent")}>
+                    {x.label}<span className="tabular-nums opacity-70">{n ?? "·"}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )
+        }
         const tab = STATUS_TABS.find((t) => t.key === search.tab)
         if (!tab || tab.statuses.length < 2) return null
         const subs = [{ k: undefined as string | undefined, label: "All" }, ...tab.statuses.map((st) => ({ k: st as string | undefined, label: SUB_LABEL[st] ?? STATUS_LABEL[st] }))]

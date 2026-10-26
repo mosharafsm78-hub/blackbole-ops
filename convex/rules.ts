@@ -50,6 +50,15 @@ export const STATUS_TABS: { key: string; label: string; statuses: OrderStatus[] 
   { key: "cancelled", label: "Cancelled", statuses: ["cancelled"] },
 ]
 
+/** Sub-tabs of the Exchange tab. */
+export const EXCHANGE_SUBS: { key: string; label: string; statuses: OrderStatus[] }[] = [
+  { key: "open", label: "Not sent yet", statuses: ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] },
+  { key: "in_transit", label: "In Transit", statuses: ["in_transit"] },
+  { key: "delivered", label: "Delivered", statuses: ["delivered_due", "delivered_paid"] },
+  { key: "returned", label: "Returned", statuses: ["pending_returned", "returned", "damaged"] },
+  { key: "cancelled", label: "Cancelled", statuses: ["cancelled"] },
+]
+
 // Every move the system allows (mirrors the workflow BlackBole already uses).
 export const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   pending: ["approved", "on_hold", "cancelled"],

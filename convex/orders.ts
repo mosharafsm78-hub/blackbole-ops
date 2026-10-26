@@ -12,7 +12,7 @@ import {
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
-  STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
+  EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
 } from "./rules"
@@ -256,7 +256,9 @@ export const counts = query({
     }
     out.all = all
     // Exchange tab (any status): exchange orders still open + the last ones finished
-    out.exchange = (await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(1000)).filter((o) => !o.deletedAt).length
+    const ex = (await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(1000)).filter((o) => !o.deletedAt)
+    out.exchange = ex.length
+    for (const sub of EXCHANGE_SUBS) out[`ex:${sub.key}`] = ex.filter((o) => sub.statuses.includes(o.status as OrderStatus)).length
     return out
   },
 })
@@ -409,7 +411,10 @@ export const list = query({
     if (f.tab === "exchange") {
       // Exchange tab: every exchange order, any status (newest first), other filters still apply
       const ex = (await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(3000))
-        .filter((o) => matches(o, { ...f, tab: "all" }))
+        .filter((o) => {
+          const sub = EXCHANGE_SUBS.find((x) => `ex:${x.key}` === f.statuses?.[0])
+          return matches(o, { ...f, tab: "all", statuses: undefined }) && (!sub || sub.statuses.includes(o.status as OrderStatus))
+        })
       return { rows: await dupesIfSmall(ctx, ex.slice(0, limit), limit), hasMore: ex.length > limit }
     }
     const tab = STATUS_TABS.find((t) => t.key === f.tab)
@@ -606,8 +611,8 @@ export const changeStatus = mutation({
 
 /** "Fast action": scan or type invoice numbers / consignment IDs and move them all in one go. */
 export const fastAction = mutation({
-  args: { codes: v.array(v.string()), to: orderStatus, reason: v.optional(v.string()) },
-  handler: async (ctx, { codes, to, reason }) => {
+  args: { codes: v.array(v.string()), to: orderStatus, reason: v.optional(v.string()), exchangeOnly: v.optional(v.boolean()) },
+  handler: async (ctx, { codes, to, reason, exchangeOnly }) => {
     const me = await requirePerm(ctx, "orders.view")
     const ids: Id<"orders">[] = []
     const notFound: string[] = []
@@ -632,7 +637,9 @@ export const fastAction = mutation({
       const from = order.status
       let error: string | undefined
       let already: { at: number; by: string } | undefined
-      if (order.status === to) {
+      if (exchangeOnly !== undefined && !!order.isExchange !== exchangeOnly) {
+        error = exchangeOnly ? `${label}: NOT an exchange order — use “Handed over → In Transit”` : `${label}: this is an EXCHANGE order — use “Exchange handed over”`
+      } else if (order.status === to) {
         // scanned twice: when and by whom it got this status
         const ev = (await ctx.db.query("orderEvents").withIndex("by_order", (q) => q.eq("orderId", id)).order("desc").take(30))
           .find((e) => e.type === "log" && e.text.includes(`→ ${STATUS_LABEL[to]}`))

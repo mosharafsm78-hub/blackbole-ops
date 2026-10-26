@@ -17,10 +17,11 @@ export const Route = createFileRoute("/_app/scan")({
   ),
 })
 
-const MODES: { to: OrderStatus; label: string; hint: string }[] = [
+const MODES: { to: OrderStatus; label: string; hint: string; exchange?: boolean }[] = [
   { to: "ready_to_ship", label: "Packed → Ready To Ship", hint: "Scan the invoice on the box. Packed and waiting for the rider (sent to Pathao only if Settings says “at Ready To Ship”)." },
   { to: "processing", label: "Start → Processing", hint: "Scan to start packing an approved (or arrived pre-order) order." },
   { to: "in_transit", label: "Handed over → In Transit", hint: "Scan each parcel you hand to the rider. Pathao orders are sent to Pathao now if not sent yet." },
+  { to: "in_transit", exchange: true, label: "Exchange handed over → In Transit", hint: "Scan each EXCHANGE parcel you hand to the rider (Pathao exchange). Only exchange orders are accepted here, so normal parcels can't get mixed in." },
   { to: "returned", label: "Return received → Returned", hint: "Scan a returned parcel in good condition. Stock goes back to Available and can be sold again." },
   { to: "damaged", label: "Return damaged → Damaged", hint: "Scan a returned parcel that came back damaged. Stock goes to Damaged, not Available." },
 ]
@@ -70,7 +71,7 @@ function ScanPage() {
     if (!c) return
     setCode("")
     try {
-      const r = await fast({ codes: [c], to: m.to })
+      const r = await fast({ codes: [c], to: m.to, exchangeOnly: m.exchange ? true : undefined })
       const d = r.details[0]
       const ok = r.done > 0
       const scannedBefore = !!d && lines.some((l) => l.label === d.label)
@@ -95,7 +96,7 @@ function ScanPage() {
       <PageHeader title="Scan" sub="Scan the barcode on the printed invoice (or type the invoice number / consignment ID and press Enter)." />
       <div className="mb-3 flex flex-wrap gap-2">
         {MODES.map((x, i) => (
-          <button key={x.to} type="button" onClick={() => setMode(i)}
+          <button key={x.label} type="button" onClick={() => setMode(i)}
             className={cn("rounded-full border px-3 py-1.5 text-sm", mode === i ? "border-foreground bg-foreground text-background" : "bg-card hover:bg-accent")}>
             {x.label}
           </button>
