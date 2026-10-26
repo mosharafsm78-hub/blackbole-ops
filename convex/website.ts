@@ -14,7 +14,6 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, setSetting } from "./lib"
 import { hasPerm } from "./rules"
-import { matchByName } from "./checkouts"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
 const REBUILD_DELAY = 2 * 60 * 1000
@@ -249,17 +248,6 @@ export const status = query({
  *  creating what is missing. Re-running updates, never duplicates. */
 const isPlaceholder = (v: Doc<"variants">) => /^WEB-/i.test(v.sku)
 
-/** Retire a WEB-… placeholder size made by an earlier import once the real Ops size is known
- *  (same convention as deleted sizes: inactive + "-DELETED"). Kept if an order or stock row already uses it. */
-async function retirePlaceholder(ctx: MutationCtx, v: Doc<"variants">) {
-  if (!isPlaceholder(v) || /-DELETED$/i.test(v.sku)) return false
-  const recent = await ctx.db.query("orders").withIndex("by_creation_time", (q) => q.gt("_creationTime", v._creationTime)).collect()
-  if (recent.some((o) => o.items.some((i) => i.variantId === v._id))) return false
-  if (await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", v._id)).first()) return false
-  await ctx.db.patch(v._id, { active: false, sku: `${v.sku}-DELETED`, web: undefined })
-  return true
-}
-
 type ImportStats = { created: number; updated: number; variantsCreated: number; variantsMatched: number; skipped?: number; relinked?: number; moved?: number }
 
 async function importOne(ctx: MutationCtx, ep: any, pos: ImportStats) {
@@ -271,39 +259,18 @@ async function importOne(ctx: MutationCtx, ep: any, pos: ImportStats) {
     const real = normSku(ev.sku)
     let row = real ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", real)).first() : null
     if (!row && ev.sku && ev.sku !== real) row = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", String(ev.sku))).first()
-    if (!row && !real) {
-      // No SKU on the website: find the Ops size the same way Shopify orders are matched (product name + size),
-      // so website orders land on the same Ops size as Shopify orders do. Never one of our own WEB- placeholders.
-      const hit = await matchByName(ctx, String(ep.title ?? ""), ev.title ? String(ev.title) : undefined)
-      const placeholder = ev.id ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `WEB-${ev.id}`)).first() : null
-      if (hit && !isPlaceholder(hit)) {
-        row = hit
-        if (placeholder && placeholder._id !== hit._id && (await retirePlaceholder(ctx, placeholder))) pos.relinked = (pos.relinked ?? 0) + 1
-      } else row = placeholder
+    if (!row && !real && ev.id) {
+      // No SKU on the website: the size keeps its own WEB-<id> placeholder (revived if an earlier run retired it).
+      // (Name matching is not used here: the same pair is listed on several Shopify pages and would be pulled across.)
+      row = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `WEB-${ev.id}`)).first()
+      if (!row) {
+        const retired = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `WEB-${ev.id}-DELETED`)).first()
+        if (retired) { await ctx.db.patch(retired._id, { sku: `WEB-${ev.id}`, active: true }); row = await ctx.db.get(retired._id) }
+      }
     }
     matched.push(row)
   }
-  let byHandle = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
-  // An earlier import made a placeholder product for this page; now that its sizes are found in a real Ops product,
-  // the page moves to that product and the placeholder product is removed (its leftover sizes move along).
-  if (byHandle && !byHandle.deletedAt) {
-    const hId = byHandle._id
-    const own = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", hId)).collect()
-    const owners = matched.filter((m): m is Doc<"variants"> => !!m && !isPlaceholder(m) && m.productId !== hId).map((m) => m.productId as string)
-    if (own.length && own.every(isPlaceholder) && owners.length) {
-      const top = [...owners.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0][0] as Id<"products">
-      const target = await ctx.db.get(top)
-      if (target && !target.deletedAt && (!target.handle || target.handle === handle)) {
-        for (const v of own) if (!/-DELETED$/i.test(v.sku)) await ctx.db.patch(v._id, { productId: target._id })
-        await ctx.db.patch(hId, { handle: undefined, active: false, deletedAt: Date.now() })
-        await ctx.db.patch(target._id, { handle, web: { ...(target.web ?? {}), ...(byHandle.web ?? {}) } })
-        byHandle = await ctx.db.get(target._id)
-        pos.moved = (pos.moved ?? 0) + 1
-      }
-    }
-  }
-  // Draft (hidden) website pages with nothing in Ops yet: don't create new Ops products for them
-  if (ep.published === false && !byHandle && !matched.some(Boolean)) { pos.skipped = (pos.skipped ?? 0) + 1; return }
+  const byHandle = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
   let productId: Id<"products"> | undefined = byHandle && !byHandle.deletedAt ? byHandle._id : undefined
   if (!productId) {
     // The Ops product holding most of the matched variants (owners of a parent link first)
@@ -372,6 +339,35 @@ async function importOne(ctx: MutationCtx, ep: any, pos: ImportStats) {
   }
 }
 
+/** Undo of a short-lived import change (27 Oct): pages that were moved from their import-made product to another
+ *  Ops product go back, with their WEB- sizes. Recognised by: soft-deleted, import-made (only WEB- sizes before),
+ *  and another product now carrying the same website id. */
+export const undoPageMoves = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const since = Date.UTC(2026, 9, 26, 20, 0) // 27 Oct 02:00 Dhaka
+    const all = await ctx.db.query("products").collect()
+    let n = 0
+    // Real sizes that were name-matched to a no-SKU website size carry that size's website id; clear their website
+    // link (their own page, if any, sets it again during this import).
+    const vars = await ctx.db.query("variants").collect()
+    const placeholderIds = new Set(vars.map((v) => /^WEB-(\d+)/i.exec(v.sku)?.[1]).filter(Boolean) as string[])
+    for (const v of vars) if (!/^WEB-/i.test(v.sku) && v.web?.id && placeholderIds.has(String(v.web.id))) { await ctx.db.patch(v._id, { web: undefined }); n++ }
+    for (const ph of all) {
+      if (!ph.deletedAt || ph.deletedAt < since || ph.handle || !ph.web?.id) continue
+      const target = all.find((t) => t._id !== ph._id && !t.deletedAt && t.handle && t.web?.id === ph.web.id)
+      if (!target) continue
+      for (const v of await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", target._id)).collect())
+        if (/^WEB-/i.test(v.sku)) await ctx.db.patch(v._id, { productId: ph._id })
+      const handle = target.handle
+      await ctx.db.patch(target._id, { handle: undefined })
+      await ctx.db.patch(ph._id, { handle, active: true, deletedAt: undefined })
+      n++
+    }
+    return n
+  },
+})
+
 export const importProductsChunk = internalMutation({
   args: { products: v.array(v.any()) },
   handler: async (ctx, { products }) => {
@@ -423,6 +419,7 @@ export async function runImport(ctx: { runMutation: any }, data: any) {
   const products: any[] = Array.isArray(data?.products) ? data.products : []
   const collections: any[] = Array.isArray(data?.collections) ? data.collections : []
   if (!products.length) throw new ConvexError("The website export has no products.")
+  await ctx.runMutation(internal.website.undoPageMoves, {})
   const sum = { products: products.length, created: 0, updated: 0, variantsCreated: 0, variantsMatched: 0, collections: 0, relinked: 0, moved: 0 }
   for (let i = 0; i < products.length; i += PRODUCT_CHUNK) {
     const r = await ctx.runMutation(internal.website.importProductsChunk, { products: products.slice(i, i + PRODUCT_CHUNK) })
