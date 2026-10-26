@@ -16,6 +16,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
 import { SignInForm } from "@/components/sign-in-form"
+import { WebsiteSubNav, websiteNavKey } from "@/components/website-nav"
 
 type Me = { name: string; email: string; roleName: string; perms: string[] }
 const MeContext = createContext<Me | null>(null)
@@ -154,6 +155,8 @@ function Gate({ children }: { children: React.ReactNode }) {
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const me = useMe()
   const path = useRouterState({ select: (s) => s.location.pathname })
+  const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>
+  const inWebsite = path === "/website" || path.startsWith("/website-")
   const carts = useQuery(api.checkouts.counts)
   const badge = (to: string) => (to === "/abandoned" && carts ? carts.new + carts.followupDue : 0)
   return (
@@ -171,6 +174,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           )]
         }
         const active = n.to === "/" ? path === "/" : path.startsWith(n.to) || (n.to === "/orders" && path.startsWith("/order")) || (n.to === "/purchases" && /^\/(purchase|supplier|stock-in)/.test(path))
+        // Website opens in place, Shopify-style: its own menu shows indented under it.
+        const expanded = n.to === "/website" && inWebsite
         return [heading, (
           <Link
             key={n.to}
@@ -178,14 +183,14 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             onClick={onNavigate}
             className={cn(
               "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-              active && "bg-accent font-semibold text-foreground",
+              active && (expanded ? "font-semibold text-foreground" : "bg-accent font-semibold text-foreground"),
             )}
           >
             <span className={cn("flex size-7 items-center justify-center rounded-md", n.color)}><Icon className="size-4" /></span>
             {n.label}
             {badge(n.to) > 0 && <span className="ml-auto rounded-full bg-tone-red px-1.5 text-[11px] font-semibold tabular-nums text-white">{badge(n.to)}</span>}
           </Link>
-        )]
+        ), expanded ? <WebsiteSubNav key="website-sub" active={websiteNavKey(path, search)} onNavigate={onNavigate} /> : null]
       })}
     </nav>
   )

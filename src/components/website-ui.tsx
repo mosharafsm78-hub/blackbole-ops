@@ -1,14 +1,16 @@
 // Building blocks for the Website editors (product + collection), modelled on Shopify Admin:
 // a save bar that only appears when something changed, a rich description editor, a drag-to-reorder
 // photo grid, a Google preview for SEO and a chip input for tags.
+// Also the shared Shopify-style (Polaris look) pieces: Card, Badge, PageHeader, EmptyState and index table helpers.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useBlocker } from "@tanstack/react-router"
+import { Link, useBlocker } from "@tanstack/react-router"
 import {
-  Bold, Code2, GripVertical, Heading2, Heading3, ImagePlus, Italic, Link2, List, ListOrdered, Loader2, MoreHorizontal,
-  Pencil, Quote, RemoveFormatting, Star, Trash2, Underline, Undo2, X,
+  AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, Bold, ChevronDown, Code2, GripVertical, Heading2, Heading3, ImagePlus, Italic, Link2, List, ListOrdered, Loader2, MoreHorizontal,
+  Pencil, Plus, Quote, RemoveFormatting, Search, Star, Trash2, Underline, Undo2, X,
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -17,15 +19,18 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { cn } from "@/lib/utils"
 
 // ---------------------------------------------------------------- layout
+/** Polaris card surface: white, 12px corners, hairline edge and a soft bottom shadow. */
+export const CARD = "rounded-xl border border-black/[0.08] bg-card shadow-[0_1px_0_0_rgba(26,26,26,0.07)] dark:border-white/10 dark:shadow-none"
+
 export function Section({ title, sub, action, children, className, flush }: {
   title?: React.ReactNode; sub?: React.ReactNode; action?: React.ReactNode; children?: React.ReactNode; className?: string; flush?: boolean
 }) {
   return (
-    <section className={cn("rounded-xl border bg-card shadow-[0_1px_0_rgba(0,0,0,0.04)]", className)}>
+    <section className={cn(CARD, className)}>
       {(title || action) && (
         <div className="flex items-start justify-between gap-3 px-4 pt-4">
           <div className="min-w-0">
-            {title && <h2 className="text-sm font-semibold">{title}</h2>}
+            {title && <h2 className="text-[13px] font-semibold leading-5">{title}</h2>}
             {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
           </div>
           {action && <div className="flex shrink-0 items-center gap-1">{action}</div>}
@@ -82,31 +87,35 @@ export function SaveBar({ dirty, saving, onSave, onDiscard, message = "Unsaved c
         dirty ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-24 opacity-0",
       )}
     >
-      <span className="flex items-center gap-2 whitespace-nowrap text-sm font-medium"><span className="size-2 rounded-full bg-amber-400" />{message}</span>
-      <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" disabled={saving} onClick={onDiscard}>Discard</Button>
-      <Button size="sm" className="bg-white text-neutral-900 hover:bg-white/90" disabled={saving} onClick={onSave}>
+      <span className="flex items-center gap-2 whitespace-nowrap text-sm font-medium"><AlertTriangle className="size-4 text-amber-300" />{message}</span>
+      <Button size="sm" variant="ghost" className={DISCARD} disabled={saving} onClick={onDiscard}>Discard</Button>
+      <Button size="sm" className={SAVE} disabled={saving} onClick={onSave}>
         {saving && <Loader2 className="size-4 animate-spin" />}{saving ? "Saving" : "Save"}
       </Button>
     </div>
     <div
       aria-hidden={!dirty}
       className={cn(
-        "fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-3 border-b border-white/10 bg-neutral-900 px-4 text-white shadow-lg transition-transform duration-200 md:px-6",
+        "fixed inset-x-0 top-0 z-50 flex h-14 items-center bg-[#1a1a1a] px-4 text-white shadow-lg transition-transform duration-200 md:px-6",
         dirty ? "translate-y-0" : "-translate-y-full",
       )}
     >
-      <span className="flex items-center gap-2 text-sm font-medium"><span className="size-2 rounded-full bg-amber-400" />{message}</span>
+      <div className="mx-auto flex w-full max-w-5xl items-center gap-3">
+      <span className="flex items-center gap-2 text-sm font-semibold"><AlertTriangle className="size-4 text-amber-300" />{message}</span>
       <span className="hidden text-xs text-white/50 sm:inline">Ctrl + S to save</span>
       <div className="ml-auto flex gap-2">
-        <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" disabled={saving} onClick={onDiscard}>Discard</Button>
-        <Button size="sm" className="bg-white text-neutral-900 hover:bg-white/90" disabled={saving} onClick={onSave}>
+        <Button size="sm" variant="ghost" className={DISCARD} disabled={saving} onClick={onDiscard}>Discard</Button>
+        <Button size="sm" className={SAVE} disabled={saving} onClick={onSave}>
           {saving && <Loader2 className="size-4 animate-spin" />}{saving ? "Saving" : "Save"}
         </Button>
+      </div>
       </div>
     </div>
     </>
   )
 }
+const DISCARD = "h-8 rounded-lg border border-white/25 bg-white/5 text-white hover:bg-white/15 hover:text-white"
+const SAVE = "h-8 rounded-lg bg-white font-semibold text-[#1a1a1a] shadow-[inset_0_-1px_0_rgba(0,0,0,0.2)] hover:bg-white/90"
 
 // ---------------------------------------------------------------- rich text
 const TOOLS: { icon: typeof Bold; label: string; run: () => void; state?: string }[] = [
@@ -447,14 +456,15 @@ export function SuggestInput({ value, onChange, suggestions, placeholder }: { va
 }
 
 // ---------------------------------------------------------------- status
-export function StatusBadge({ on, label }: { on: boolean; label?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold", on ? "bg-tone-green-bg text-tone-green" : "bg-tone-gray-bg text-tone-gray")}>
-      <span className={cn("size-1.5 rounded-full", on ? "bg-tone-green" : "bg-tone-gray")} />
-      {label ?? (on ? "On website" : "Hidden")}
-    </span>
-  )
+/** On/off badge (kept for older pages), now with Polaris colours.
+ *  Pass `status` for Shopify's product states: Active = green, Draft = blue, Archived = grey. */
+export type ItemStatus = "active" | "draft" | "archived"
+export function StatusBadge({ on, label, status }: { on: boolean; label?: string; status?: ItemStatus }) {
+  if (status) return <Badge tone={STATUS_TONE[status]}>{label ?? STATUS_TEXT[status]}</Badge>
+  return <Badge tone={on ? "success" : "neutral"}>{label ?? (on ? "On website" : "Hidden")}</Badge>
 }
+const STATUS_TONE: Record<ItemStatus, BadgeTone> = { active: "success", draft: "info", archived: "neutral" }
+const STATUS_TEXT: Record<ItemStatus, string> = { active: "Active", draft: "Draft", archived: "Archived" }
 
 /** Upload files to Convex storage; returns website-ready image rows. */
 export async function uploadImages(files: File[], getUploadUrl: () => Promise<string>, getFileUrl: (a: { storageId: any }) => Promise<string>, alt: string) {
@@ -484,3 +494,372 @@ function imageSize(f: File): Promise<{ w: number; h: number } | null> {
 
 export const SITE_URL = "https://blackbole.com"
 export const PREVIEW_URL = "https://blackbole-site.pages.dev"
+
+// ================================================================ Shopify-style building blocks
+// Small, dependency-free versions of the Polaris pieces Shopify Admin uses. Pages can adopt them one at a time.
+
+// ---------------------------------------------------------------- Card
+/** A Polaris card. `flush` drops the inner padding (for tables and lists that run edge to edge). */
+export function Card({ children, className, flush, title, action }: {
+  children?: React.ReactNode; className?: string; flush?: boolean; title?: React.ReactNode; action?: React.ReactNode
+}) {
+  return (
+    <section className={cn(CARD, flush && "overflow-hidden", className)}>
+      {(title || action) && (
+        <div className={cn("flex items-center justify-between gap-3", flush ? "px-4 pb-2 pt-3" : "px-4 pt-4")}>
+          {title && <h2 className="text-[13px] font-semibold leading-5">{title}</h2>}
+          {action && <div className="ml-auto flex shrink-0 items-center gap-1">{action}</div>}
+        </div>
+      )}
+      {flush ? children : <div className={cn("p-4", (title || action) && "pt-3")}>{children}</div>}
+    </section>
+  )
+}
+
+// ---------------------------------------------------------------- Badge
+export type BadgeTone = "neutral" | "success" | "info" | "attention" | "warning" | "critical" | "new"
+const BADGE_TONE: Record<BadgeTone, string> = {
+  neutral: "bg-black/[0.06] text-foreground/75 dark:bg-white/10",
+  success: "bg-tone-green-bg text-tone-green",
+  info: "bg-tone-blue-bg text-tone-blue",
+  attention: "bg-tone-amber-bg text-tone-amber",
+  warning: "bg-tone-orange-bg text-tone-orange",
+  critical: "bg-tone-red-bg text-tone-red",
+  new: "bg-tone-violet-bg text-tone-violet",
+}
+/** Polaris badge: small rounded pill with a soft colour. `dot` adds the little progress circle. */
+export function Badge({ tone = "neutral", dot, children, className }: { tone?: BadgeTone; dot?: boolean; children: React.ReactNode; className?: string }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-0.5 text-xs font-medium leading-4", BADGE_TONE[tone], className)}>
+      {dot && <span className="size-1.5 rounded-full bg-current opacity-80" />}
+      {children}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------- Page header
+export type HeaderAction = {
+  label: string; onClick?: () => void; href?: string; icon?: React.ReactNode; destructive?: boolean; disabled?: boolean
+}
+/** Shopify page header: back arrow, title with badges, then secondary buttons, "More actions" and the main button on the right. */
+export function PageHeader({ title, back, onBack, badges, subtitle, primary, secondary, more, moreLabel = "More actions", className }: {
+  title: React.ReactNode
+  /** Where the back arrow goes, e.g. { to: "/website-pages" }. */
+  back?: { to: string; search?: Record<string, unknown>; label?: string }
+  onBack?: () => void
+  badges?: React.ReactNode
+  subtitle?: React.ReactNode
+  /** The main action (dark button), e.g. <Button size="sm">Add product</Button>. */
+  primary?: React.ReactNode
+  /** Plain buttons shown before "More actions". */
+  secondary?: React.ReactNode
+  more?: HeaderAction[]
+  moreLabel?: string
+  className?: string
+}) {
+  const backCls = "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/10"
+  return (
+    <div className={cn("mb-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2", className)}>
+      <div className="flex min-w-0 items-start gap-1.5">
+        {back && (
+          <Link to={back.to as "/website"} search={back.search as never} aria-label={back.label ?? "Back"} title={back.label ?? "Back"} className={backCls}>
+            <ArrowLeft className="size-4" />
+          </Link>
+        )}
+        {!back && onBack && <button type="button" onClick={onBack} aria-label="Back" className={backCls}><ArrowLeft className="size-4" /></button>}
+        <div className="min-w-0 pt-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="truncate text-xl font-bold leading-7 tracking-tight">{title}</h1>
+            {badges}
+          </div>
+          {subtitle && <p className="mt-0.5 text-[13px] text-muted-foreground">{subtitle}</p>}
+        </div>
+      </div>
+      {(primary || secondary || (more && more.length > 0)) && (
+        <div className="flex flex-wrap items-center gap-2">
+          {secondary}
+          {more && more.length > 0 && <MoreActions label={moreLabel} actions={more} />}
+          {primary}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** "More actions ▾" dropdown used in page headers and bulk bars. */
+export function MoreActions({ actions, label = "More actions", size = "sm" }: { actions: HeaderAction[]; label?: string; size?: "sm" | "icon" }) {
+  const safe = actions.filter((a) => !a.destructive)
+  const danger = actions.filter((a) => a.destructive)
+  const item = (a: HeaderAction) => a.href
+    ? <DropdownMenuItem key={a.label} asChild disabled={a.disabled}><a href={a.href} target="_blank" rel="noreferrer">{a.icon}{a.label}</a></DropdownMenuItem>
+    : <DropdownMenuItem key={a.label} disabled={a.disabled} onClick={a.onClick} className={a.destructive ? "text-tone-red focus:text-tone-red" : undefined}>{a.icon}{a.label}</DropdownMenuItem>
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        {size === "icon"
+          ? <Button size="icon-sm" variant="outline" aria-label={label}><MoreHorizontal className="size-4" /></Button>
+          : <Button size="sm" variant="outline">{label}<ChevronDown className="size-3.5" /></Button>}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        {safe.map(item)}
+        {safe.length > 0 && danger.length > 0 && <DropdownMenuSeparator />}
+        {danger.map(item)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+// ---------------------------------------------------------------- Empty state
+/** Polaris empty state: centred picture, heading, one line of help and the buttons to get started. */
+export function EmptyState({ icon, image, title, text, primary, secondary, footer, className }: {
+  icon?: React.ReactNode; image?: string; title: React.ReactNode; text?: React.ReactNode
+  primary?: React.ReactNode; secondary?: React.ReactNode; footer?: React.ReactNode; className?: string
+}) {
+  return (
+    <div className={cn("flex flex-col items-center px-6 py-12 text-center", className)}>
+      {image ? <img src={image} alt="" className="mb-4 h-32 w-auto" loading="lazy" />
+        : icon ? <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-black/[0.05] text-muted-foreground dark:bg-white/10 [&_svg]:size-6">{icon}</div>
+        : null}
+      <h2 className="text-base font-semibold">{title}</h2>
+      {text && <p className="mt-1 max-w-md text-[13px] text-muted-foreground">{text}</p>}
+      {(primary || secondary) && <div className="mt-4 flex flex-wrap justify-center gap-2">{secondary}{primary}</div>}
+      {footer && <div className="mt-6 text-xs text-muted-foreground">{footer}</div>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- Index tables
+/** Class names for hand-built tables that should look like a Shopify index table. */
+export const INDEX = {
+  table: "w-full border-collapse text-[13px]",
+  th: "h-9 whitespace-nowrap border-b border-black/[0.08] bg-black/[0.03] px-3 text-left text-xs font-medium text-muted-foreground dark:border-white/10 dark:bg-white/[0.03]",
+  tr: "group border-b border-black/[0.06] transition-colors last:border-0 hover:bg-black/[0.03] data-[selected=true]:bg-black/[0.05] dark:border-white/[0.06] dark:hover:bg-white/[0.03] dark:data-[selected=true]:bg-white/[0.06]",
+  td: "px-3 py-2.5 align-middle",
+  check: "w-10 pl-4 pr-0",
+}
+
+/** Which rows are ticked. Unticks rows that disappear (e.g. after a filter or delete). */
+export function useSelection(ids: string[]) {
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const key = ids.join("|")
+  useEffect(() => {
+    setPicked((p) => {
+      const keep = new Set([...p].filter((id) => ids.includes(id)))
+      return keep.size === p.size ? p : keep
+    })
+  }, [key]) // eslint-disable-line react-hooks/exhaustive-deps
+  const count = picked.size
+  const all = ids.length > 0 && count === ids.length
+  return {
+    selected: picked,
+    count,
+    all,
+    some: count > 0 && !all,
+    has: (id: string) => picked.has(id),
+    toggle: (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n }),
+    toggleAll: () => setPicked(all ? new Set() : new Set(ids)),
+    set: (next: string[]) => setPicked(new Set(next)),
+    clear: () => setPicked(new Set()),
+  }
+}
+export type Selection = ReturnType<typeof useSelection>
+
+/** Header checkbox: ticks every row; shows a dash when only some are ticked. */
+export function SelectAllCheckbox({ sel, label = "Select all" }: { sel: Selection; label?: string }) {
+  return <Checkbox aria-label={label} checked={sel.all ? true : sel.some ? "indeterminate" : false} onCheckedChange={() => sel.toggleAll()} className={cn(CHECK, sel.some && DASH)} />
+}
+export function RowCheckbox({ sel, id, label = "Select row" }: { sel: Selection; id: string; label?: string }) {
+  return <Checkbox aria-label={label} checked={sel.has(id)} onCheckedChange={() => sel.toggle(id)} onClick={(e) => e.stopPropagation()} className={CHECK} />
+}
+const CHECK = "rounded-[5px] border-black/30 data-[state=indeterminate]:border-primary data-[state=indeterminate]:bg-primary data-[state=indeterminate]:text-primary-foreground dark:border-white/30"
+// "some ticked": hide the tick and draw a dash instead
+const DASH = "relative [&_svg]:hidden after:absolute after:left-1/2 after:top-1/2 after:h-0.5 after:w-2 after:-translate-x-1/2 after:-translate-y-1/2 after:rounded-full after:bg-current"
+
+/** Replaces the table header while rows are ticked: "3 selected" + bulk buttons, like Shopify. */
+export function BulkBar({ sel, total, children, more }: { sel: Selection; total?: number; children?: React.ReactNode; more?: HeaderAction[] }) {
+  if (sel.count === 0) return null
+  return (
+    <div className="flex h-11 items-center gap-3 border-b border-black/[0.08] bg-card px-4 dark:border-white/10" role="toolbar" aria-label="Bulk actions">
+      <SelectAllCheckbox sel={sel} />
+      <span className="text-[13px] font-semibold">{sel.count} selected</span>
+      {total != null && !sel.all && total > sel.count && (
+        <button type="button" onClick={sel.toggleAll} className="text-[13px] text-tone-blue hover:underline">Select all {total}</button>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+        {children}
+        {more && more.length > 0 && <MoreActions actions={more} size="icon" label="More bulk actions" />}
+      </div>
+    </div>
+  )
+}
+
+export type SortDir = "asc" | "desc"
+/** Clickable column heading that sorts. Shows an arrow on the active column. */
+export function SortHeader({ label, active, dir, onSort, align = "left", className }: {
+  label: React.ReactNode; active: boolean; dir: SortDir; onSort: () => void; align?: "left" | "right"; className?: string
+}) {
+  const Icon = dir === "asc" ? ArrowUp : ArrowDown
+  return (
+    <th className={cn(INDEX.th, align === "right" && "text-right", className)} aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" onClick={onSort} className={cn("group/sort inline-flex items-center gap-1 rounded hover:text-foreground", active && "text-foreground", align === "right" && "flex-row-reverse")}>
+        {label}
+        <Icon className={cn("size-3", active ? "opacity-100" : "opacity-0 group-hover/sort:opacity-50")} />
+      </button>
+    </th>
+  )
+}
+
+/** Sort state helper: click the same column again to flip the direction. */
+export function useSort<K extends string>(initial: K, initialDir: SortDir = "desc") {
+  const [by, setBy] = useState<K>(initial)
+  const [dir, setDir] = useState<SortDir>(initialDir)
+  const toggle = (k: K) => { if (k === by) setDir((d) => (d === "asc" ? "desc" : "asc")); else { setBy(k); setDir("asc") } }
+  return {
+    by, dir, toggle,
+    set: (k: K, d?: SortDir) => { setBy(k); setDir(d ?? dir) },
+    /** Spread into <SortHeader {...sort.header("title")} label="Title" />. */
+    header: (k: K) => ({ active: by === k, dir: by === k ? dir : ("asc" as SortDir), onSort: () => toggle(k) }),
+  }
+}
+
+/** The view tabs above a Shopify index table ("All", "Active", "Draft"…), with room for search on the right. */
+export function IndexTabs<T extends string>({ tabs, value, onChange, right }: {
+  tabs: { id: T; label: React.ReactNode; count?: number }[]; value: T; onChange: (id: T) => void; right?: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2 border-b border-black/[0.08] px-2 py-1.5 dark:border-white/10">
+      <div role="tablist" className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={value === t.id}
+            onClick={() => onChange(t.id)}
+            className={cn(
+              "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/10",
+              value === t.id && "bg-black/[0.08] text-foreground dark:bg-white/15",
+            )}
+          >
+            {t.label}
+            {t.count != null && <span className="tabular-nums text-xs text-muted-foreground">{t.count}</span>}
+          </button>
+        ))}
+      </div>
+      {right && <div className="flex shrink-0 items-center gap-1.5">{right}</div>}
+    </div>
+  )
+}
+
+/** Search box row for an index table, with filter pills underneath. */
+export function IndexSearch({ value, onChange, placeholder = "Search", pills, onCancel, autoFocus }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; pills?: React.ReactNode; onCancel?: () => void; autoFocus?: boolean
+}) {
+  return (
+    <div className="border-b border-black/[0.08] px-2 py-1.5 dark:border-white/10">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={value}
+            autoFocus={autoFocus}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") { if (value) onChange(""); else onCancel?.() } }}
+            placeholder={placeholder}
+            className="h-8 w-full rounded-lg border border-black/15 bg-background pl-8 pr-8 text-[13px] outline-none focus:border-foreground/40 focus:ring-2 focus:ring-ring/20 dark:border-white/15"
+          />
+          {value && (
+            <button type="button" aria-label="Clear search" onClick={() => onChange("")} className="absolute right-2 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+          )}
+        </div>
+        {onCancel && <Button size="sm" variant="ghost" className="h-8" onClick={onCancel}>Cancel</Button>}
+      </div>
+      {pills && <div className="mt-1.5 flex flex-wrap items-center gap-1.5">{pills}</div>}
+    </div>
+  )
+}
+
+/** A Shopify filter pill. Empty: dashed "Status +". Set: solid "Status: Active ×". Click opens `children` in a popover. */
+export function FilterPill({ label, value, onClear, children }: { label: string; value?: React.ReactNode; onClear?: () => void; children: React.ReactNode }) {
+  const set = value != null && value !== "" && value !== false
+  return (
+    <span className={cn("inline-flex h-7 items-center rounded-lg text-xs font-medium", set ? "bg-black/[0.08] dark:bg-white/15" : "border border-dashed border-black/25 dark:border-white/25")}>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" className="inline-flex h-full items-center gap-1 pl-2.5 pr-2">
+            {set ? <>{label}: <span className="font-semibold">{value}</span></> : <>{label}<Plus className="size-3" /></>}
+            {set && <ChevronDown className="size-3 opacity-60" />}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-60 p-2">{children}</PopoverContent>
+      </Popover>
+      {set && onClear && (
+        <button type="button" aria-label={`Clear ${label}`} onClick={onClear} className="mr-1 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-black/10 hover:text-foreground dark:hover:bg-white/15"><X className="size-3" /></button>
+      )}
+    </span>
+  )
+}
+
+/** Choice list for inside a FilterPill. */
+export function FilterChoices<T extends string>({ options, value, onChange }: { options: { value: T; label: React.ReactNode }[]; value: T | null; onChange: (v: T | null) => void }) {
+  return (
+    <div className="space-y-0.5">
+      {options.map((o) => (
+        <label key={o.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[13px] hover:bg-accent">
+          <input type="radio" className="accent-foreground" checked={value === o.value} onChange={() => onChange(o.value)} />{o.label}
+        </label>
+      ))}
+      {value != null && <button type="button" onClick={() => onChange(null)} className="mt-1 w-full rounded-md px-2 py-1 text-left text-xs text-tone-blue hover:underline">Clear</button>}
+    </div>
+  )
+}
+
+/** Ready-made index table: ticks, bulk bar, sortable headings and clickable rows, all in Shopify's look.
+ *  For special layouts, build your own table with INDEX, useSelection, BulkBar and SortHeader instead. */
+export type IndexColumn<T> = {
+  key: string; label: React.ReactNode; render: (row: T) => React.ReactNode
+  sortable?: boolean; align?: "left" | "right"; className?: string; hideBelow?: "sm" | "md" | "lg"
+}
+const HIDE: Record<string, string> = { sm: "hidden sm:table-cell", md: "hidden md:table-cell", lg: "hidden lg:table-cell" }
+export function IndexTable<T>({ rows, rowId, columns, sel, sort, onSort, onRowClick, bulk, bulkMore, empty, total }: {
+  rows: T[]; rowId: (row: T) => string; columns: IndexColumn<T>[]
+  sel?: Selection
+  sort?: { by: string; dir: SortDir }; onSort?: (key: string) => void
+  onRowClick?: (row: T) => void
+  bulk?: React.ReactNode; bulkMore?: HeaderAction[]
+  empty?: React.ReactNode; total?: number
+}) {
+  if (rows.length === 0 && empty) return <>{empty}</>
+  const bulkOn = !!sel && sel.count > 0
+  return (
+    <div className="overflow-x-auto">
+      {sel && <BulkBar sel={sel} total={total} more={bulkMore}>{bulk}</BulkBar>}
+      <table className={INDEX.table}>
+        <thead className={cn(bulkOn && "sr-only")}>
+          <tr>
+            {sel && <th className={cn(INDEX.th, INDEX.check)}><SelectAllCheckbox sel={sel} /></th>}
+            {columns.map((c) => {
+              const cls = cn(c.className, c.hideBelow && HIDE[c.hideBelow])
+              return c.sortable && onSort
+                ? <SortHeader key={c.key} label={c.label} active={sort?.by === c.key} dir={sort?.by === c.key ? sort.dir : "asc"} onSort={() => onSort(c.key)} align={c.align} className={cls} />
+                : <th key={c.key} className={cn(INDEX.th, c.align === "right" && "text-right", cls)}>{c.label}</th>
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const id = rowId(r)
+            return (
+              <tr key={id} data-selected={sel?.has(id) || undefined} className={cn(INDEX.tr, onRowClick && "cursor-pointer")} onClick={onRowClick ? () => onRowClick(r) : undefined}>
+                {sel && <td className={cn(INDEX.td, INDEX.check)} onClick={(e) => e.stopPropagation()}><RowCheckbox sel={sel} id={id} /></td>}
+                {columns.map((c) => (
+                  <td key={c.key} className={cn(INDEX.td, c.align === "right" && "text-right tabular-nums", c.className, c.hideBelow && HIDE[c.hideBelow])}>{c.render(r)}</td>
+                ))}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}

@@ -37,23 +37,38 @@ export function summaryLine(d: Pick<Doc<"discounts">, "type" | "value" | "scope"
   ].filter(Boolean).join(" · ")
 }
 
-/** Same title + tab row as the Website page, so every Website page feels like one section (like Shopify Admin). */
-export type WebsiteTab = "products" | "collections" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "themes" | "files" | "settings"
+/** Website section names. Kept so every Website page can say where it is.
+ *  On big screens the Website menu now lives in the left sidebar (like Shopify Admin), so this shows nothing there.
+ *  On phones the sidebar is hidden behind the menu button, so a small scrollable row of links is shown instead. */
+export type WebsiteTab = "products" | "collections" | "inventory" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "themes" | "files" | "settings"
+const MOBILE_TABS: { k: WebsiteTab; label: string; to: string; search?: Record<string, string> }[] = [
+  { k: "products", label: "Products", to: "/website", search: { tab: "products", view: "live" } },
+  { k: "collections", label: "Collections", to: "/website", search: { tab: "collections", view: "live" } },
+  { k: "inventory", label: "Inventory", to: "/website-inventory" },
+  { k: "discounts", label: "Discounts", to: "/website-discounts" },
+  { k: "files", label: "Files", to: "/website-files" },
+  { k: "navigation", label: "Menus", to: "/website-navigation" },
+  { k: "blog", label: "Blog posts", to: "/website-blog" },
+  { k: "pages", label: "Pages", to: "/website-pages" },
+  { k: "themes", label: "Themes", to: "/website-themes" },
+  { k: "settings", label: "Preferences", to: "/website-settings" },
+  { k: "subscribers", label: "Subscribers", to: "/website-subscribers" },
+]
 export function WebsiteTabs({ active }: { active: WebsiteTab }) {
-  const cls = (k: string) => cn("-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 text-sm font-medium transition-colors", active === k ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")
   return (
-    <div className="mb-4 flex gap-6 overflow-x-auto border-b">
-      <Link to="/website" search={{ tab: "products", view: "live" }} className={cls("products")}>Products</Link>
-      <Link to="/website" search={{ tab: "collections", view: "live" }} className={cls("collections")}>Collections</Link>
-      <Link to="/website-discounts" className={cls("discounts")}>Discounts</Link>
-      <Link to="/website-pages" className={cls("pages")}>Pages</Link>
-      <Link to="/website-blog" className={cls("blog")}>Blog</Link>
-      <Link to="/website-navigation" className={cls("navigation")}>Navigation</Link>
-      <Link to="/website-themes" className={cls("themes")}>Themes</Link>
-      <Link to="/website-files" className={cls("files")}>Files</Link>
-      <Link to="/website-settings" className={cls("settings")}>Settings</Link>
-      <Link to="/website-subscribers" className={cls("subscribers")}>Subscribers</Link>
-    </div>
+    <nav aria-label="Website" className="-mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4 pb-1 lg:hidden">
+      {MOBILE_TABS.map((t) => (
+        <Link
+          key={t.k}
+          to={t.to as "/website"}
+          search={t.search as never}
+          aria-current={active === t.k ? "page" : undefined}
+          className={cn(
+            "whitespace-nowrap rounded-lg px-2.5 py-1 text-[13px] font-medium transition-colors",
+            active === t.k ? "bg-foreground text-background" : "bg-card text-muted-foreground shadow-[0_0_0_1px_rgba(0,0,0,0.08)] hover:text-foreground",
+          )}
+        >{t.label}</Link>
+      ))}
+    </nav>
   )
 }
-
