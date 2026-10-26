@@ -583,6 +583,16 @@ export default defineSchema({
     endsAt: v.optional(v.number()),
     usageLimit: v.optional(v.number()),
     oncePerCustomer: v.optional(v.boolean()),
+    // Shopify-style extras (all optional; older rows are code discounts whose kind follows from scope)
+    method: v.optional(v.union(v.literal("code"), v.literal("automatic"))), // automatic: no code, code holds an internal AUTO-… id
+    kind: v.optional(v.union(v.literal("products"), v.literal("order"), v.literal("bxgy"), v.literal("shipping"))),
+    minQty: v.optional(v.number()), // minimum quantity of items
+    combines: v.optional(v.object({ products: v.optional(v.boolean()), order: v.optional(v.boolean()), shipping: v.optional(v.boolean()) })),
+    buyQty: v.optional(v.number()), // Buy X get Y: customer buys…
+    buyScope: v.optional(v.union(v.literal("all"), v.literal("collections"), v.literal("products"))),
+    buyItems: v.optional(v.array(v.string())),
+    getQty: v.optional(v.number()), // …and gets (scope/items/type/value describe the "gets" side)
+    maxUses: v.optional(v.number()), // Buy X get Y: times per order
     active: v.boolean(),
     usedCount: v.optional(v.number()),
     createdAt: v.number(),

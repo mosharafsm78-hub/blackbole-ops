@@ -5,7 +5,7 @@ import { v, ConvexError } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
 import { getSetting, invoiceLabel } from "./lib"
 import { insertOrder } from "./orders"
-import { recordUse, normCode } from "./discounts"
+import { recordUse, recordAutomaticUses, normCode } from "./discounts"
 
 export const apiKey = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<string>(ctx, "apiKey")) ?? null })
 
@@ -39,6 +39,7 @@ export const createFromApi = internalMutation({
       await ctx.db.patch(res.orderId, { discountCode: normCode(String(b.discount_code)) })
       await recordUse(ctx, String(b.discount_code))
     }
+    await recordAutomaticUses(ctx, b.automatic_discounts) // website automatic discounts: counted in "Used"
     return { invoice: `BB-${res.invoiceNo}`, id: res.orderId, duplicate: false }
   },
 })

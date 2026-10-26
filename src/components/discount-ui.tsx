@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { Doc } from "@/convex/_generated/dataModel"
 import { taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { Badge, type BadgeTone } from "@/components/website-ui"
 
 export type Status = "active" | "scheduled" | "expired" | "off" | "used_up"
 
@@ -13,7 +14,9 @@ const STATUS_TONE: Record<Status, string> = {
 }
 const DOT: Record<Status, string> = { active: "bg-tone-green", scheduled: "bg-tone-blue", expired: "bg-tone-gray", off: "bg-tone-gray", used_up: "bg-tone-amber" }
 
-export function DiscountStatus({ status }: { status: Status }) {
+const BADGE: Record<Status, BadgeTone> = { active: "success", scheduled: "info", expired: "neutral", off: "neutral", used_up: "attention" }
+export function DiscountStatus({ status, plain }: { status: Status; plain?: boolean }) {
+  if (!plain) return <Badge tone={BADGE[status]}>{STATUS_LABEL[status]}</Badge>
   return (
     <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold", STATUS_TONE[status])}>
       <span className={cn("size-1.5 rounded-full", DOT[status])} />{STATUS_LABEL[status]}
@@ -21,16 +24,43 @@ export function DiscountStatus({ status }: { status: Status }) {
   )
 }
 
+export type Kind = "products" | "order" | "bxgy" | "shipping"
+export const KIND_LABEL: Record<Kind, string> = { products: "Amount off products", order: "Amount off order", bxgy: "Buy X get Y", shipping: "Free shipping" }
+/** Same rule as convex/discounts.ts kindOf: older rows without a kind follow their scope. */
+export const kindOf = (d: { kind?: Kind; scope: "all" | "collections" | "products" }): Kind => d.kind ?? (d.scope === "all" ? "order" : "products")
+const GROUP_LABEL = { products: "Product", order: "Order", shipping: "Shipping" } as const
+/** "Product, shipping" — which other kinds of discount it can be used with. */
+export function combinationsText(c?: { products?: boolean; order?: boolean; shipping?: boolean } | null) {
+  const on = (["products", "order", "shipping"] as const).filter((k) => c?.[k]).map((k) => GROUP_LABEL[k])
+  return on.length ? on.map((x, i) => (i ? x.toLowerCase() : x)).join(", ") : ""
+}
+
+type SummaryInput = Pick<Doc<"discounts">, "type" | "value" | "scope" | "items" | "minSubtotal" | "onlineOnly" | "oncePerCustomer" | "usageLimit">
+  & Partial<Pick<Doc<"discounts">, "kind" | "minQty" | "buyQty" | "buyScope" | "buyItems" | "getQty" | "maxUses">>
+
 /** One plain-English line, e.g. "10% off Sandals · min ৳1,500 · online payment only". */
-export function summaryLine(d: Pick<Doc<"discounts">, "type" | "value" | "scope" | "items" | "minSubtotal" | "onlineOnly" | "oncePerCustomer" | "usageLimit">, names?: (h: string) => string) {
-  const off = d.type === "percent" ? `${d.value}% off` : `${taka(d.value)} off`
+export function summaryLine(d: SummaryInput, names?: (h: string) => string, buyNames?: (h: string) => string) {
+  const kind = kindOf(d)
   const label = (h: string) => (names ? names(h) : h)
-  const what = d.scope === "all" ? "everything"
-    : d.items.length === 1 ? label(d.items[0])
-    : `${d.items.length} ${d.scope === "collections" ? "collections" : "products"}`
+  const list = (scope: string, items: string[], nm: (h: string) => string) => scope === "all" ? "any items"
+    : items.length === 1 ? nm(items[0]) : `${items.length} ${scope === "collections" ? "collections" : "products"}`
+  let head: string
+  if (kind === "shipping") head = "Free delivery on the order"
+  else if (kind === "bxgy") {
+    const off = d.type === "percent" ? (d.value >= 100 ? "free" : `at ${d.value}% off`) : `at ${taka(d.value)} off each`
+    head = `Buy ${d.buyQty ?? "?"} from ${list(d.buyScope ?? "all", d.buyItems ?? [], buyNames ?? label)}, get ${d.getQty ?? "?"} from ${list(d.scope, d.items, label)} ${off}`
+    if (d.maxUses) head += ` · ${d.maxUses}× per order`
+  } else {
+    const off = d.type === "percent" ? `${d.value}% off` : `${taka(d.value)} off`
+    const what = d.scope === "all" ? (kind === "order" ? "the order" : "everything")
+      : d.items.length === 1 ? label(d.items[0])
+      : `${d.items.length} ${d.scope === "collections" ? "collections" : "products"}`
+    head = `${off} ${what}`
+  }
   return [
-    `${off} ${what}`,
+    head,
     d.minSubtotal ? `min ${taka(d.minSubtotal)}` : "",
+    d.minQty ? `min ${d.minQty} items` : "",
     d.onlineOnly ? "online payment only" : "",
     d.oncePerCustomer ? "once per customer" : "",
     d.usageLimit ? `${d.usageLimit} uses max` : "",
