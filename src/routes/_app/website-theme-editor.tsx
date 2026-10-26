@@ -78,6 +78,36 @@ function Editor({ theme }: { theme: { _id: Id<"webThemes">; name: string; role: 
   const sampleColl = collections.find((c) => c.handle === "new-arrivals") ?? collections.find((c) => c.productHandles.length > 0)
   const path = page.id === "home" ? "/" : page.id === "product" ? (sampleColl?.productHandles[0] ? `/products/${sampleColl.productHandles[0]}` : "/") : page.id === "collection" ? `/collections/${sampleColl?.handle ?? "all"}` : page.path
   const src = `${hook ? DRAFT_URL : LIVE_URL}${path}`
+  const frameOrigin = new URL(src).origin
+
+  // ---- live preview: every change goes to the page in the frame at once (public/js/bb-editor.js on the website);
+  // a click on a section in the page opens it here. Nothing in the frame can be bought or opened.
+  const frame = useRef<HTMLIFrameElement>(null)
+  const scrollNext = useRef(false)
+  const values = useMemo(() => {
+    const v: Record<string, any> = {}
+    for (const sec of page.sections) Object.assign(v, getSettings(data, sec.template, sec.section))
+    return v
+  }, [data, page])
+  const message = useMemo(() => ({
+    type: "bb:theme",
+    sections: page.sections.map((x) => ({ id: x.id, title: x.title, fields: x.live === false ? [] : x.fields.map((f) => ({ id: f.id, type: f.type, placeholder: f.placeholder ?? "", def: f.def ?? "" })) })),
+    values,
+    layout: page.id === "home" ? homeLayout(data) : [],
+    selected: sel,
+  }), [page, values, data, sel])
+  const sendNow = (scroll = false) => frame.current?.contentWindow?.postMessage({ ...message, scroll }, frameOrigin)
+  useEffect(() => { sendNow(scrollNext.current); scrollNext.current = false }, [message]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const on = (e: MessageEvent) => {
+      if (e.origin !== frameOrigin || !e.data || typeof e.data !== "object") return
+      if (e.data.type === "bb:ready") sendNow(!!sel)
+      if (e.data.type === "bb:select" && page.sections.some((x) => x.id === e.data.id)) setSel(String(e.data.id))
+    }
+    window.addEventListener("message", on)
+    return () => window.removeEventListener("message", on)
+  })
+  const openSection = (id: string | null) => { scrollNext.current = true; setSel(id) }
 
   const doSave = async () => {
     if (!editable) return
@@ -124,21 +154,19 @@ function Editor({ theme }: { theme: { _id: Id<"webThemes">; name: string; role: 
         <aside className="flex w-full max-w-[360px] shrink-0 flex-col border-r bg-card">
           {!editable && <p className="m-3 rounded-md bg-tone-amber/10 px-3 py-2 text-xs text-tone-amber">Only the draft theme can be changed. Go back and use “Edit a copy”.</p>}
           {section ? (
-            <SectionFields section={section} data={data} collections={collections} disabled={!editable} onBack={() => setSel(null)} onChange={(k, v) => set(section, k, v)} />
+            <SectionFields section={section} data={data} collections={collections} disabled={!editable} hook={hook} onBack={() => setSel(null)} onChange={(k, v) => set(section, k, v)} />
           ) : (
-            <SectionList page={page} data={data} disabled={!editable} onOpen={setSel} onLayout={(l) => setData((d) => setHomeLayout(d, l))} />
+            <SectionList page={page} data={data} disabled={!editable} onOpen={openSection} onLayout={(l) => setData((d) => setHomeLayout(d, l))} />
           )}
         </aside>
 
         {/* right: preview */}
         <main className="relative hidden min-w-0 flex-1 overflow-auto bg-muted/60 md:block">
-          {!hook && (
-            <div className="sticky top-0 z-10 border-b bg-tone-amber/10 px-4 py-2 text-xs text-tone-amber">
-              Showing the live website — the preview site isn’t connected yet, so saved changes won’t appear here until you publish.
-            </div>
-          )}
+          <div className="sticky top-0 z-10 border-b bg-card/95 px-4 py-2 text-xs text-muted-foreground backdrop-blur">
+            Changes show here as you make them — click any part of the page to edit it. Links and buttons don’t work in the editor. {dirty ? "Save to keep your changes." : ""}
+          </div>
           <div className={cn("mx-auto h-full p-4", device === "mobile" ? "w-[420px]" : "w-full")}>
-            <iframe key={frameKey} src={`${src}${src.includes("?") ? "&" : "?"}v=${frameKey}`} title="Preview"
+            <iframe ref={frame} key={frameKey} src={`${src}${src.includes("?") ? "&" : "?"}bb_editor=1&v=${frameKey}`} title="Preview"
               className={cn("h-full w-full rounded-lg border bg-white shadow-sm", device === "mobile" && "rounded-[28px] border-8 border-foreground/80")} />
           </div>
         </main>
@@ -215,8 +243,8 @@ function SectionList({ page, data, disabled, onOpen, onLayout }: {
 }
 
 // ------------------------------------------------------------------ section fields
-function SectionFields({ section, data, collections, disabled, onBack, onChange }: {
-  section: ThemeSection; data: ThemeData; collections: Coll[]; disabled: boolean; onBack: () => void; onChange: (key: string, v: any) => void
+function SectionFields({ section, data, collections, disabled, hook, onBack, onChange }: {
+  section: ThemeSection; data: ThemeData; collections: Coll[]; disabled: boolean; hook: boolean; onBack: () => void; onChange: (key: string, v: any) => void
 }) {
   const values = getSettings(data, section.template, section.section)
   return (
@@ -227,6 +255,11 @@ function SectionFields({ section, data, collections, disabled, onBack, onChange 
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {section.help && <p className="text-xs text-muted-foreground">{section.help}</p>}
+        {section.live === false && section.fields.length > 0 && (
+          <p className="rounded-md bg-tone-amber/10 px-3 py-2 text-xs text-tone-amber">
+            {hook ? "Changes here show in the preview after you save (it rebuilds in 1–3 minutes)." : "Changes here show on the website after you save and publish."}
+          </p>
+        )}
         {!section.fields.length && <p className="rounded-md bg-muted px-3 py-3 text-sm text-muted-foreground">This section has no settings. You can move or hide it from the section list.</p>}
         <fieldset disabled={disabled} className="space-y-4">
           {section.fields.map((f) => <FieldInput key={f.id} field={f} value={values[f.id]} collections={collections} onChange={(v) => onChange(f.id, v)} />)}

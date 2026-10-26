@@ -18,6 +18,8 @@ export type ThemeSection = {
   fields: ThemeField[]
   /** home page sections can be moved and hidden */
   movable?: boolean
+  /** false: the editor preview can't show changes before saving (it shows them once the preview site rebuilds) */
+  live?: boolean
 }
 export type ThemePage = { id: string; title: string; path: string; sections: ThemeSection[]; note?: string }
 
@@ -103,23 +105,23 @@ export const THEME_PAGES: ThemePage[] = [
   {
     id: "product", title: "Product page", path: "/products/", note: "Applies to every product page.",
     sections: [
-      { id: "main", title: "Product details", template: "product", section: "main", fields: [
+      { id: "main", title: "Product details", template: "product", section: "main", live: false, fields: [
         { id: "pair_collection", label: "“Pair it with” collection", type: "collection", placeholder: "watches" },
         { id: "pre_booking", label: "Pre-order booking money (Tk)", type: "number", placeholder: "500", min: 0 },
         { id: "advance_code", label: "Pay in advance: discount code", type: "text", placeholder: "ADVANCE5", help: "Create this code in Website → Discounts." },
         { id: "advance_pct", label: "Pay in advance: saving shown (%)", type: "number", placeholder: "5", min: 1, max: 20 },
         { id: "other_brands", label: "Other brands we stock", type: "textarea", help: "Comma separated. Products with these words in the title don't get the BlackBole story." },
       ] },
-      { id: "explore", title: "Explore & combo", template: "product", section: "explore", fields: EXPLORE() },
+      { id: "explore", title: "Explore & combo", template: "product", section: "explore", live: false, fields: EXPLORE() },
     ],
   },
   {
     id: "collection", title: "Collection page", path: "/collections/", note: "Applies to every collection page except Pre-Order.",
     sections: [
-      { id: "main", title: "Header pictures", template: "collection", section: "main", fields: [
+      { id: "main", title: "Header pictures", template: "collection", section: "main", live: false, fields: [
         { id: "hero_map", label: "Header pictures by collection", type: "heromap", help: "Up to two pictures at the top of a collection. Collections not listed use their own picture." },
       ] },
-      { id: "explore", title: "Explore & combo", template: "collection", section: "explore", fields: EXPLORE() },
+      { id: "explore", title: "Explore & combo", template: "collection", section: "explore", live: false, fields: EXPLORE() },
     ],
   },
   {
