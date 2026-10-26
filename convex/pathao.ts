@@ -1034,6 +1034,15 @@ async function parcelGroupInner(ctx: any, orderId: Id<"orders">): Promise<{ parc
       linked = true
     }
     const used2 = linked ? await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) }) : used
+    // bring Ops up to date right away for the parcels that belong to our orders (forward moves only)
+    for (const p of parcels) {
+      const o = await ctx.runQuery(internal.pathao.byConsignment, { consignmentId: p.cid })
+      if (!o || !p.status) continue
+      await ctx.runMutation(internal.orders.setCourier, { id: o._id, courierStatus: String(p.status) })
+      let target = targetFor(String(p.status))
+      if (target === "delivered_due" && /paid/i.test(String(p.billing ?? ""))) target = "delivered_paid"
+      if (target && PATH.indexOf(target) > PATH.indexOf(o.status as OrderStatus)) await moveTo(ctx, o._id, o.status as OrderStatus, target, `Pathao: ${p.status}`)
+    }
     const fam2 = linked ? await ctx.runQuery(internal.pathao.orderFamily, { id: orderId }) : fam
     const reOwner = Object.fromEntries((fam2?.exchanges ?? []).filter((x: any) => x.rcid).map((x: any) => [x.rcid, x.label]))
     return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked, candidates: fam.candidates }
