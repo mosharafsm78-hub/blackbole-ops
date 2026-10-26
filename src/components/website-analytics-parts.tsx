@@ -123,7 +123,12 @@ export function SalesChart({ data, metric = "sales", title = "Total sales over t
   const rows = useMemo(() => {
     const cur = by === "hour" ? hourBuckets(data.cur.hourly) : bucket(data.cur.daily, by)
     const prev = data.prev ? (by === "hour" ? hourBuckets(data.prev.hourly) : bucket(data.prev.daily, by)) : null
-    return overlay(cur, prev)
+    const rows = overlay(cur, prev)
+    // today, hour by hour: like Shopify, the line stops at the current hour instead of dropping to zero for the future
+    const dhaka = new Date(Date.now() + 6 * 3600000)
+    if (by !== "hour" || data.toDay !== dhaka.toISOString().slice(0, 10)) return rows
+    const now = dhaka.getUTCHours()
+    return rows.map((r: any, i: number) => (i > now ? { ...r, sales: null, orders: null } : r))
   }, [data, by])
   const key = metric === "sales" ? "sales" : "orders"
   const prevKey = metric === "sales" ? "prevSales" : "prevOrders"
