@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
-import { useRouter, type ErrorComponentProps } from '@tanstack/react-router'
+import type { ErrorComponentProps } from '@tanstack/react-router'
 
 // After a new deploy, an open tab can ask for old code files that no longer exist.
 // Reload once to pick up the new version instead of showing an error.
-const isStaleBuild = (m: string) => /dynamically imported module|Importing a module script failed|error loading dynamically/i.test(m)
+const isStaleBuild = (m: string) => /dynamically imported module|Importing a module script failed|error loading dynamically|reading 'component'|Failed to fetch/i.test(m)
 export function reloadForNewVersion() {
   try {
     const last = Number(sessionStorage.getItem('bb-reloaded-at') || 0)
@@ -25,7 +25,6 @@ if (typeof window !== 'undefined') {
 // error fires again on the next render. `router.invalidate()` re-runs loaders
 // AND resets the boundary, which is what you actually want for a retry button.
 export function ErrorBoundary({ error }: ErrorComponentProps) {
-  const router = useRouter()
   // `error` is typed `unknown` — anything can be thrown, not just an Error.
   const message = error instanceof Error ? error.message : String(error)
   const stale = isStaleBuild(message)
@@ -40,7 +39,7 @@ export function ErrorBoundary({ error }: ErrorComponentProps) {
         {message}
       </p>
       <button
-        onClick={() => (stale ? window.location.reload() : router.invalidate())}
+        onClick={() => window.location.reload()}
         className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground"
       >
         Retry
