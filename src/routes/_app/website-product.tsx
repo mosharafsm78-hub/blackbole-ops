@@ -39,7 +39,9 @@ const OWN = new Set<string>([...Object.values(K), ...STORY])
 const isShopifyOnly = (k: string) => /^(shopify|reviews|global)\./.test(k) || k === "custom.real_photos"
 
 type Data = NonNullable<ReturnType<typeof useQuery<typeof api.website.product>>>
-type Var = { id: Id<"variants">; sku: string; title: string; price: number; active: boolean; stock: number; compareAt: string; options: Record<string, string> }
+// price = the website's selling price for this size (blank = use the Ops price); opsPrice = the price in Ops
+type Var = { id: Id<"variants">; sku: string; title: string; price: string; opsPrice: number; active: boolean; stock: number; compareAt: string; options: Record<string, string> }
+const eff = (v: Var) => (Number(v.price) > 0 ? Number(v.price) : v.opsPrice)
 type Form = {
   title: string; handle: string; html: string; type: string; vendor: string; tags: string[]
   seoTitle: string; seoDesc: string; published: boolean; options: string[]; images: Img[]
@@ -77,7 +79,7 @@ function initial(data: Data): Form {
       const o: Record<string, string> = { ...(v.web?.options ?? {}) }
       // a single option with no value yet takes the variant title (e.g. "41" → Size: 41)
       if (options.length === 1 && !o[options[0]]) o[options[0]] = v.title
-      return { id: v._id, sku: v.sku, title: v.title, price: v.price, active: v.active, stock: v.stock, compareAt: v.web?.compareAt ? String(v.web.compareAt) : "", options: o }
+      return { id: v._id, sku: v.sku, title: v.title, price: v.web?.price ? String(v.web.price) : "", opsPrice: v.price, active: v.active, stock: v.stock, compareAt: v.web?.compareAt ? String(v.web.compareAt) : "", options: o }
     }),
     colls: data.collections.filter((c) => c.member).map((c) => c._id as string),
   }
@@ -109,7 +111,7 @@ function ProductForm({ data }: { data: Data }) {
         id: p._id, handle: f.handle, title: f.title, html: f.html, vendor: f.vendor, type: f.type, tags: f.tags,
         seo: { title: f.seoTitle, description: f.seoDesc }, options: f.options.map((o) => o.trim()).filter(Boolean),
         images: f.images.map((i) => ({ url: i.url, alt: i.alt, w: i.w, h: i.h })), mf: f.mf, published: f.published,
-        variants: f.vars.map((v) => ({ id: v.id, compareAt: v.compareAt.trim() ? Number(v.compareAt) || null : null, options: v.options })),
+        variants: f.vars.map((v) => ({ id: v.id, price: Number(v.price) > 0 ? Number(v.price) : null, compareAt: v.compareAt.trim() ? Number(v.compareAt) || null : null, options: v.options })),
         collections: f.colls as Id<"webCollections">[],
       })
       const next = { ...f, handle }
@@ -226,7 +228,7 @@ function ProductForm({ data }: { data: Data }) {
             <div className="text-sm">
               <div className="font-medium">{p.name}</div>
               <div className="mt-0.5 text-xs text-muted-foreground">{f.vars.length} size{f.vars.length === 1 ? "" : "s"} · {f.vars.reduce((s, v) => s + v.stock, 0)} in stock</div>
-              <Link to="/products" className="mt-2 inline-block text-xs font-medium underline-offset-2 hover:underline">Edit prices, SKUs and stock →</Link>
+              <Link to="/products" className="mt-2 inline-block text-xs font-medium underline-offset-2 hover:underline">Edit SKUs and stock →</Link>
             </div>
           </Section>
 
@@ -241,19 +243,20 @@ function ProductForm({ data }: { data: Data }) {
 function PreOrderMoney({ f, bd }: { f: Form; bd: boolean }) {
   const v = f.vars.find((x) => x.active) ?? f.vars[0]
   if (!v) return null
-  const full = Number(v.compareAt) > v.price ? Number(v.compareAt) : v.price * 2
-  const ok = Number(v.compareAt) > v.price
+  const p = eff(v)
+  const full = Number(v.compareAt) > p ? Number(v.compareAt) : p * 2
+  const ok = Number(v.compareAt) > p
   return (
     <div className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed">
       <div className="mb-1 font-medium text-foreground">How the shopper pays</div>
       {bd ? (
-        <p className="text-muted-foreground">Pays the <b className="text-foreground">{taka(v.price)}</b> booking online (it is the delivery charge, no extra delivery). Pays <b className="text-foreground">{taka(full - v.price)}</b> in cash on delivery. Full price {taka(full)}.</p>
+        <p className="text-muted-foreground">Pays the <b className="text-foreground">{taka(p)}</b> booking online (it is the delivery charge, no extra delivery). Pays <b className="text-foreground">{taka(full - p)}</b> in cash on delivery. Full price {taka(full)}.</p>
       ) : (
-        <p className="text-muted-foreground">Pays <b className="text-foreground">{taka(v.price)}</b> booking + delivery online. Pays <b className="text-foreground">{taka(full - v.price)}</b> in cash on delivery. Full price {taka(full)}.</p>
+        <p className="text-muted-foreground">Pays <b className="text-foreground">{taka(p)}</b> booking + delivery online. Pays <b className="text-foreground">{taka(full - p)}</b> in cash on delivery. Full price {taka(full)}.</p>
       )}
-      <p className="mt-1.5 text-muted-foreground">Booking money = the price in Ops ({bd ? "৳90 for Bangladesh" : "৳500 for China"}). Full price = the “Full price” column below.</p>
+      <p className="mt-1.5 text-muted-foreground">Booking money = the “Booking” column below ({bd ? "৳90 for Bangladesh" : "৳500 for China"}). Full price = the “Full price” column.</p>
       {!ok && <p className="mt-1.5 font-medium text-tone-red">Full price is missing, so the website uses twice the booking. Fill it in below.</p>}
-      {v.price !== (bd ? 90 : 500) && <p className="mt-1.5 font-medium text-tone-amber">The price in Ops is {taka(v.price)}, not the usual {bd ? "৳90" : "৳500"} booking. Check it on Products.</p>}
+      {p !== (bd ? 90 : 500) && <p className="mt-1.5 font-medium text-tone-amber">The booking is {taka(p)}, not the usual {bd ? "৳90" : "৳500"}. Check the “Booking” column.</p>}
     </div>
   )
 }
@@ -276,8 +279,8 @@ function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k
   return (
     <Section title="Sizes & prices" flush
       sub={preOrder
-        ? `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · pre-order: the Ops price is the booking money, the full price is set here`
-        : `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · ${total} in stock · price and stock come live from Ops`}
+        ? `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · pre-order: Booking is paid online, Full price minus booking on delivery`
+        : `${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · ${total} in stock (live from Ops) · prices are the website's selling prices`}
       action={<>
         {f.vars.length > 1 && <Button size="sm" variant="ghost" title="Sort by size (39, 40, 41…)" onClick={() => {
           const key = (v: Var) => f.options.map((o) => v.options[o] ?? "").join(" ") || v.title
@@ -314,7 +317,7 @@ function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k
             <tbody>
               {f.vars.map((v, i) => {
                 const cmp = Number(v.compareAt)
-                const badCmp = preOrder ? !(cmp > v.price) : !!v.compareAt && cmp <= v.price
+                const badCmp = preOrder ? !(cmp > eff(v)) : !!v.compareAt && cmp <= eff(v)
                 return (
                   <tr key={v.id} {...props(i)} className={cn("border-b last:border-0", !v.active && "opacity-50", drag === i && "opacity-40", over === i && drag !== i && "bg-primary/5")}>
                     <td className="cursor-grab pl-2 text-muted-foreground/60 active:cursor-grabbing"><GripVertical className="size-4" /></td>
@@ -322,7 +325,15 @@ function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k
                       <td key={k} className="py-1.5 pr-3"><Input className="h-8 w-24" value={v.options[o] ?? ""} onChange={(e) => setVar(i, { options: { ...v.options, [o]: e.target.value } })} /></td>
                     ))}
                     <td className="py-1.5 pr-3 font-mono text-xs text-muted-foreground">{v.sku.startsWith("WEB-") ? <span className="font-sans text-tone-amber">No SKU</span> : v.sku}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{taka(v.price)}</td>
+                    <td className="py-1.5 pr-3">
+                      <div className="relative ml-auto w-28">
+                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">৳</span>
+                        <Input className="h-8 pl-6 text-right tabular-nums" inputMode="numeric" value={v.price} placeholder={String(v.opsPrice)}
+                          title={preOrder ? "Booking money the shopper pays online" : "Selling price on the website"}
+                          onChange={(e) => setVar(i, { price: e.target.value.replace(/[^\d]/g, "") })} />
+                      </div>
+                      {Number(v.price) > 0 && Number(v.price) !== v.opsPrice && <div className="mt-0.5 text-right text-[10.5px] text-muted-foreground">Ops {taka(v.opsPrice)}</div>}
+                    </td>
                     <td className="py-1.5 pr-3">
                       <div className="relative w-28">
                         <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">৳</span>

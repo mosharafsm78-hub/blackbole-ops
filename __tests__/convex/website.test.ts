@@ -89,8 +89,8 @@ describe("website catalog", () => {
     const p = data.products[0]
     expect(p).toMatchObject({ id: "gid://shopify/Product/111", title: "Harbor Shore Sandal", mf: { "bb26.short": "Light and soft" } })
     expect(p.options).toEqual([{ name: "Size", values: ["41", "42"] }])
-    // price comes from Ops (1500), not the export (1480); id and compare-at from the website
-    expect(p.variants[1]).toMatchObject({ id: "4529002", sku: "BB-HSS-42", price: 1500, compareAt: 1800, options: { Size: "42" } })
+    // price is the website selling price from the export (1480), not the Ops price (1500); id and compare-at from the website
+    expect(p.variants[1]).toMatchObject({ id: "4529002", sku: "BB-HSS-42", price: 1480, compareAt: 1800, options: { Size: "42" } })
     // no stock but tagged pre-order → available
     expect(p.variants.every((x: any) => x.available)).toBe(true)
     // unpublished and unknown handles are left out of collections

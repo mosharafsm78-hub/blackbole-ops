@@ -84,6 +84,8 @@ const leadItem = v.object({ id: v.optional(v.number()), sku: v.optional(v.string
 
 /** Old products were kept with "-DELETED" SKUs; never link to those. */
 const liveVariant = (v: Doc<"variants">) => v.active !== false && !/-DELETED$/i.test(v.sku)
+// name matching (Shopify orders, website import) never picks a WEB-… placeholder size made by the website import
+const nameMatchable = (v: Doc<"variants">) => liveVariant(v) && !/^WEB-/i.test(v.sku)
 
 const norm = (t: string) => t.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim()
 
@@ -100,7 +102,7 @@ export async function matchByName(ctx: { db: any }, title: string, variant?: str
   const all = norm(`${title} ${variant ?? ""}`.replace(/\beu\b/gi, "")).split(" ").filter(Boolean).sort().join(" ")
   for (const p of hits) {
     if (p.deletedAt || p.active === false) continue
-    const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(liveVariant)
+    const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(nameMatchable)
     const hit = vars.find((x) => norm(`${p.name} ${x.title}`).split(" ").filter(Boolean).sort().join(" ") === all)
     if (hit) return hit
   }
@@ -111,7 +113,7 @@ export async function matchByName(ctx: { db: any }, title: string, variant?: str
       // second pass: product named without the colour, colour sits in the size ("Black / 43")
       const extra = exact ? "" : want.startsWith(pn + " ") ? want.slice(pn.length + 1) : null
       if (exact ? pn !== want : extra === null) continue
-      const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(liveVariant)
+      const vars: Doc<"variants">[] = (await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()).filter(nameMatchable)
       const target = norm(`${extra ?? ""} ${size}`)
       const tw = target.split(" ").filter(Boolean)
       const found = vars.find((x) => norm(x.title) === target)

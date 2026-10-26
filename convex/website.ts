@@ -14,6 +14,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, setSetting } from "./lib"
 import { hasPerm } from "./rules"
+import { matchByName } from "./checkouts"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
 const REBUILD_DELAY = 2 * 60 * 1000
@@ -21,6 +22,10 @@ const PRODUCT_CHUNK = 15
 const COLLECTION_CHUNK = 25
 
 // ---------------- helpers (pure, tested) ----------------
+/** The website's selling price for a size: its own website price (from Shopify / set on the Website page),
+ *  else the Ops price. */
+export const webPrice = (vr: { price: number; web?: any }) => (typeof vr.web?.price === "number" && vr.web.price > 0 ? Math.round(vr.web.price) : Math.round(vr.price))
+
 export const normSku = (s?: string | null) => (s ?? "").trim().toUpperCase()
 
 export function slugify(s: string) {
@@ -83,7 +88,7 @@ export function buildCatalog(input: {
         id: String(vr.web?.id ?? newVariantId(vr._creationTime)),
         title: vr.title,
         sku: vr.sku,
-        price: Math.round(vr.price),
+        price: webPrice(vr),
         compareAt: typeof vr.web?.compareAt === "number" && vr.web.compareAt > 0 ? Math.round(vr.web.compareAt) : null,
         options,
         available: (input.availableByVariant.get(vr._id as string) ?? 0) > 0 || preOrder || !!vp?.preOrder,
@@ -242,18 +247,61 @@ export const status = query({
 // ---------------- import from the current website ----------------
 /** One website product from catalog-export.json → fills `web` on the Ops product/variants matched by SKU,
  *  creating what is missing. Re-running updates, never duplicates. */
-async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; updated: number; variantsCreated: number; variantsMatched: number; skipped?: number }) {
+const isPlaceholder = (v: Doc<"variants">) => /^WEB-/i.test(v.sku)
+
+/** Retire a WEB-… placeholder size made by an earlier import once the real Ops size is known
+ *  (same convention as deleted sizes: inactive + "-DELETED"). Kept if an order or stock row already uses it. */
+async function retirePlaceholder(ctx: MutationCtx, v: Doc<"variants">) {
+  if (!isPlaceholder(v) || /-DELETED$/i.test(v.sku)) return false
+  const recent = await ctx.db.query("orders").withIndex("by_creation_time", (q) => q.gt("_creationTime", v._creationTime)).collect()
+  if (recent.some((o) => o.items.some((i) => i.variantId === v._id))) return false
+  if (await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", v._id)).first()) return false
+  await ctx.db.patch(v._id, { active: false, sku: `${v.sku}-DELETED`, web: undefined })
+  return true
+}
+
+type ImportStats = { created: number; updated: number; variantsCreated: number; variantsMatched: number; skipped?: number; relinked?: number; moved?: number }
+
+async function importOne(ctx: MutationCtx, ep: any, pos: ImportStats) {
   const handle = String(ep.handle ?? "").trim()
   if (!handle) return
   const evs: any[] = Array.isArray(ep.variants) ? ep.variants : []
   const matched: (Doc<"variants"> | null)[] = []
   for (const ev of evs) {
-    const sku = normSku(ev.sku) || (ev.id ? `WEB-${ev.id}` : "")
-    let row = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
-    if (!row && ev.sku && ev.sku !== sku) row = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", String(ev.sku))).first()
+    const real = normSku(ev.sku)
+    let row = real ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", real)).first() : null
+    if (!row && ev.sku && ev.sku !== real) row = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", String(ev.sku))).first()
+    if (!row && !real) {
+      // No SKU on the website: find the Ops size the same way Shopify orders are matched (product name + size),
+      // so website orders land on the same Ops size as Shopify orders do. Never one of our own WEB- placeholders.
+      const hit = await matchByName(ctx, String(ep.title ?? ""), ev.title ? String(ev.title) : undefined)
+      const placeholder = ev.id ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `WEB-${ev.id}`)).first() : null
+      if (hit && !isPlaceholder(hit)) {
+        row = hit
+        if (placeholder && placeholder._id !== hit._id && (await retirePlaceholder(ctx, placeholder))) pos.relinked = (pos.relinked ?? 0) + 1
+      } else row = placeholder
+    }
     matched.push(row)
   }
-  const byHandle = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
+  let byHandle = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
+  // An earlier import made a placeholder product for this page; now that its sizes are found in a real Ops product,
+  // the page moves to that product and the placeholder product is removed (its leftover sizes move along).
+  if (byHandle && !byHandle.deletedAt) {
+    const hId = byHandle._id
+    const own = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", hId)).collect()
+    const owners = matched.filter((m): m is Doc<"variants"> => !!m && !isPlaceholder(m) && m.productId !== hId).map((m) => m.productId as string)
+    if (own.length && own.every(isPlaceholder) && owners.length) {
+      const top = [...owners.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0][0] as Id<"products">
+      const target = await ctx.db.get(top)
+      if (target && !target.deletedAt && (!target.handle || target.handle === handle)) {
+        for (const v of own) if (!/-DELETED$/i.test(v.sku)) await ctx.db.patch(v._id, { productId: target._id })
+        await ctx.db.patch(hId, { handle: undefined, active: false, deletedAt: Date.now() })
+        await ctx.db.patch(target._id, { handle, web: { ...(target.web ?? {}), ...(byHandle.web ?? {}) } })
+        byHandle = await ctx.db.get(target._id)
+        pos.moved = (pos.moved ?? 0) + 1
+      }
+    }
+  }
   // Draft (hidden) website pages with nothing in Ops yet: don't create new Ops products for them
   if (ep.published === false && !byHandle && !matched.some(Boolean)) { pos.skipped = (pos.skipped ?? 0) + 1; return }
   let productId: Id<"products"> | undefined = byHandle && !byHandle.deletedAt ? byHandle._id : undefined
@@ -305,6 +353,8 @@ async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; upda
       compareAt: typeof ev.compareAt === "number" ? ev.compareAt : null,
       options: ev.options && typeof ev.options === "object" ? ev.options : {},
       image: ev.image ?? null,
+      // the website's own selling price for this size (from Shopify), kept apart from the Ops price
+      price: Number(ev.price) > 0 ? Math.round(Number(ev.price)) : undefined,
       pos: i,
       ...(matched[i] && matched[i]!.productId !== productId ? { parent: productId } : {}),
     }
@@ -325,7 +375,7 @@ async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; upda
 export const importProductsChunk = internalMutation({
   args: { products: v.array(v.any()) },
   handler: async (ctx, { products }) => {
-    const out = { created: 0, updated: 0, variantsCreated: 0, variantsMatched: 0 }
+    const out: ImportStats = { created: 0, updated: 0, variantsCreated: 0, variantsMatched: 0, skipped: 0, relinked: 0, moved: 0 }
     for (const ep of products) await importOne(ctx, ep, out)
     return out
   },
@@ -373,10 +423,11 @@ export async function runImport(ctx: { runMutation: any }, data: any) {
   const products: any[] = Array.isArray(data?.products) ? data.products : []
   const collections: any[] = Array.isArray(data?.collections) ? data.collections : []
   if (!products.length) throw new ConvexError("The website export has no products.")
-  const sum = { products: products.length, created: 0, updated: 0, variantsCreated: 0, variantsMatched: 0, collections: 0 }
+  const sum = { products: products.length, created: 0, updated: 0, variantsCreated: 0, variantsMatched: 0, collections: 0, relinked: 0, moved: 0 }
   for (let i = 0; i < products.length; i += PRODUCT_CHUNK) {
     const r = await ctx.runMutation(internal.website.importProductsChunk, { products: products.slice(i, i + PRODUCT_CHUNK) })
     sum.created += r.created; sum.updated += r.updated; sum.variantsCreated += r.variantsCreated; sum.variantsMatched += r.variantsMatched
+    sum.relinked += r.relinked ?? 0; sum.moved += r.moved ?? 0
   }
   for (let i = 0; i < collections.length; i += COLLECTION_CHUNK) {
     sum.collections += await ctx.runMutation(internal.website.importCollectionsChunk, { collections: collections.slice(i, i + COLLECTION_CHUNK) })
@@ -417,10 +468,11 @@ export const products = query({
       if (vr.web?.parent) parented.set(vr.productId as string, vr.web.parent)
       if (!vr.active) continue
       const c = count.get(owner) ?? { n: 0, min: Infinity, max: 0, stock: 0, inStock: 0, noSku: 0, fullMin: Infinity, fullMax: 0 }
-      const full = typeof vr.web?.compareAt === "number" && vr.web.compareAt > vr.price ? vr.web.compareAt : vr.price * 2
+      const full = typeof vr.web?.compareAt === "number" && vr.web.compareAt > webPrice(vr) ? vr.web.compareAt : webPrice(vr) * 2
       c.fullMin = Math.min(c.fullMin, full); c.fullMax = Math.max(c.fullMax, full)
       const a = Math.max(0, stock.get(vr._id as string) ?? 0)
-      c.n++; c.min = Math.min(c.min, vr.price); c.max = Math.max(c.max, vr.price); c.stock += a; if (a > 0) c.inStock++
+      const wp = webPrice(vr)
+      c.n++; c.min = Math.min(c.min, wp); c.max = Math.max(c.max, wp); c.stock += a; if (a > 0) c.inStock++
       if (vr.sku.startsWith("WEB-")) c.noSku++
       count.set(owner, c)
     }
@@ -500,7 +552,7 @@ async function productInfoByHandle(ctx: QueryCtx) {
     if (!vr.active) continue
     const owner = (vr.web?.parent ?? vr.productId) as string
     const a = agg.get(owner) ?? { stock: 0, min: Infinity, n: 0 }
-    a.stock += Math.max(0, stock.get(vr._id as string) ?? 0); a.min = Math.min(a.min, vr.price); a.n++
+    a.stock += Math.max(0, stock.get(vr._id as string) ?? 0); a.min = Math.min(a.min, webPrice(vr)); a.n++
     agg.set(owner, a)
   }
   type Info = { _id: Id<"products">; title: string; published: boolean; image: string | null; stock: number; price: number; preOrder: boolean; type: string }
@@ -628,7 +680,7 @@ export const saveProduct = mutation({
     images: v.array(imageV),
     mf: v.record(v.string(), v.string()),
     published: v.boolean(),
-    variants: v.array(v.object({ id: v.id("variants"), compareAt: v.union(v.number(), v.null()), options: v.record(v.string(), v.string()), image: v.optional(v.union(v.string(), v.null())) })),
+    variants: v.array(v.object({ id: v.id("variants"), price: v.optional(v.union(v.number(), v.null())), compareAt: v.union(v.number(), v.null()), options: v.record(v.string(), v.string()), image: v.optional(v.union(v.string(), v.null())) })),
     collections: v.array(v.id("webCollections")),
   },
   handler: async (ctx, a) => {
@@ -664,7 +716,11 @@ export const saveProduct = mutation({
       const opts: Record<string, string> = {}
       for (const n of optNames) if (x.options[n]?.trim()) opts[n] = x.options[n].trim()
       await ctx.db.patch(x.id, {
-        web: { ...(vr.web ?? {}), id: vr.web?.id ?? newVariantId(vr._creationTime + i), compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: x.image ?? vr.web?.image ?? null, pos: i },
+        web: {
+          ...(vr.web ?? {}), id: vr.web?.id ?? newVariantId(vr._creationTime + i),
+          price: x.price === undefined ? vr.web?.price : x.price && x.price > 0 ? Math.round(x.price) : undefined,
+          compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: x.image ?? vr.web?.image ?? null, pos: i,
+        },
       })
     }
     // Collections: rename the handle everywhere, then add/remove this product

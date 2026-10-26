@@ -48,7 +48,7 @@ function WebsitePage() {
             <h1 className="text-xl font-semibold tracking-tight">Website</h1>
             <PublishStatus />
           </div>
-          <p className="mt-0.5 text-sm text-muted-foreground">Everything shoppers see on blackbole.com. Prices and stock always come live from Ops.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Everything shoppers see on blackbole.com. Stock comes live from Ops.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild><a href={PREVIEW_URL} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View website</a></Button>
