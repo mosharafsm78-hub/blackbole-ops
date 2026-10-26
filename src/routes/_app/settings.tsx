@@ -750,6 +750,35 @@ function GeneralTab() {
         <p className="text-xs text-muted-foreground">“Push to Pathao” on an order (or on many orders in the list) always works, whatever is chosen here.</p>
       </div>
       <Button className="mt-4" onClick={async () => { try { await save(f); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) } }}>Save</Button>
+      <WebsiteApiKey />
     </Section>
+  )
+}
+
+/** Key the BlackBole website uses to send its orders into Ops (POST /api/orders). Shown once when generated. */
+function WebsiteApiKey() {
+  const can = useCan()
+  const info = useQuery(api.admin.integrationSettings)
+  const rotate = useMutation(api.admin.rotateApiKey)
+  const [key, setKey] = useState<string | null>(null)
+  if (!info) return null
+  const make = async () => {
+    if (info.apiKeyHint && !window.confirm("A key already exists. Making a new one stops the old key working. Continue?")) return
+    try { setKey(await rotate({})) } catch (e) { toast.error(errMsg(e)) }
+  }
+  return (
+    <div className="mt-8 max-w-2xl space-y-2 border-t pt-5" data-testid="website-api-key">
+      <Label>Website order API key</Label>
+      <p className="text-xs text-muted-foreground">The BlackBole website uses this key to send its orders into Ops. {info.apiKeyHint ? `Current key: ${info.apiKeyHint}` : "No key yet."}</p>
+      {key ? (
+        <div className="flex gap-2">
+          <Input readOnly value={key} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+          <Button variant="outline" onClick={async () => { await navigator.clipboard.writeText(key); toast.success("Copied") }}><Copy className="size-4" />Copy</Button>
+        </div>
+      ) : (
+        <Button variant="outline" disabled={!can("settings.manage")} onClick={make}>{info.apiKeyHint ? "Make a new key" : "Generate key"}</Button>
+      )}
+      {key && <p className="text-xs text-muted-foreground">Copy it now — it is shown only once.</p>}
+    </div>
   )
 }
