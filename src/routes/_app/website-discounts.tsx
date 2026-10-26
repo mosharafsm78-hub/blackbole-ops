@@ -29,7 +29,7 @@ function DiscountsPage() {
   const [q, setQ] = useState("")
   const [show, setShow] = useState<"all" | "active" | "inactive">("all")
   const [busy, setBusy] = useState(false)
-  const collName = useMemo(() => new Map((colls?.collections ?? []).map((c) => [c.handle, c.title] as const)), [colls])
+  const collName = useMemo(() => new Map<string, string>((colls?.collections ?? []).map((c: any) => [String(c.handle), String(c.title)] as const)), [colls])
   const list = useMemo(() => {
     const s = q.trim().toUpperCase()
     return (rows ?? []).filter((r) =>
