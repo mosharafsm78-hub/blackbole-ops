@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { startOfDayBD } from "@/lib/format"
+import { whTone } from "@/lib/warehouse"
 
 export const Route = createFileRoute("/_app/dispatch")({
   component: () => (
@@ -96,7 +97,7 @@ function Dispatch() {
       {data === undefined ? <Loading /> : (
         <div className="rounded-xl border bg-card p-6" data-testid="dispatch-card">
           <div className="mb-5 text-center">
-            <div className="font-semibold">Warehouse: {whName}</div>
+            <div className="font-semibold">Warehouse: <span className={`rounded-md px-1.5 py-0.5 ${whTone(whName)}`}>{whName}</span></div>
             <div className="font-semibold">Delivery Partner: {title}</div>
             <div className="font-semibold">In-Transit Date: {dates}</div>
           </div>

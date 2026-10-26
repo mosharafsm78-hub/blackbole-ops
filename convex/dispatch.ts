@@ -10,7 +10,7 @@ const empty = (): Row => ({ orders: 0, qty: 0, productValue: 0, shipping: 0, ord
 const r2 = (n: number) => Math.round(n * 100) / 100
 
 const REPORTS = [
-  { key: "ctg", name: "BlackBole Chittagong" },
+  { key: "ctg", name: "BlackBole CTG" },
   { key: "dhaka", name: "BlackBole Dhaka" },
   { key: "ctg_ex", name: "BlackBole CTG Exchange" },
   { key: "dhaka_ex", name: "BlackBole Dhaka Exchange" },

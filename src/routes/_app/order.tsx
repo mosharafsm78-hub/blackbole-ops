@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { STATUS_TONE, TONE_CLASS, dateTime, errMsg, invoice, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { whTone } from "@/lib/warehouse"
 
 export const Route = createFileRoute("/_app/order")({
   validateSearch: (s: Record<string, unknown>) => ({ id: String(s.id ?? "") }),
@@ -393,7 +394,7 @@ function OrderPage() {
             )}
             <div className="mt-2 border-t pt-2">
               <Row k="Delivery type" v={o.deliveryType === "pickup" ? "Store pickup" : o.deliveryType === "express" ? "Express" : "Regular"} />
-              <Row k="Warehouse" v={data.locationName} />
+              <Row k="Warehouse" v={data.locationName ? <span className={cn("rounded-md px-1.5 py-0.5 text-xs font-semibold", whTone(data.locationName))}>{data.locationName}</span> : "—"} />
               {o.shippingDate && <Row k="Shipped" v={dateTime(o.shippingDate)} />}
             </div>
           </Card>

@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TAB_TONE, TONE_CLASS, TONE_SOLID, dateTime, errMsg, invoice, startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { whTone } from "@/lib/warehouse"
 
 type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string; st?: string }
 
@@ -75,10 +76,6 @@ function OrdersPage() {
     tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, status: search.st, limit,
   })
   const locations = useQuery(api.team.listLocations, {})
-  const whTone = (id: string) => {
-    const i = (locations ?? []).findIndex((l) => l._id === id)
-    return ["bg-tone-blue/10 text-tone-blue", "bg-tone-violet/10 text-tone-violet", "bg-tone-teal/10 text-tone-teal", "bg-tone-orange/10 text-tone-orange", "bg-tone-pink/10 text-tone-pink"][Math.max(0, i) % 5]
-  }
   const rows = data?.rows ?? []
 
   const set = (patch: Partial<Search>) => {
@@ -372,7 +369,7 @@ function OrdersPage() {
                   </td>
                   <td className="p-3 text-xs" data-testid="wh-cell">
                     {(o as any).locationName ? (
-                      <span className={cn("inline-flex whitespace-nowrap rounded-md px-1.5 py-0.5 font-semibold", whTone(o.locationId))}>{(o as any).locationName}</span>
+                      <span className={cn("inline-flex whitespace-nowrap rounded-md px-1.5 py-0.5 font-semibold", whTone((o as any).locationName))}>{(o as any).locationName}</span>
                     ) : <span className="text-muted-foreground">—</span>}
                   </td>
                   <td className="max-w-56 p-3 text-xs">
