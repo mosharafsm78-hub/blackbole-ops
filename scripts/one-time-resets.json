@@ -72,5 +72,10 @@
     "id": "2026-10-25-day-stats",
     "fn": "stats:backfill",
     "args": {}
+  },
+  {
+    "id": "2026-10-26-relink-open-orders",
+    "fn": "checkouts:relinkOpen",
+    "args": {}
   }
 ]

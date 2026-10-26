@@ -4,8 +4,8 @@ import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem } from "./schema"
-import { currentStaff, logOrder, requirePerm } from "./lib"
-import { normalizePhone } from "./rules"
+import { computePurchaseCost, currentStaff, logOrder, moveOrderStock, requirePerm } from "./lib"
+import { STATUS_BUCKET, normalizePhone, type OrderStatus } from "./rules"
 import { insertOrder } from "./orders"
 
 /** A checkout counts as abandoned once nothing has happened on it for this long. */
@@ -82,6 +82,80 @@ export const markOrdered = internalMutation({
 // pressing "Confirm order" still show up in Abandoned carts. One lead per phone; a real order closes it.
 const leadItem = v.object({ id: v.optional(v.number()), sku: v.optional(v.string()), qty: v.number(), price: v.number(), title: v.string(), variant: v.optional(v.string()) })
 
+const norm = (t: string) => t.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim()
+
+/** Find our product size from a name + size text (e.g. "BlackBole Harbor Shore Sandal For Men - Black", "EU 43").
+ *  Many products have near-identical names (Brown / Black / Combo…), so look through enough search hits
+ *  and accept only an exact name match (ignoring case, spaces and punctuation), or name + colour in the size. */
+export async function matchByName(ctx: { db: any }, title: string, variant?: string): Promise<Doc<"variants"> | null> {
+  const want = norm(title)
+  const size = norm((variant ?? "").replace(/eu\s*/gi, ""))
+  if (!want) return null
+  const hits: Doc<"products">[] = await ctx.db.query("products").withSearchIndex("search_name", (q: any) => q.search("name", title)).take(25)
+  for (const exact of [true, false]) {
+    for (const p of hits) {
+      if (p.deletedAt) continue
+      const pn = norm(p.name)
+      // second pass: product named without the colour, colour sits in the size ("Black / 43")
+      const extra = exact ? "" : want.startsWith(pn + " ") ? want.slice(pn.length + 1) : null
+      if (exact ? pn !== want : extra === null) continue
+      const vars: Doc<"variants">[] = await ctx.db.query("variants").withIndex("by_product", (q: any) => q.eq("productId", p._id)).collect()
+      const target = norm(`${extra ?? ""} ${size}`)
+      const tw = target.split(" ").filter(Boolean)
+      const found = vars.find((x) => norm(x.title) === target)
+        ?? (exact
+          ? vars.find((x) => tw.length && norm(x.title).split(" ").every((w) => tw.includes(w)))
+          : vars.find((x) => tw.length && tw.every((w) => norm(x.title).split(" ").includes(w)))) // colour must be in the size name
+        ?? (exact && vars.length === 1 && !size ? vars[0] : null)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/** Link order/cart lines that have no product yet (by name + size). */
+export async function linkItems<T extends { variantId?: any; sku: string; name: string; attrs?: string; weightKg: number; imageUrl?: string }>(ctx: { db: any }, items: T[]): Promise<{ items: T[]; linked: number }> {
+  let linked = 0
+  const out: T[] = []
+  for (const i of items) {
+    if (i.variantId) { out.push(i); continue }
+    const vr = await matchByName(ctx, i.name.split(" · ")[0], i.attrs)
+    if (!vr) { out.push(i); continue }
+    const p = await ctx.db.get(vr.productId)
+    linked++
+    out.push({ ...i, variantId: vr._id, sku: vr.sku, name: p?.name ?? i.name, attrs: vr.title, weightKg: vr.weightKg, imageUrl: i.imageUrl ?? p?.imageUrl })
+  }
+  return { items: out, linked }
+}
+
+/** One-time / repair: link unlinked lines on open orders and carts, moving reserved stock where needed. */
+export const relinkOpen = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const fixed: string[] = []
+    for (const st of ["pending", "on_hold", "approved", "processing", "ready_to_ship", "pre_order", "pre_order_bd"] as const) {
+      for (const o of await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()) {
+        if (o.deletedAt || o.consignmentId || o.items.every((i) => i.variantId)) continue
+        const { items, linked } = await linkItems(ctx, o.items)
+        if (!linked) continue
+        const reserved = STATUS_BUCKET[o.status as OrderStatus] !== "available"
+        if (reserved) await moveOrderStock(ctx, o, o.status as OrderStatus, "pending", "System")
+        await ctx.db.patch(o._id, { items, itemCount: items.reduce((t, i) => t + i.qty, 0), purchaseCost: await computePurchaseCost(ctx, items) })
+        const fresh = (await ctx.db.get(o._id))!
+        if (reserved) await moveOrderStock(ctx, fresh, "pending", o.status as OrderStatus, "System")
+        await logOrder(ctx, o._id, `Product linked automatically (${linked} line${linked > 1 ? "s" : ""}) — stock now tracked`, "System")
+        fixed.push(o.invoiceCode ?? `BB-${o.invoiceNo}`)
+      }
+    }
+    for (const c of await ctx.db.query("checkouts").collect()) {
+      if (c.orderId || c.items.every((i) => i.variantId)) continue
+      const { items, linked } = await linkItems(ctx, c.items)
+      if (linked) await ctx.db.patch(c._id, { items })
+    }
+    return fixed
+  },
+})
+
 export const codLead = internalMutation({
   args: { phone: v.string(), name: v.string(), email: v.optional(v.string()), address: v.string(), zone: v.optional(v.string()), items: v.array(leadItem), url: v.optional(v.string()) },
   handler: async (ctx, a) => {
@@ -95,16 +169,7 @@ export const codLead = internalMutation({
     for (const i of a.items.slice(0, 10)) {
       const sku = (i.sku ?? "").trim().toUpperCase()
       let vr = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
-      if (!vr && i.title) {
-        // the popup only knows the product name and size (e.g. "EU 42"): find our product by name, then the size
-        const size = (i.variant ?? "").toLowerCase().replace(/eu\s*/g, "").trim()
-        for (const p of await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", i.title)).take(3)) {
-          if (p.name.trim().toLowerCase() !== i.title.trim().toLowerCase()) continue
-          const vars = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()
-          vr = vars.find((x) => x.title.toLowerCase() === size) ?? vars.find((x) => size && x.title.toLowerCase().split(/[\s/·]+/).every((w) => size.includes(w))) ?? null
-          if (vr) break
-        }
-      }
+      if (!vr && i.title) vr = await matchByName(ctx, i.title, i.variant)
       const p = vr ? await ctx.db.get(vr.productId) : null
       const qty = Math.max(1, Math.min(10, Math.round(i.qty)))
       const price = Math.max(0, Math.round(i.price))
@@ -264,7 +329,7 @@ export const convert = mutation({
       address: a.address.trim() || c.address,
       cityName: c.cityName,
       deliveryType: "regular",
-      items: c.items,
+      items: (await linkItems(ctx, c.items)).items,
       discount: c.discount,
       deliveryFee: a.deliveryFee,
       status: a.status,
