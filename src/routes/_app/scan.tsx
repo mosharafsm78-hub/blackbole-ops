@@ -18,8 +18,6 @@ export const Route = createFileRoute("/_app/scan")({
 })
 
 const MODES: { to: OrderStatus; label: string; hint: string; exchange?: boolean }[] = [
-  { to: "ready_to_ship", label: "Packed → Ready To Ship", hint: "Scan the invoice on the box. Packed and waiting for the rider (sent to Pathao only if Settings says “at Ready To Ship”)." },
-  { to: "processing", label: "Start → Processing", hint: "Scan to start packing an approved (or arrived pre-order) order." },
   { to: "in_transit", label: "Handed over → In Transit", hint: "Scan each parcel you hand to the rider. Pathao orders are sent to Pathao now if not sent yet." },
   { to: "in_transit", exchange: true, label: "Exchange handed over → In Transit", hint: "Scan each EXCHANGE parcel you hand to the rider (Pathao exchange). Only exchange orders are accepted here, so normal parcels can't get mixed in." },
   { to: "returned", label: "Return received → Returned", hint: "Scan a returned parcel in good condition. Stock goes back to Available and can be sold again." },
