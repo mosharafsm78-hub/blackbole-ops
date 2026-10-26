@@ -113,3 +113,19 @@ describe("purchase rules", () => {
     await expect(as.mutation(api.purchasing.paySupplier, { id: supplierId, amount: 100, method: "Cash" })).rejects.toThrow(/slip/)
   })
 })
+
+describe("delete purchase", () => {
+  it("takes the stock back and removes its payments", async () => {
+    const { t, as, locationId, supplierId, v41 } = await setup()
+    const id = await as.mutation(api.purchasing.savePO, { supplierId, locationId, lines: [{ variantId: v41, orderedQty: 3, unitCost: 100 }], discount: 0, shippingCost: 0, otherCost: 0, status: "ordered", supplierRef: "T", invoiceFile: await fakeFile(t) })
+    const before = (await stockOf(t, v41))?.available ?? 0
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "keep", lines: [{ variantId: v41, qty: 3, damaged: 0 }] })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 300, method: "Cash", slipId: (await fakeFile(t)).storageId })
+    expect((await stockOf(t, v41))!.available).toBe(before + 3)
+    await as.mutation(api.purchasing.deletePO, { id })
+    expect((await stockOf(t, v41))!.available).toBe(before)
+    const st = (await as.query(api.purchasing.supplierStatement, { id: supplierId }))!
+    expect(st.paid).toBe(0)
+    expect(st.purchased).toBe(0)
+  })
+})

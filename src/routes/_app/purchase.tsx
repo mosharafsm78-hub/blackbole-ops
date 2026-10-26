@@ -53,6 +53,8 @@ function Editor({ data }: { data: Data | null }) {
   const [payRef, setPayRef] = useState("")
   const [paySlip, setPaySlip] = useState<Slip>(null)
   const [invFile, setInvFile] = useState<Slip>(null)
+  const [delOpen, setDelOpen] = useState(false)
+  const delPO = useMutation(api.purchasing.deletePO)
   const [invType, setInvType] = useState("application/octet-stream")
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
@@ -152,6 +154,7 @@ function Editor({ data }: { data: Data | null }) {
         {po && anyReceived && <Button size="sm" variant="outline" asChild><a href={`/labels?po=${po._id}`} target="_blank" rel="noreferrer"><Printer className="size-4" /> Labels</a></Button>}
         {po && status === "partial" && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" onClick={() => { if (confirm("Close this purchase? The rest won't be received.")) changeStatus("received") }}>Close</Button></Perm>}
         {po && !anyReceived && status !== "cancelled" && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" className="text-destructive" onClick={() => { if (confirm("Cancel this purchase?")) changeStatus("cancelled") }}>Cancel</Button></Perm>}
+        {po && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDelOpen(true)}><Trash2 className="size-4" /> Delete</Button></Perm>}
       </PageHeader>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -273,6 +276,22 @@ function Editor({ data }: { data: Data | null }) {
       </div>
 
       {/* dialogs */}
+      {po && (
+        <Dialog open={delOpen} onOpenChange={setDelOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Delete {poCode(po.code)}?</DialogTitle>
+              <DialogDescription>Use this for a purchase made by mistake or as a test. Any stock it added is taken back out of the warehouse, and its payments are removed from the supplier account. A copy is kept in the archive.</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDelOpen(false)}>Keep it</Button>
+              <Button variant="destructive" disabled={busy} onClick={async () => {
+                setBusy(true)
+                try { await delPO({ id: po._id }); toast.success(`${poCode(po.code)} deleted`); navigate({ to: "/purchases" }) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+              }}>Yes, delete</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       <Dialog open={dlg === "search"} onOpenChange={(o) => setDlg(o ? "search" : null)}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader><DialogTitle>Add existing products</DialogTitle><DialogDescription>Find the product, open it, and type how many pairs of each size to order.</DialogDescription></DialogHeader>

@@ -238,6 +238,36 @@ async function buildLines(ctx: any, lines: { variantId: Id<"variants">; orderedQ
   return out
 }
 
+/** Delete a purchase (e.g. a test): takes back any stock it added, removes its payments from the supplier account,
+ *  and keeps a copy of everything in the archive table. */
+export const deletePO = mutation({
+  args: { id: v.id("purchaseOrders") },
+  handler: async (ctx, { id }) => {
+    const me = await requirePerm(ctx, "purchases.manage")
+    const po = await ctx.db.get(id)
+    if (!po) throw new ConvexError("Purchase not found")
+    const label = `PO-${String(po.code).padStart(4, "0")}`
+    const reason = `${label} deleted`
+    const now = Date.now()
+    const receipts = (await ctx.db.query("receipts").collect()).filter((r) => r.poId === id)
+    for (const r of receipts) {
+      for (const i of r.items) {
+        if (i.qty > 0) await bumpStock(ctx, { variantId: i.variantId, locationId: r.locationId, bucket: "available", change: -i.qty, reason: `${reason} (GRN-${r.code} taken back)`, byName: me.staff.name })
+        if (i.damaged) await bumpStock(ctx, { variantId: i.variantId, locationId: r.locationId, bucket: "damaged", change: -i.damaged, reason: `${reason} (GRN-${r.code} taken back)`, byName: me.staff.name })
+      }
+      await ctx.db.insert("archive", { table: "receipts", data: r, reason, byName: me.staff.name, at: now })
+      await ctx.db.delete(r._id)
+    }
+    for (const p of await ctx.db.query("supplierPayments").withIndex("by_po", (q) => q.eq("poId", id)).collect()) {
+      await ctx.db.insert("archive", { table: "supplierPayments", data: p, reason, byName: me.staff.name, at: now })
+      await ctx.db.delete(p._id)
+    }
+    await ctx.db.insert("archive", { table: "purchaseOrders", data: po, reason, byName: me.staff.name, at: now })
+    await ctx.db.delete(id)
+    return { receipts: receipts.length }
+  },
+})
+
 /** A purchase can only be placed with the supplier's invoice / PI number and the invoice file attached. */
 function placeRules(ref: string | undefined, files: unknown[]) {
   if (!ref?.trim()) throw new ConvexError("Write the supplier invoice / PI number before placing the order")

@@ -455,6 +455,8 @@ export default defineSchema({
 
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
+  // deleted records kept here (nothing is lost; can be restored by hand)
+  archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
   // products whose Shopify stock must be refreshed (live stock sync)
   shopifyDirty: defineTable({ variantId: v.id("variants"), at: v.number() }).index("by_variant", ["variantId"]),
 
