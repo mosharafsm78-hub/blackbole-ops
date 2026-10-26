@@ -18,6 +18,7 @@ import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as marketingFeed from "../marketingFeed.js";
 import type * as migrate from "../migrate.js";
+import type * as orderStatus from "../orderStatus.js";
 import type * as orders from "../orders.js";
 import type * as outbound from "../outbound.js";
 import type * as partners from "../partners.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   lib: typeof lib;
   marketingFeed: typeof marketingFeed;
   migrate: typeof migrate;
+  orderStatus: typeof orderStatus;
   orders: typeof orders;
   outbound: typeof outbound;
   partners: typeof partners;

@@ -583,4 +583,11 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_code", ["code"]),
+
+  // Small counters for public endpoints (e.g. website order-status lookups per IP per minute)
+  rateLimits: defineTable({
+    key: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+  }).index("by_key", ["key"]),
 })

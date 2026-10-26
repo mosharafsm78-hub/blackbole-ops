@@ -8,6 +8,7 @@ import { codLeadHttp } from "./checkouts"
 import { orders as marketingOrders, stock as marketingStock } from "./marketingFeed"
 import { catalogHttp as websiteCatalog } from "./website"
 import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discounts"
+import { statusHttp as orderStatus } from "./orderStatus"
 
 const http = httpRouter()
 
@@ -30,5 +31,7 @@ http.route({ path: "/website/catalog", method: "GET", handler: websiteCatalog })
 // Website discount codes (same key): live list, and the one-per-customer check
 http.route({ path: "/website/discounts", method: "GET", handler: discountFeed })
 http.route({ path: "/website/discount-check", method: "GET", handler: discountCheck })
+// Website "Track your order": invoice + mobile → safe status (no key; rate-limited per IP)
+http.route({ path: "/website/order-status", method: "GET", handler: orderStatus })
 
 export default http
