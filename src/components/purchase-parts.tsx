@@ -3,7 +3,7 @@ import { useConvex, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CATEGORY_CODES, makeSku, modelCode } from "@/convex/rules"
+import { CATEGORY_CODES, SUPPLIER_PAY_METHODS, makeSku, modelCode } from "@/convex/rules"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -455,5 +455,57 @@ export function SlipLink({ paymentId, url }: { paymentId: Id<"supplierPayments">
         } catch (err) { toast.error(errMsg(err)) } finally { setBusy(false) }
       }} />
     </label>
+  )
+}
+
+/** Pay a supplier: shows which supplier (and what we owe them); the supplier can be changed here. */
+export function SupplierPayDialog({ supplierId, open, onOpenChange }: { supplierId?: Id<"suppliers">; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const pay = useMutation(api.purchasing.paySupplier)
+  const all = useQuery(api.purchasing.listSuppliers) ?? []
+  const [sid, setSid] = useState<string>(supplierId ?? "")
+  const sp = all.find((x) => x._id === sid)
+  const due = Math.max(0, sp?.due ?? 0)
+  const [amount, setAmount] = useState(0)
+  const [method, setMethod] = useState("Bank transfer")
+  const [ref, setRef] = useState("")
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [slip, setSlip] = useState<Slip>(null)
+  useEffect(() => { if (open) { setSid(supplierId ?? ""); setRef(""); setNote(""); setSlip(null) } }, [open, supplierId])
+  useEffect(() => { if (open) setAmount(due) }, [open, sid, due])
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pay supplier{sp ? ` · ${sp.name}` : ""}</DialogTitle>
+          <DialogDescription>{sp ? <>We owe <b>{sp.name}</b> {taka(due)}{sp.due < 0 ? ` (already ${taka(-sp.due)} paid in advance)` : ""}. </> : "Choose the supplier you are paying. "}Any amount is fine — it clears the previous due first, then the oldest purchases. Paying more than the due keeps the extra as advance.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2"><Label>Paying to (factory)</Label>
+            <Select value={sid || undefined} onValueChange={setSid}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Choose supplier" /></SelectTrigger>
+              <SelectContent>{all.map((x) => <SelectItem key={x._id} value={x._id}>{x.name}{x.contactPerson ? ` (${x.contactPerson})` : ""} — owe {taka(Math.max(0, x.due))}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5"><Label>Amount</Label><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></div>
+          <div className="space-y-1.5"><Label>Paid by</Label>
+            <Select value={method} onValueChange={setMethod}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{SUPPLIER_PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <div className="space-y-1.5"><Label>Reference / TT / cheque no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} required /></div>
+        </div>
+        <DialogFooter>
+          <Button disabled={busy || !sid || amount <= 0 || !slip} onClick={async () => {
+            setBusy(true)
+            try {
+              const r = await pay({ id: sid as Id<"suppliers">, amount, method, reference: ref || undefined, note: note || undefined, ...(slip ?? {}) })
+              toast.success(`Paid ${sp?.name ?? ""} — ${r.applied.join(", ")}`)
+              onOpenChange(false)
+            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save payment</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

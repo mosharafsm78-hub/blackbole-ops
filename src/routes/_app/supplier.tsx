@@ -8,7 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader, Stat } from "@/components/bits"
-import { POStatus, SlipLink, SlipPicker, SupplierDialog, poCode, type Slip } from "@/components/purchase-parts"
+import { POStatus, SlipLink, SupplierDialog, SupplierPayDialog, poCode } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -98,48 +98,9 @@ function SupplierPage() {
         )}
       </section>
 
-      <PayDialog supplierId={sp._id} due={Math.max(0, st.due)} open={pay} onOpenChange={setPay} />
+      <SupplierPayDialog supplierId={sp._id} open={pay} onOpenChange={setPay} />
       <SupplierDialog supplier={sp} open={edit} onOpenChange={setEdit} />
     </div>
   )
 }
 
-function PayDialog({ supplierId, due, open, onOpenChange }: { supplierId: Id<"suppliers">; due: number; open: boolean; onOpenChange: (o: boolean) => void }) {
-  const pay = useMutation(api.purchasing.paySupplier)
-  const [amount, setAmount] = useState(due)
-  const [method, setMethod] = useState("Bank transfer")
-  const [ref, setRef] = useState("")
-  const [note, setNote] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [slip, setSlip] = useState<Slip>(null)
-  useEffect(() => { if (open) { setAmount(due); setRef(""); setNote(""); setSlip(null) } }, [open, due])
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Pay supplier</DialogTitle>
-          <DialogDescription>We owe {taka(due)}. Any amount is fine — it clears the previous due first, then the oldest purchases. Paying more than the due keeps the extra as advance.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5"><Label>Amount</Label><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} autoFocus /></div>
-          <div className="space-y-1.5"><Label>Paid by</Label>
-            <Select value={method} onValueChange={setMethod}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{SUPPLIER_PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
-          </div>
-          <div className="space-y-1.5"><Label>Reference / TT / cheque no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
-          <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
-          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} required /></div>
-        </div>
-        <DialogFooter>
-          <Button disabled={busy || amount <= 0 || !slip} onClick={async () => {
-            setBusy(true)
-            try {
-              const r = await pay({ id: supplierId, amount, method, reference: ref || undefined, note: note || undefined, ...(slip ?? {}) })
-              toast.success(`Payment saved — ${r.applied.join(", ")}`)
-              onOpenChange(false)
-            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
-          }}>Save payment</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}

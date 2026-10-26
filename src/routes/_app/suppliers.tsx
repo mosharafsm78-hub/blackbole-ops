@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
-import { Plus } from "lucide-react"
+import { Plus, Wallet } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
-import { SupplierDialog } from "@/components/purchase-parts"
+import { SupplierDialog, SupplierPayDialog } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { dateOnly, taka } from "@/lib/format"
 
@@ -25,10 +25,12 @@ function Suppliers() {
   const rows = useQuery(api.purchasing.listSuppliers)
   const [edit, setEdit] = useState<Supplier | null>(null)
   const [open, setOpen] = useState(false)
+  const [payOpen, setPayOpen] = useState(false)
   return (
     <div>
       <PageHeader title="Suppliers" sub="Factories and suppliers you buy from — what you bought, paid and still owe.">
         <Button variant="outline" size="sm" asChild><Link to="/purchases">Purchases</Link></Button>
+        {<Perm perm="purchases.pay"><Button size="sm" variant="outline" onClick={() => setPayOpen(true)}><Wallet className="size-4" /> Pay supplier</Button></Perm>}
         {<Perm perm="purchases.manage"><Button size="sm" onClick={() => { setEdit(null); setOpen(true) }}><Plus className="size-4" /> New supplier</Button></Perm>}
       </PageHeader>
       {rows && rows.length > 0 && (
@@ -68,6 +70,7 @@ function Suppliers() {
         </div>
       )}
       <SupplierDialog supplier={edit} open={open} onOpenChange={setOpen} />
+      <SupplierPayDialog open={payOpen} onOpenChange={setPayOpen} />
     </div>
   )
 }
