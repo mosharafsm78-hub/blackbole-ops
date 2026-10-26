@@ -941,7 +941,8 @@ export const orderFamily = internalQuery({
       .filter((x) => x.exchangeOfId === original._id && !x.deletedAt)
     const all = [original, ...exchanges]
     const candidates = o.exchangeOfId || exchanges.length ? [] : (await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", o.phone)).collect())
-      .filter((x) => x._id !== o._id && !x.deletedAt && x.createdAt < o.createdAt && ["delivered_due", "delivered_paid"].includes(x.status))
+      .filter((x) => x._id !== o._id && !x.deletedAt && x.createdAt < o.createdAt && x.status !== "cancelled")
+      .sort((a, b) => b.createdAt - a.createdAt)
       .map((x) => ({ id: x._id, label: lbl(x) }))
     return {
       candidates,
@@ -963,6 +964,62 @@ export const setExchangeOf = mutation({
     if (orig.phone !== o.phone) throw new ConvexError("The original order is for another customer")
     await ctx.db.patch(id, { isExchange: true, exchangeOfId: originalId, updatedAt: Date.now() })
     await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Marked as exchange of ${orig.invoiceCode ?? `BB-${orig.invoiceNo}`}`, byName: me.staff.name, at: Date.now() })
+  },
+})
+
+export const setExchangeOfInternal = internalMutation({
+  args: { id: v.id("orders"), originalId: v.id("orders") },
+  handler: async (ctx, { id, originalId }) => {
+    const orig = await ctx.db.get(originalId)
+    if (!orig) return
+    await ctx.db.patch(id, { isExchange: true, exchangeOfId: originalId, updatedAt: Date.now() })
+    await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Found on Pathao: exchange of ${orig.invoiceCode ?? `BB-${orig.invoiceNo}`}`, byName: "Pathao", at: Date.now() })
+  },
+})
+
+/** Exchange orders with no Pathao parcel (e.g. copied from Nuport): find the earlier order Pathao booked the
+ *  exchange under (it has an EB… or RE… parcel), connect them, and link the parcels. */
+export const exchangesWithoutParcel = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("orders").withIndex("by_exchange", (q) => q.eq("isExchange", true)).order("desc").take(600)
+    return rows.filter((o) => !o.deletedAt && !o.consignmentId && !["cancelled", "returned", "damaged", "delivered_paid"].includes(o.status)).map((o) => o._id)
+  },
+})
+
+export const findExchangeParcels = action({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; linked: string[]; notFound: string[] }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const ids: Id<"orders">[] = await ctx.runQuery(internal.pathao.exchangesWithoutParcel, {})
+    const linked: string[] = [], notFound: string[] = []
+    for (const id of ids.slice(0, 40)) {
+      try {
+        const fam = await ctx.runQuery(internal.pathao.orderFamily, { id })
+        if (!fam) continue
+        const me = fam.exchanges.find((x: any) => x.id === id)?.label ?? fam.original.label
+        let done = false
+        if (fam.original.id !== id) { // already connected to its original order
+          const r = await parcelGroupInner(ctx, id)
+          done = r.linked
+        } else {
+          for (const c of fam.candidates.slice(0, 4)) {
+            const res = await merchantGet(ctx, `${MB}/orders/all?merchant_order_id=${encodeURIComponent(c.label)}&transfer_status=4&archive=0&page=1&limit=20`)
+            const list: any[] = res.json?.data?.data ?? []
+            const ex = list.map((p) => String(p.order_consignment_id ?? "")).filter((cid) => /^(EB|RE)/.test(cid))
+            if (!ex.length) continue
+            const used = await ctx.runQuery(internal.pathao.usedConsignments, { ids: ex })
+            if (ex.every((cid) => used[cid])) continue
+            await ctx.runMutation(internal.pathao.setExchangeOfInternal, { id, originalId: c.id })
+            const r = await parcelGroupInner(ctx, id)
+            done = r.linked
+            break
+          }
+        }
+        ;(done ? linked : notFound).push(me)
+      } catch { notFound.push(String(id)) }
+    }
+    return { checked: Math.min(ids.length, 40), linked, notFound }
   },
 })
 

@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
-import { useAction } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -64,6 +63,8 @@ function OrdersPage() {
   const [limit, setLimit] = useState(100)
   const [selected, setSelected] = useState<Set<Id<"orders">>>(new Set())
   const softDelete = useMutation(api.orders.softDelete)
+  const findEx = useAction(api.pathao.findExchangeParcels)
+  const [findingEx, setFindingEx] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const syncNow = useAction(api.pathao.syncNow)
   const counts = useQuery(api.orders.counts)
@@ -175,6 +176,17 @@ function OrdersPage() {
                   </button>
                 )
               })}
+              <Button size="sm" variant="outline" className="ml-auto" disabled={findingEx} title="Exchanges booked on Pathao under the customer's earlier order number: find those parcels and link them"
+                onClick={async () => {
+                  setFindingEx(true)
+                  const tid = toast.loading("Looking for the exchange parcels on Pathao…")
+                  try {
+                    const r = await findEx({})
+                    toast.success(`${r.linked.length} of ${r.checked} exchange orders linked to their Pathao parcels`, { id: tid, description: [r.linked.length ? `Linked: ${r.linked.join(", ")}` : "", r.notFound.length ? `Not found on Pathao: ${r.notFound.join(", ")}` : ""].filter(Boolean).join("\n"), duration: 12000 })
+                  } catch (e) { toast.error(errMsg(e), { id: tid }) } finally { setFindingEx(false) }
+                }}>
+                <Truck className="size-4" /> {findingEx ? "Searching Pathao…" : "Find Pathao parcels"}
+              </Button>
             </div>
           )
         }
