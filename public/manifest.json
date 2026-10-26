@@ -1,12 +1,7 @@
 {
-  "short_name": "Generated App",
-  "name": "Generated App",
+  "short_name": "BlackBole Ops",
+  "name": "BlackBole Ops",
   "icons": [
-    {
-      "src": "favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "any"
-    },
     {
       "src": "logo192.png",
       "type": "image/png",
