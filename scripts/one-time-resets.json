@@ -92,5 +92,10 @@
     "id": "2026-10-26-relink-open-orders-3",
     "fn": "checkouts:relinkOpen",
     "args": {}
+  },
+  {
+    "id": "2026-10-27-import-judgeme-reviews",
+    "fn": "reviews:importJudgeMeInternal",
+    "args": {}
   }
 ]

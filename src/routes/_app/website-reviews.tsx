@@ -88,7 +88,7 @@ function Reviews() {
     setImporting(true)
     try {
       const r = await importJudgeMe({})
-      const msg = `Found ${r.found} review${r.found === 1 ? "" : "s"} on ${r.withReviews} product${r.withReviews === 1 ? "" : "s"}: ${r.added} new, ${r.updated} updated.`
+      const msg = `Found ${r.found} review${r.found === 1 ? "" : "s"} on ${r.withReviews} product${r.withReviews === 1 ? "" : "s"}: ${r.added} new, ${r.updated} updated${r.photos ? `, ${r.photos} photo${r.photos === 1 ? "" : "s"} saved` : ""}.`
       if (r.failed.length) toast.warning(`${msg} ${r.failed.length} product${r.failed.length === 1 ? "" : "s"} could not be read: ${r.failed.slice(0, 3).join("; ")}`)
       else toast.success(msg)
     } catch (e) { toast.error(errMsg(e)) } finally { setImporting(false) }

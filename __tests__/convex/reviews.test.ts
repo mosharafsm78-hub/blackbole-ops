@@ -83,6 +83,32 @@ describe("website reviews", () => {
     expect(await t.query(api.reviews.list, {})).toBeNull()
   })
 
+  it("imports from Judge.me's public widget for every product, copying photos into our storage", async () => {
+    const { as } = await setup()
+    const calls: string[] = []
+    vi.stubGlobal("fetch", async (u: string) => {
+      calls.push(String(u))
+      if (String(u).includes("imgix")) return new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "image/jpeg" }))
+      const url = new URL(String(u))
+      const mine = url.searchParams.get("product_id") === "8760395530377" && url.searchParams.get("page") === "1"
+      return new Response(JSON.stringify({ html: mine ? PAGE : "<div class='jdgm-rev-widg__reviews'></div>", total_count: mine ? 2 : 0, page: url.searchParams.get("page") }), { headers: { "Content-Type": "application/json" } })
+    })
+    try {
+      const r = await as.action(api.reviews.importJudgeMe, { productIds: ["8760395530377", "8760407031945"] })
+      expect(r).toMatchObject({ products: 2, withReviews: 1, found: 2, added: 2, updated: 0, photos: 1, failed: [] })
+      expect(calls.some((c) => c.startsWith("https://judge.me/reviews/reviews_for_widget?url=a88d34-65.myshopify.com&shop_domain=a88d34-65.myshopify.com"))).toBe(true)
+      const list = await as.query(api.reviews.list, {})
+      const rakib = list!.reviews.find((x) => x.author === "Rakib Hasan")!
+      expect(rakib.photos).toHaveLength(1)
+      expect(rakib.photos[0]).not.toContain("imgix")
+      // again: nothing new, photos not downloaded twice
+      const n = calls.filter((c) => c.includes("imgix")).length
+      expect(await as.action(api.reviews.importJudgeMe, { productIds: ["8760395530377"] })).toMatchObject({ added: 0, updated: 2, photos: 0 })
+      expect(calls.filter((c) => c.includes("imgix")).length).toBe(n)
+      expect(list!.lastImport).toMatchObject({ found: 2 })
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it("takes reviews written on the website as pending, with checks and a per-IP limit", async () => {
     const { t, as } = await setup()
     vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)

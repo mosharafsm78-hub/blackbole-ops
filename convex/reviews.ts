@@ -7,7 +7,7 @@
 // - "Write a review" on the website posts to POST /website/reviews (same key): it arrives as "pending" until a
 //   staff member publishes it.
 import { v, ConvexError } from "convex/values"
-import { action, httpAction, internalQuery, query, type MutationCtx } from "./_generated/server"
+import { action, httpAction, internalAction, internalQuery, query, type ActionCtx, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internalMutation, mutation } from "./functions"
@@ -162,11 +162,17 @@ export function parseJudgeMeHtml(html: string): ParsedReview[] {
 }
 
 // ---------------- import ----------------
-export const importTargets = internalQuery({
+export const canManageQuery = internalQuery({
   args: {},
   handler: async (ctx) => {
     const s = await currentStaff(ctx)
-    if (!s || !canManage(s.perms)) return null
+    return !!s && canManage(s.perms)
+  },
+})
+
+export const importTargets = internalQuery({
+  args: {},
+  handler: async (ctx) => {
     const map: Record<string, string> = { ...JUDGEME_PRODUCTS }
     for (const p of await ctx.db.query("products").collect()) {
       const id = String(p.web?.id ?? "")
@@ -218,7 +224,22 @@ export const finishImport = internalMutation({
   },
 })
 
-type ImportSummary = { products: number; withReviews: number; found: number; added: number; updated: number; failed: string[] }
+type ImportSummary = { products: number; withReviews: number; found: number; added: number; updated: number; photos: number; failed: string[] }
+
+const isJudgeMeUrl = (u: string) => /judge\.?me|imgix\.net/i.test(u)
+
+/** Photos already saved for these Judge.me reviews (extId → photo URLs). */
+export const storedPhotos = internalQuery({
+  args: { extIds: v.array(v.string()) },
+  handler: async (ctx, { extIds }) => {
+    const out: Record<string, string[]> = {}
+    for (const id of extIds) {
+      const r = await ctx.db.query("webReviews").withIndex("by_ext", (q) => q.eq("extId", id)).first()
+      if (r?.photos?.length) out[id] = r.photos
+    }
+    return out
+  },
+})
 
 async function fetchPage(shop: string, productId: string, page: number) {
   const u = `${JUDGEME_URL}?url=${encodeURIComponent(shop)}&shop_domain=${encodeURIComponent(shop)}&platform=shopify&page=${page}&per_page=${PER_PAGE}&product_id=${productId}`
@@ -241,10 +262,23 @@ async function fetchPage(shop: string, productId: string, page: number) {
 export const importJudgeMe = action({
   args: { productIds: v.optional(v.array(v.string())) },
   handler: async (ctx, a): Promise<ImportSummary> => {
-    const targets = await ctx.runQuery(internal.reviews.importTargets, {})
-    if (!targets) throw new ConvexError("You don't have permission for this action.")
+    if (!(await ctx.runQuery(internal.reviews.canManageQuery, {}))) throw new ConvexError("You don't have permission for this action.")
+    return runJudgeMeImport(ctx, a.productIds)
+  },
+})
+
+/** Same import without a signed-in staff member (run once after deploy: scripts/one-time-resets.json). */
+export const importJudgeMeInternal = internalAction({
+  args: { productIds: v.optional(v.array(v.string())) },
+  handler: async (ctx, a): Promise<ImportSummary> => runJudgeMeImport(ctx, a.productIds),
+})
+
+async function runJudgeMeImport(ctx: ActionCtx, productIds?: string[]): Promise<ImportSummary> {
+  {
+    const targets: Record<string, string> = await ctx.runQuery(internal.reviews.importTargets, {})
+    const a = { productIds }
     const ids = a.productIds?.length ? a.productIds.filter((id) => /^\d+$/.test(id)) : Object.keys(targets)
-    const sum: ImportSummary = { products: ids.length, withReviews: 0, found: 0, added: 0, updated: 0, failed: [] }
+    const sum: ImportSummary = { products: ids.length, withReviews: 0, found: 0, added: 0, updated: 0, photos: 0, failed: [] }
     for (const id of ids) {
       const fallback = targets[id] ?? ""
       try {
@@ -262,6 +296,30 @@ export const importJudgeMe = action({
         if (!got.length) continue
         sum.withReviews++
         sum.found += got.length
+        // customer photos: keep our own copy (Convex file storage), so they stay after Judge.me/Shopify is closed
+        const withPics = got.filter((r) => r.photos.length)
+        if (withPics.length) {
+          const had: Record<string, string[]> = await ctx.runQuery(internal.reviews.storedPhotos, { extIds: withPics.map((r) => r.extId) })
+          for (const r of withPics) {
+            const old = had[r.extId]
+            if (old?.length && old.every((u) => !isJudgeMeUrl(u))) { r.photos = old; continue }
+            const mine: string[] = []
+            for (const u of r.photos) {
+              try {
+                const res = await fetch(u)
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                const blob = await res.blob()
+                if (!blob.type.startsWith("image/") || blob.size > 15_000_000) throw new Error("not an image")
+                const id = await ctx.storage.store(blob)
+                mine.push((await ctx.storage.getUrl(id)) ?? u)
+                sum.photos++
+              } catch {
+                mine.push(u) // keep Judge.me's link; the next import tries again
+              }
+            }
+            r.photos = mine
+          }
+        }
         for (let i = 0; i < got.length; i += UPSERT_CHUNK) {
           const r = await ctx.runMutation(internal.reviews.upsertImported, { rows: got.slice(i, i + UPSERT_CHUNK), fallbackHandle: fallback })
           sum.added += r.added; sum.updated += r.updated
@@ -272,8 +330,8 @@ export const importJudgeMe = action({
     }
     await ctx.runMutation(internal.reviews.finishImport, { summary: sum })
     return sum
-  },
-})
+  }
+}
 
 // ---------------- staff: list + moderate ----------------
 export type ReviewRow = {
