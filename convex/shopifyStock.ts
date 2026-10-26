@@ -52,7 +52,7 @@ export const creds = internalQuery({
   }),
 })
 export const putToken = internalMutation({
-  args: { token: v.any(), error: v.optional(v.any()) },
+  args: { token: v.optional(v.any()), error: v.optional(v.any()) },
   handler: async (ctx, { token, error }) => {
     if (token !== undefined) await setSetting(ctx, "shopifyApiToken", token)
     if (error !== undefined) await setSetting(ctx, "shopifyApiError", error)
