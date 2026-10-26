@@ -22,20 +22,28 @@ export const summary = query({
     if (!(await currentStaff(ctx))) return null
     const orders = await ctx.db.query("orders").withIndex("by_shipped", (q) => q.gte("shippedAt", from).lte("shippedAt", to)).collect()
     const locs = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l]))
+    const dps = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && !p.deletedAt)
+    const cityOf = (id?: string) => (/dhaka|dhk/i.test(locs.get(id ?? "")?.name ?? "") ? "dhaka" : "ctg")
+    // the courier that belongs to this warehouse (by city + exchange or not)
+    const whPartner = (locId: string, city: string, ex: boolean) =>
+      dps.find((p) => p.locationId === locId && !!p.isExchange === ex)?.name ??
+      dps.find((p) => p.provider === "pathao" && !!p.isExchange === ex && cityOf(p.locationId) === city)?.name
     const counts: Record<string, number> = { ctg: 0, dhaka: 0, ctg_ex: 0, dhaka_ex: 0 }
     const total = empty()
     const partners = new Map<string, number>()
-    const codes: { id: string; invoiceNo: number; partner: string }[] = []
+    const codes: { id: string; invoiceNo: number; partner: string; booked: string }[] = []
     for (const o of orders) {
       if (o.deletedAt || o.status === "cancelled") continue
       const loc = locs.get(o.locationId)
-      const city = /dhaka|dhk/i.test(loc?.name ?? "") ? "dhaka" : "ctg"
-      const key = o.isExchange || loc?.noCourier ? `${city}_ex` : city
+      const city = cityOf(o.locationId)
+      const ex = !!(o.isExchange || loc?.noCourier)
+      const key = ex ? `${city}_ex` : city
       counts[key]++
       if (report && report !== "all" && report !== key) continue
-      const p = o.courier === "pickup" ? "Pickup" : o.deliveryPartnerName || (o.courier === "pathao" ? "Pathao" : "Other")
+      const p = o.courier === "pickup" ? "Pickup" : whPartner(o.locationId, city, ex) ?? o.deliveryPartnerName ?? "Pathao"
       partners.set(p, (partners.get(p) ?? 0) + 1)
-      codes.push({ id: o._id, invoiceNo: o.invoiceNo, partner: p })
+      const booked = o.courier === "pickup" ? p : o.deliveryPartnerName ?? p
+      codes.push({ id: o._id, invoiceNo: o.invoiceNo, partner: p, booked })
       const itemDiscount = o.items.reduce((t, i) => t + (i.discount ?? 0), 0)
       total.orders += 1
       total.qty += o.itemCount ?? o.items.reduce((t, i) => t + i.qty, 0)

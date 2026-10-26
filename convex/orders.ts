@@ -650,6 +650,11 @@ export const runAutoApprove = internalMutation({
 })
 
 // ---------- edits ----------
+async function partnerForLocation(ctx: QueryCtx, locationId: Id<"locations">, exchange: boolean) {
+  const all = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && !p.deletedAt && p.locationId === locationId)
+  return all.find((p) => p.provider === "pathao" && !!p.isExchange === exchange) ?? (await defaultPartner(ctx, locationId))
+}
+
 export const update = mutation({
   args: {
     id: v.id("orders"),
@@ -683,7 +688,9 @@ export const update = mutation({
 
     const newLoc = await ctx.db.get(a.locationId)
     const noCourier = !!newLoc?.noCourier // exchange warehouse: never Pathao
-    const partner = noCourier ? null : a.deliveryPartnerId ? await ctx.db.get(a.deliveryPartnerId) : null
+    // Warehouse changed and no courier picked: use the courier linked to the new warehouse (was: kept the old warehouse's Pathao store)
+    const partner = noCourier ? null : a.deliveryPartnerId ? await ctx.db.get(a.deliveryPartnerId)
+      : locationChanged ? await partnerForLocation(ctx, a.locationId, !!order.isExchange) : null
     const t = orderTotals(items, a.discount, a.deliveryFee, order.paidAmount)
     await ctx.db.patch(order._id, {
       customerName: a.customerName, phone, email: a.email, address: a.address, cityName: a.cityName,

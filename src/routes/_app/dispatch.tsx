@@ -121,7 +121,8 @@ function Dispatch() {
             <div className="mt-5 text-xs text-muted-foreground">
               Orders in this report:{" "}
               {data.codes.map((c, i) => (
-                <span key={c.id}>{i > 0 && ", "}<Link to="/order" search={{ id: c.id }} className="underline-offset-2 hover:underline">BB-{c.invoiceNo}</Link></span>
+                <span key={c.id}>{i > 0 && ", "}<Link to="/order" search={{ id: c.id }} className="underline-offset-2 hover:underline">BB-{c.invoiceNo}</Link>
+                  {c.booked !== c.partner && !c.booked.startsWith("Exchange") && <span className="font-medium text-tone-red"> (booked with {c.booked}!)</span>}</span>
               ))}
             </div>
           )}
