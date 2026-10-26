@@ -234,7 +234,7 @@ export const status = query({
 // ---------------- import from the current website ----------------
 /** One website product from catalog-export.json → fills `web` on the Ops product/variants matched by SKU,
  *  creating what is missing. Re-running updates, never duplicates. */
-async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; updated: number; variantsCreated: number; variantsMatched: number }) {
+async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; updated: number; variantsCreated: number; variantsMatched: number; skipped?: number }) {
   const handle = String(ep.handle ?? "").trim()
   if (!handle) return
   const evs: any[] = Array.isArray(ep.variants) ? ep.variants : []
@@ -246,6 +246,8 @@ async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; upda
     matched.push(row)
   }
   const byHandle = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", handle)).first()
+  // Draft (hidden) website pages with nothing in Ops yet: don't create new Ops products for them
+  if (ep.published === false && !byHandle && !matched.some(Boolean)) { pos.skipped = (pos.skipped ?? 0) + 1; return }
   let productId: Id<"products"> | undefined = byHandle && !byHandle.deletedAt ? byHandle._id : undefined
   if (!productId) {
     // The Ops product holding most of the matched variants (owners of a parent link first)
@@ -274,7 +276,7 @@ async function importOne(ctx: MutationCtx, ep: any, pos: { created: number; upda
     mf: ep.mf && typeof ep.mf === "object" ? ep.mf : {},
     createdAt: ep.createdAt ?? prev?.web?.createdAt,
     publishedAt: ep.publishedAt ?? prev?.web?.publishedAt,
-    published: prev?.web?.published ?? true, // keep a switch someone already flipped in Ops
+    published: prev?.web?.published ?? (ep.published !== false), // keep a switch someone already flipped in Ops; drafts stay hidden
     updatedAt: Date.now(),
   }
   // Another Ops product holding this handle (e.g. from an earlier import) gives it up.

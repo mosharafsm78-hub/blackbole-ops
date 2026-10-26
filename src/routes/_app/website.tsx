@@ -213,7 +213,7 @@ function CollectionDialog({ coll, all, onClose }: { coll: Coll | null; all: Coll
   const [items, setItems] = useState<string[]>(coll?.productHandles ?? [])
   const [add, setAdd] = useState("")
   const [busy, setBusy] = useState(false)
-  const title = new Map(all.map((p) => [p.handle, p]))
+  const title = new Map<string, { title: string; published: boolean }>(all.map((p: any) => [p.handle, p]))
   const move = (i: number, d: number) => setItems((l) => { const n = [...l]; const j = i + d; if (j < 0 || j >= n.length) return l; [n[i], n[j]] = [n[j], n[i]]; return n })
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
