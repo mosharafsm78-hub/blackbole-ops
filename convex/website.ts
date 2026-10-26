@@ -169,7 +169,12 @@ export const catalogHttp = httpAction(async (ctx, req) => {
   // "Best selling" order uses pairs sold per product (worked out daily in the background, see salesTick).
   // It can never block the catalog: if it isn't there, collections simply keep their saved order.
   let sold: Record<string, number> = {}
-  try { sold = Object.fromEntries((await ctx.runQuery(internal.website.soldSnapshot, {})) ?? []) } catch { sold = {} }
+  try {
+    const snap = await ctx.runQuery(internal.website.soldSnapshot, {})
+    sold = Object.fromEntries(snap.pairs)
+    // missing or older than 6 h: recount in the background (this build uses what's there)
+    if (!snap.at || Date.now() - snap.at > 6 * 60 * 60 * 1000) await ctx.scheduler.runAfter(0, internal.website.salesTick, {})
+  } catch { sold = {} }
   for (const p of data.products) p.sold = sold[p.handle] ?? 0
   finishCollections(data.products, data.collections)
   return json(data)
@@ -177,7 +182,10 @@ export const catalogHttp = httpAction(async (ctx, req) => {
 
 export const soldSnapshot = internalQuery({
   args: {},
-  handler: async (ctx): Promise<[string, number][]> => ((await getSetting<{ at: number; pairs: [string, number][] }>(ctx, "websiteSold"))?.pairs ?? []),
+  handler: async (ctx): Promise<{ at: number; pairs: [string, number][] }> => {
+    const x = await getSetting<{ at: number; pairs: [string, number][] }>(ctx, "websiteSold")
+    return { at: x?.at ?? 0, pairs: Array.isArray(x?.pairs) ? x!.pairs : [] }
+  },
 })
 
 /** One page of recent orders → pairs sold per Ops product id (small pages keep every read well under Convex limits). */
