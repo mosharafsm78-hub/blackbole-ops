@@ -5,7 +5,7 @@ import { BadgePercent, FileText, Store, Tag, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export type WebsiteNavKey =
-  | "products" | "collections" | "inventory"
+  | "products" | "collections" | "inventory" | "reviews"
   | "discounts"
   | "content" | "files" | "menus" | "blog" | "pages"
   | "store" | "themes" | "preferences"
@@ -21,6 +21,7 @@ export const WEBSITE_NAV: Item[] = [
     subs: [
       { key: "collections", label: "Collections", to: "/website-collections" },
       { key: "inventory", label: "Inventory", to: "/website-inventory" },
+      { key: "reviews", label: "Reviews", to: "/website-reviews" },
     ],
   },
   { key: "discounts", label: "Discounts", to: "/website-discounts", icon: BadgePercent, subs: [] },
@@ -56,6 +57,7 @@ export function websiteNavKey(path: string, search: Record<string, unknown> = {}
     case "product": case "new": return "products"
     case "collection": case "collections": return "collections"
     case "inventory": return "inventory"
+    case "reviews": return "reviews"
     case "discounts": case "discount": return "discounts"
     case "files": return "files"
     case "navigation": return "menus"

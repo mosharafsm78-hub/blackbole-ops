@@ -12,6 +12,7 @@ import { statusHttp as orderStatus } from "./orderStatus"
 import { subscribeHttp } from "./subscribers"
 import { contentHttp as websiteContent } from "./content"
 import { themeHttp as websiteTheme } from "./themes"
+import { reviewsHttp as websiteReviews } from "./reviews"
 
 const http = httpRouter()
 
@@ -42,5 +43,8 @@ http.route({ path: "/website/subscribe", method: "POST", handler: subscribeHttp 
 http.route({ path: "/website/content", method: "GET", handler: websiteContent })
 // Website theme (Website → Themes): ?which=live|draft (same key)
 http.route({ path: "/website/theme", method: "GET", handler: websiteTheme })
+// Product reviews (Website → Reviews): GET published ones for the build, POST a new one (pending) (same key)
+http.route({ path: "/website/reviews", method: "GET", handler: websiteReviews })
+http.route({ path: "/website/reviews", method: "POST", handler: websiteReviews })
 
 export default http

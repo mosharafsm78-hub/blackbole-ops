@@ -681,4 +681,26 @@ export default defineSchema({
     alt: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_created", ["createdAt"]).index("by_url", ["url"]),
+
+  // Website → Products → Reviews (was Judge.me on Shopify). See convex/reviews.ts. The website reads the published
+  // ones from GET /website/reviews at build time; reviews written on the website arrive as "pending".
+  webReviews: defineTable({
+    source: v.string(), // judgeme | website | manual
+    extId: v.optional(v.string()), // Judge.me review id (re-imports update, never duplicate)
+    handle: v.string(), // product URL handle
+    productTitle: v.optional(v.string()),
+    rating: v.number(), // 1–5
+    title: v.optional(v.string()),
+    body: v.string(), // plain text (new lines kept)
+    author: v.string(),
+    email: v.optional(v.string()),
+    location: v.optional(v.string()),
+    verified: v.optional(v.boolean()),
+    photos: v.optional(v.array(v.string())),
+    reply: v.optional(v.string()), // store reply
+    status: v.string(), // published | hidden | pending
+    ip: v.optional(v.string()),
+    createdAt: v.number(), // review date
+    updatedAt: v.number(),
+  }).index("by_ext", ["extId"]).index("by_handle", ["handle"]).index("by_status", ["status"]),
 })

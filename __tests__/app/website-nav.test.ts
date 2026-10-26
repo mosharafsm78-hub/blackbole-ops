@@ -9,6 +9,7 @@ describe("Website sidebar menu", () => {
     expect(websiteNavKey("/website-new")).toBe("products")
     expect(websiteNavKey("/website-collection")).toBe("collections")
     expect(websiteNavKey("/website-inventory")).toBe("inventory")
+    expect(websiteNavKey("/website-reviews")).toBe("reviews")
     expect(websiteNavKey("/website-discount")).toBe("discounts")
     expect(websiteNavKey("/website-navigation")).toBe("menus")
     expect(websiteNavKey("/website-post")).toBe("blog")
@@ -22,6 +23,7 @@ describe("Website sidebar menu", () => {
 
   it("opens the right main item", () => {
     expect(websiteNavParent("collections")).toBe("products")
+    expect(websiteNavParent("reviews")).toBe("products")
     expect(websiteNavParent("menus")).toBe("content")
     expect(websiteNavParent("preferences")).toBe("store")
     expect(websiteNavParent("subscribers")).toBe("customers")

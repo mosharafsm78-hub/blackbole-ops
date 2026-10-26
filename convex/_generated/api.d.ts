@@ -28,6 +28,7 @@ import type * as pathaoNode from "../pathaoNode.js";
 import type * as publicApi from "../publicApi.js";
 import type * as purchasing from "../purchasing.js";
 import type * as reports from "../reports.js";
+import type * as reviews from "../reviews.js";
 import type * as rules from "../rules.js";
 import type * as settings from "../settings.js";
 import type * as shopify from "../shopify.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   publicApi: typeof publicApi;
   purchasing: typeof purchasing;
   reports: typeof reports;
+  reviews: typeof reviews;
   rules: typeof rules;
   settings: typeof settings;
   shopify: typeof shopify;

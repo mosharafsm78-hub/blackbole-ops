@@ -47,6 +47,7 @@ import { Route as AppWebsitePageRouteImport } from './routes/_app/website-page'
 import { Route as AppWebsitePagesRouteImport } from './routes/_app/website-pages'
 import { Route as AppWebsitePostRouteImport } from './routes/_app/website-post'
 import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
+import { Route as AppWebsiteReviewsRouteImport } from './routes/_app/website-reviews'
 import { Route as AppWebsiteSettingsRouteImport } from './routes/_app/website-settings'
 import { Route as AppWebsiteSubscribersRouteImport } from './routes/_app/website-subscribers'
 import { Route as AppWebsiteThemeEditorRouteImport } from './routes/_app/website-theme-editor'
@@ -242,6 +243,11 @@ const AppWebsiteProductRoute = AppWebsiteProductRouteImport.update({
   path: '/website-product',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteReviewsRoute = AppWebsiteReviewsRouteImport.update({
+  id: '/website-reviews',
+  path: '/website-reviews',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteSettingsRoute = AppWebsiteSettingsRouteImport.update({
   id: '/website-settings',
   path: '/website-settings',
@@ -306,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/website-pages': typeof AppWebsitePagesRoute
   '/website-post': typeof AppWebsitePostRoute
   '/website-product': typeof AppWebsiteProductRoute
+  '/website-reviews': typeof AppWebsiteReviewsRoute
   '/website-settings': typeof AppWebsiteSettingsRoute
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
@@ -349,6 +356,7 @@ export interface FileRoutesByTo {
   '/website-pages': typeof AppWebsitePagesRoute
   '/website-post': typeof AppWebsitePostRoute
   '/website-product': typeof AppWebsiteProductRoute
+  '/website-reviews': typeof AppWebsiteReviewsRoute
   '/website-settings': typeof AppWebsiteSettingsRoute
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
@@ -395,6 +403,7 @@ export interface FileRoutesById {
   '/_app/website-pages': typeof AppWebsitePagesRoute
   '/_app/website-post': typeof AppWebsitePostRoute
   '/_app/website-product': typeof AppWebsiteProductRoute
+  '/_app/website-reviews': typeof AppWebsiteReviewsRoute
   '/_app/website-settings': typeof AppWebsiteSettingsRoute
   '/_app/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/_app/website-theme-editor': typeof AppWebsiteThemeEditorRoute
@@ -442,6 +451,7 @@ export interface FileRouteTypes {
     | '/website-pages'
     | '/website-post'
     | '/website-product'
+    | '/website-reviews'
     | '/website-settings'
     | '/website-subscribers'
     | '/website-theme-editor'
@@ -485,6 +495,7 @@ export interface FileRouteTypes {
     | '/website-pages'
     | '/website-post'
     | '/website-product'
+    | '/website-reviews'
     | '/website-settings'
     | '/website-subscribers'
     | '/website-theme-editor'
@@ -530,6 +541,7 @@ export interface FileRouteTypes {
     | '/_app/website-pages'
     | '/_app/website-post'
     | '/_app/website-product'
+    | '/_app/website-reviews'
     | '/_app/website-settings'
     | '/_app/website-subscribers'
     | '/_app/website-theme-editor'
@@ -813,6 +825,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteProductRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-reviews': {
+      id: '/_app/website-reviews'
+      path: '/website-reviews'
+      fullPath: '/website-reviews'
+      preLoaderRoute: typeof AppWebsiteReviewsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website-settings': {
       id: '/_app/website-settings'
       path: '/website-settings'
@@ -886,6 +905,7 @@ interface AppRouteChildren {
   AppWebsitePagesRoute: typeof AppWebsitePagesRoute
   AppWebsitePostRoute: typeof AppWebsitePostRoute
   AppWebsiteProductRoute: typeof AppWebsiteProductRoute
+  AppWebsiteReviewsRoute: typeof AppWebsiteReviewsRoute
   AppWebsiteSettingsRoute: typeof AppWebsiteSettingsRoute
   AppWebsiteSubscribersRoute: typeof AppWebsiteSubscribersRoute
   AppWebsiteThemeEditorRoute: typeof AppWebsiteThemeEditorRoute
@@ -928,6 +948,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebsitePagesRoute: AppWebsitePagesRoute,
   AppWebsitePostRoute: AppWebsitePostRoute,
   AppWebsiteProductRoute: AppWebsiteProductRoute,
+  AppWebsiteReviewsRoute: AppWebsiteReviewsRoute,
   AppWebsiteSettingsRoute: AppWebsiteSettingsRoute,
   AppWebsiteSubscribersRoute: AppWebsiteSubscribersRoute,
   AppWebsiteThemeEditorRoute: AppWebsiteThemeEditorRoute,
