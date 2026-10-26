@@ -991,6 +991,15 @@ export const parcelGroup = action({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }): Promise<{ parcels: any[]; linked: boolean; candidates: { id: Id<"orders">; label: string }[] }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    try { return await parcelGroupInner(ctx, orderId) } catch (e) {
+      if (e instanceof ConvexError) throw e
+      throw new ConvexError(`Pathao parcels: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  },
+})
+
+async function parcelGroupInner(ctx: any, orderId: Id<"orders">): Promise<{ parcels: any[]; linked: boolean; candidates: { id: Id<"orders">; label: string }[] }> {
+  {
     const fam = await ctx.runQuery(internal.pathao.orderFamily, { id: orderId })
     if (!fam) return { parcels: [], linked: false, candidates: [] }
     const seen = new Map<string, any>()
@@ -1026,8 +1035,8 @@ export const parcelGroup = action({
     const used2 = linked ? await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) }) : used
     const reOwner = Object.fromEntries(fam.exchanges.filter((x) => x.rcid).map((x) => [x.rcid!, x.label]))
     return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked, candidates: fam.candidates }
-  },
-})
+  }
+}
 
 export const usedConsignments = internalQuery({
   args: { ids: v.array(v.string()) },
