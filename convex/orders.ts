@@ -612,14 +612,42 @@ export const fastAction = mutation({
     }
     const errors: string[] = notFound.map((n) => `${n}: not found`)
     const moved: string[] = []
+    // what the scan screen shows for each parcel: status, when it was last scanned, and look-alike parcels
+    const details: {
+      label: string; customer: string; items: string; from: string; status: string; moved: boolean; error?: string
+      already?: { at: number; by: string }; same: { label: string; status: string; at: number }[]
+    }[] = []
     let done = 0
     for (const id of ids) {
       const order = (await ctx.db.get(id))!
-      if (!hasPerm(me.perms, moveKey(order.status as OrderStatus, to))) { errors.push(`${invoiceLabel(order)}: not allowed`); continue }
-      if (order.status === to) { errors.push(`${invoiceLabel(order)}: already ${STATUS_LABEL[to]}`); continue }
-      try { await applyStatus(ctx, order, to, me.staff.name, reason); done++; moved.push(invoiceLabel(order)) } catch (e) { errors.push(e instanceof Error ? e.message : String(e)) }
+      const label = invoiceLabel(order)
+      const from = order.status
+      let error: string | undefined
+      let already: { at: number; by: string } | undefined
+      if (order.status === to) {
+        // scanned twice: when and by whom it got this status
+        const ev = (await ctx.db.query("orderEvents").withIndex("by_order", (q) => q.eq("orderId", id)).order("desc").take(30))
+          .find((e) => e.type === "log" && e.text.includes(`→ ${STATUS_LABEL[to]}`))
+        already = { at: ev?.at ?? order.statusChangedAt ?? order.updatedAt, by: ev?.byName ?? "" }
+        error = `${label}: ALREADY ${STATUS_LABEL[to]}`
+      } else if (!hasPerm(me.perms, moveKey(order.status as OrderStatus, to))) error = `${label}: not allowed`
+      else {
+        try { await applyStatus(ctx, order, to, me.staff.name, reason); done++; moved.push(label) } catch (e) { error = e instanceof Error ? e.message : String(e) }
+      }
+      if (error) errors.push(error)
+      // same customer + same products in another live order = maybe packed twice
+      const key = (o: Doc<"orders">) => o.items.map((i) => `${i.sku}x${i.qty}`).sort().join("|")
+      const same = (await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", order.phone)).order("desc").take(20))
+        .filter((o) => o._id !== order._id && !o.deletedAt && o.status !== "cancelled" && Math.abs(o.createdAt - order.createdAt) < 30 * 86400000 && key(o) === key(order))
+        .map((o) => ({ label: invoiceLabel(o), status: STATUS_LABEL[o.status as OrderStatus] ?? o.status, at: o.createdAt }))
+      const now = (await ctx.db.get(id))!
+      details.push({
+        label, customer: order.customerName, items: order.items.map((i) => `${i.qty} × ${i.name}${i.attrs ? ` · ${i.attrs}` : ""}`).join(", "),
+        from: STATUS_LABEL[from as OrderStatus] ?? from, status: STATUS_LABEL[now.status as OrderStatus] ?? now.status,
+        moved: !error, error, already, same,
+      })
     }
-    return { done, errors, moved }
+    return { done, errors, moved, details, notFound }
   },
 })
 
