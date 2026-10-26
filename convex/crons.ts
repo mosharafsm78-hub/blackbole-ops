@@ -11,4 +11,7 @@ crons.interval("pathao payment due check", { minutes: 30 }, internal.pathao.cron
 crons.interval("pathao exchange parcels", { minutes: 60 }, internal.pathao.cronTick, { job: "exchange" })
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
 
+// Website: pairs sold per product (last 90 days) for "Best selling" collection order
+crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
+
 export default crons
