@@ -33,6 +33,22 @@ const SIZE_SETS: { label: string; sizes: string[] }[] = [
  * Product builder: makes the product name and SKUs in BlackBole style.
  * "BlackBole Harbor Shore Sandal For Men - Black" + sizes 39–44 → BB-SH-HSS-BLACK-39 … 44
  */
+/** Dropdown that always shows every choice, plus "Type a new one…" for anything not in the list. */
+function PickOrType({ value, options, onChange }: { value: string; options: string[]; onChange: (v: string) => void }) {
+  const [typing, setTyping] = useState(false)
+  if (typing) return <Input autoFocus value={value} onChange={(e) => onChange(e.target.value)} onBlur={() => setTyping(false)} placeholder="Type a new one" />
+  const list = value && !options.includes(value) ? [value, ...options] : options
+  return (
+    <Select value={value || undefined} onValueChange={(v) => (v === "__new" ? (onChange(""), setTyping(true)) : onChange(v))}>
+      <SelectTrigger className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
+      <SelectContent>
+        {list.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        <SelectItem value="__new">+ Type a new one…</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
+
 export function ProductBuilder({ open, onOpenChange, onCreated, preset }: {
   open: boolean
   onOpenChange: (o: boolean) => void
@@ -111,8 +127,7 @@ export function ProductBuilder({ open, onOpenChange, onCreated, preset }: {
           <div className="space-y-1.5 sm:col-span-2"><Label>Model name</Label><Input value={model} onChange={(e) => { setModel(e.target.value); setCustomName(null) }} placeholder="e.g. Harbor Shore" autoFocus /></div>
           <div className="space-y-1.5">
             <Label>Type</Label>
-            <Input list="pb-types" value={type} onChange={(e) => { setType(e.target.value); setCustomName(null) }} />
-            <datalist id="pb-types">{TYPES.map((t) => <option key={t} value={t} />)}</datalist>
+            <PickOrType value={type} options={TYPES} onChange={(v) => { setType(v); setCustomName(null) }} />
           </div>
           <div className="space-y-1.5">
             <Label>For</Label>
@@ -123,8 +138,7 @@ export function ProductBuilder({ open, onOpenChange, onCreated, preset }: {
           <div className="space-y-1.5 sm:col-span-2"><Label>Color</Label><Input value={color} onChange={(e) => { setColor(e.target.value); setCustomName(null) }} placeholder="e.g. Black" /></div>
           <div className="space-y-1.5 sm:col-span-3">
             <Label>Category</Label>
-            <Input list="pb-cats" value={category} onChange={(e) => setCategory(e.target.value)} />
-            <datalist id="pb-cats">{[...new Set([...categories, ...Object.keys(CATEGORY_CODES)])].map((c) => <option key={c} value={c} />)}</datalist>
+            <PickOrType value={category} options={[...new Set([...Object.keys(CATEGORY_CODES), ...categories])].sort()} onChange={setCategory} />
           </div>
         </div>
 
