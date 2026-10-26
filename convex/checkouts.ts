@@ -187,6 +187,15 @@ export const relinkOpen = internalMutation({
   },
 })
 
+/** Recovery link for a website lead, like Shopify's abandoned-checkout link: opens the website bag on any phone with
+ *  the same products and quantities (/cart?add=VARIANT:QTY,...). null when the lead has no website variant ids. */
+export function cartLink(url: string | undefined, items: { id?: number; qty: number }[]): string | null {
+  let origin: string
+  try { const u = new URL(url ?? ""); if (!/^https?:$/.test(u.protocol)) return null; origin = u.origin } catch { return null }
+  if (!items.length || !items.every((i) => i.id && Number.isSafeInteger(i.id) && i.id > 0)) return null
+  return `${origin}/cart?add=${items.map((i) => `${i.id}:${Math.max(1, Math.min(10, Math.round(i.qty)))}`).join(",")}`
+}
+
 export const codLead = internalMutation({
   // source "checkout" = the website's own checkout page (shown as "Website checkout"); default = COD popup
   args: { phone: v.string(), name: v.string(), email: v.optional(v.string()), address: v.string(), zone: v.optional(v.string()), items: v.array(leadItem), url: v.optional(v.string()), source: v.optional(v.string()) },
@@ -210,10 +219,11 @@ export const codLead = internalMutation({
     }
     const subtotal = items.reduce((t, i) => t + i.price * i.qty, 0)
     const deliveryFee = a.zone === "outside" ? 130 : 90
+    const recoveryUrl = cartLink(a.url, a.items) ?? a.url?.slice(0, 300)
     const data = {
       customerName: a.name.trim().slice(0, 80) || "Customer", phone, email: a.email?.trim().slice(0, 120) || undefined,
       address: a.address.trim().slice(0, 300), cityName: a.zone === "inside" ? "Dhaka" : undefined,
-      items, subtotal, discount: 0, deliveryFee, total: subtotal + deliveryFee, recoveryUrl: a.url?.slice(0, 300), shopUpdatedAt: now,
+      items, subtotal, discount: 0, deliveryFee, total: subtotal + deliveryFee, recoveryUrl, shopUpdatedAt: now,
     }
     // one lead per phone, shared by the COD popup and the checkout page, so any order for the number closes it
     const checkoutId = `codform:${phone}`

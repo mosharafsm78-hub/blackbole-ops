@@ -3,7 +3,8 @@ import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { v, ConvexError } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
-import { getSetting, invoiceLabel } from "./lib"
+import { getSetting, invoiceLabel, logOrder } from "./lib"
+import { matchByName } from "./checkouts"
 import { insertOrder } from "./orders"
 import { recordUse, recordAutomaticUses, normCode } from "./discounts"
 
@@ -12,19 +13,30 @@ export const apiKey = internalQuery({ args: {}, handler: async (ctx) => (await g
 export const createFromApi = internalMutation({
   args: { body: v.any() },
   handler: async (ctx, { body: b }) => {
-    const items: Doc<"orders">["items"] = []
-    const unknown: string[] = []
-    for (const it of b.items ?? []) {
-      const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", String(it.sku ?? "").toUpperCase())).first()
-      if (!vr) { unknown.push(String(it.sku)); continue }
-      const p = await ctx.db.get(vr.productId)
-      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: Number(it.price ?? vr.price), qty: Number(it.qty ?? 1), discount: Number(it.discount ?? 0), weightKg: vr.weightKg })
-    }
-    if (unknown.length) throw new ConvexError(`Unknown SKU: ${unknown.join(", ")}`)
+    // the same order sent again (website retry, queued order delivered twice, payment callback + IPN): answer with the first
     if (b.external_id) {
       const dupe = await ctx.db.query("orders").withIndex("by_external", (q) => q.eq("externalId", String(b.external_id))).first()
       if (dupe) return { invoice: invoiceLabel(dupe), id: dupe._id, duplicate: true }
     }
+    const items: Doc<"orders">["items"] = []
+    const unknown: string[] = []
+    for (const it of b.items ?? []) {
+      const sku = String(it.sku ?? "").trim().toUpperCase()
+      let vr = sku ? await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first() : null
+      // SKU not in Ops (e.g. a new website product): never refuse a customer's order for that. Find the product by
+      // name + size, or keep the line unlinked (named, priced) for the team to link.
+      if (!vr && it.name) vr = await matchByName(ctx, String(it.name), it.attrs ? String(it.attrs) : undefined)
+      const qty = Math.max(1, Math.round(Number(it.qty ?? 1)) || 1)
+      if (!vr) {
+        if (!sku && !it.name) continue
+        unknown.push(sku || String(it.name))
+        items.push({ sku: sku || "UNKNOWN", name: String(it.name ?? sku).slice(0, 160), attrs: it.attrs ? String(it.attrs).slice(0, 80) : undefined, price: Number(it.price ?? 0), qty, discount: Number(it.discount ?? 0), weightKg: 0.5 })
+        continue
+      }
+      const p = await ctx.db.get(vr.productId)
+      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: Number(it.price ?? vr.price), qty, discount: Number(it.discount ?? 0), weightKg: vr.weightKg })
+    }
+    if (!items.length) throw new ConvexError("The order has no products")
     const res = await insertOrder(ctx, {
       source: String(b.source ?? "Website"), externalId: b.external_id ? String(b.external_id) : undefined,
       externalName: b.external_name ? String(b.external_name) : undefined,
@@ -40,6 +52,7 @@ export const createFromApi = internalMutation({
       await recordUse(ctx, String(b.discount_code))
     }
     await recordAutomaticUses(ctx, b.automatic_discounts) // website automatic discounts: counted in "Used"
+    if (unknown.length) await logOrder(ctx, res.orderId, `Not found in Ops by SKU: ${unknown.join(", ")}. Link the product on this order (its stock is not tracked until then)`, "System")
     return { invoice: `BB-${res.invoiceNo}`, id: res.orderId, duplicate: false }
   },
 })
