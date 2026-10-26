@@ -1,5 +1,7 @@
 import { v, ConvexError } from "convex/values"
-import { query } from "./_generated/server"
+import { action, query } from "./_generated/server"
+import { internal } from "./_generated/api"
+import { DEFAULT_SMS, sendSms } from "./outbound"
 import { mutation } from "./functions"
 import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { normalizePhone, ORDER_SOURCES, PAYMENT_METHODS, SMS_STATUSES } from "./rules"
@@ -107,7 +109,9 @@ export const commSettings = query({
         enabled: !!sms.enabled, statuses: sms.statuses ?? SMS_STATUSES, templates: sms.templates ?? {},
         urlTemplate: sms.urlTemplate ?? "", method: sms.method ?? "GET", valuePreference: sms.valuePreference ?? "total",
         lowBalanceAlert: !!sms.lowBalanceAlert,
+        provider: sms.provider ?? "reve", senderId: sms.senderId ?? "BLACKBOLE", hasKeys: !!(sms.apiKey && sms.secretKey), // keys never leave the server
       },
+      defaults: DEFAULT_SMS,
       contact: { hotline: contact.hotline ?? "", hotlineEnabled: !!contact.hotlineEnabled, whatsapp: contact.whatsapp ?? "", whatsappEnabled: !!contact.whatsappEnabled },
       recent: (await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(30)),
     }
@@ -119,13 +123,20 @@ export const saveCommSettings = mutation({
     sms: v.object({
       enabled: v.boolean(), statuses: v.array(v.string()), templates: v.any(), urlTemplate: v.string(),
       method: v.string(), valuePreference: v.string(), lowBalanceAlert: v.boolean(),
+      provider: v.optional(v.string()), senderId: v.optional(v.string()),
+      apiKey: v.optional(v.string()), secretKey: v.optional(v.string()), // blank = keep the saved one
     }),
     contact: v.object({ hotline: v.string(), hotlineEnabled: v.boolean(), whatsapp: v.string(), whatsappEnabled: v.boolean() }),
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
-    if (a.sms.enabled && !a.sms.urlTemplate.includes("{message}")) throw new ConvexError("The SMS gateway URL must contain {message} and {phone}")
-    await setSetting(ctx, "sms", a.sms)
+    const old = (await getSetting<any>(ctx, "sms")) ?? {}
+    const provider = a.sms.provider ?? old.provider ?? "reve"
+    const apiKey = a.sms.apiKey?.trim() || old.apiKey
+    const secretKey = a.sms.secretKey?.trim() || old.secretKey
+    if (a.sms.enabled && provider === "reve" && (!apiKey || !secretKey)) throw new ConvexError("Add the REVE API key and secret key first")
+    if (a.sms.enabled && provider !== "reve" && !a.sms.urlTemplate.includes("{message}")) throw new ConvexError("The SMS gateway URL must contain {message} and {phone}")
+    await setSetting(ctx, "sms", { ...a.sms, provider, senderId: a.sms.senderId?.trim() || "BLACKBOLE", apiKey, secretKey })
     await setSetting(ctx, "contactPoints", a.contact)
   },
 })
@@ -205,5 +216,20 @@ export const saveAdsSettings = mutation({
     await requirePerm(ctx, "settings.manage")
     const old = (await getSetting<any>(ctx, "metaAds")) ?? {}
     await setSetting(ctx, "metaAds", { token: a.token?.trim() || old.token, accounts: a.accounts.map((x) => ({ ...x, id: x.id.replace(/^act_/, "") })) })
+  },
+})
+
+/** Settings → SMS: send one test message with the saved settings. */
+export const testSms = action({
+  args: { phone: v.string(), text: v.optional(v.string()) },
+  handler: async (ctx, { phone, text }): Promise<{ ok: boolean; error?: string }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "settings.manage" })
+    const p = normalizePhone(phone)
+    if (!/^01\d{9}$/.test(p)) return { ok: false, error: "Phone number looks wrong" }
+    const sms = await ctx.runQuery(internal.outbound.smsSettingsRaw, {})
+    const msg = text?.trim() || "Test SMS from BlackBole Ops. If you got this, automatic order messages are working."
+    const error = await sendSms(sms, p, msg)
+    await ctx.runMutation(internal.outbound.logSms, { phone: p, text: msg, status: error ? "failed" : "sent", error: error ?? undefined })
+    return error ? { ok: false, error } : { ok: true }
   },
 })

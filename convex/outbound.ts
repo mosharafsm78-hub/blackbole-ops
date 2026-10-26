@@ -94,11 +94,42 @@ export const DEFAULT_SMS: Record<string, string> = {
   cancelled: "Your BlackBole order {invoice} was cancelled. For help call {hotline}.",
 }
 
+/** How to call the SMS company. REVE SMS (smpp.revesms.com) is built in; any other gateway works with a URL template. */
+export function smsRequest(sms: any, phone11: string, text: string): { url: string; method: string; kind: "reve" | "custom" } | null {
+  if (sms?.provider === "reve") {
+    if (!sms.apiKey || !sms.secretKey) return null
+    const q = new URLSearchParams({ apikey: sms.apiKey, secretkey: sms.secretKey, callerID: sms.senderId || "BLACKBOLE", toUser: `88${phone11}`, messageContent: text })
+    return { url: `https://smpp.revesms.com:7790/sendtext?${q.toString()}`, method: "GET", kind: "reve" }
+  }
+  if (!sms?.urlTemplate) return null
+  const url = fill(sms.urlTemplate, { phone: encodeURIComponent(`88${phone11}`), phone11: encodeURIComponent(phone11), message: encodeURIComponent(text) })
+  return { url, method: sms.method === "POST" ? "POST" : "GET", kind: "custom" }
+}
+
+/** Send one SMS; returns null when sent, or a short error. REVE answers {"Status":"0","Text":"ACCEPTD",...} when accepted. */
+export async function sendSms(sms: any, phone11: string, text: string): Promise<string | null> {
+  const req = smsRequest(sms, phone11, text)
+  if (!req) return "SMS is not set up (missing API key / gateway)"
+  try {
+    const res = await fetch(req.url, { method: req.method })
+    const body = await res.text()
+    if (!res.ok) return `HTTP ${res.status}`
+    if (req.kind === "reve") {
+      let j: any = null
+      try { j = JSON.parse(body) } catch { return `REVE: ${body.slice(0, 120)}` }
+      if (String(j?.Status) !== "0") return `REVE ${j?.Status ?? "?"}: ${j?.Text ?? body.slice(0, 120)}`
+    }
+    return null
+  } catch (e) {
+    return String(e).slice(0, 200)
+  }
+}
+
 export const sendOrderSms = internalAction({
   args: { orderId: v.id("orders"), status: v.string() },
   handler: async (ctx, { orderId, status }) => {
     const { order, sms, contact } = await ctx.runQuery(internal.outbound.context, { orderId })
-    if (!order || !sms?.enabled || !sms.urlTemplate) return
+    if (!order || !sms?.enabled) return
     const tpl = sms.templates?.[status] || DEFAULT_SMS[status]
     if (!tpl) return
     const amount = sms.valuePreference === "due" ? order.due : order.total
@@ -107,14 +138,9 @@ export const sendOrderSms = internalAction({
       status: STATUS_LABEL[status as OrderStatus] ?? status, courier: order.deliveryPartnerName ?? "courier",
       tracking: order.consignmentId ?? "", hotline: contact?.hotline ?? "", whatsapp: contact?.whatsapp ?? "",
     })
-    const phone88 = `88${order.phone}`
-    const url = fill(sms.urlTemplate, { phone: encodeURIComponent(phone88), phone11: encodeURIComponent(order.phone), message: encodeURIComponent(text) })
-    try {
-      const res = await fetch(url, { method: sms.method === "POST" ? "POST" : "GET" })
-      const ok = res.ok
-      await ctx.runMutation(internal.outbound.logSms, { phone: order.phone, text, orderId, status: ok ? "sent" : "failed", error: ok ? undefined : `HTTP ${res.status}` })
-    } catch (e) {
-      await ctx.runMutation(internal.outbound.logSms, { phone: order.phone, text, orderId, status: "failed", error: String(e) })
-    }
+    const error = await sendSms(sms, order.phone, text)
+    await ctx.runMutation(internal.outbound.logSms, { phone: order.phone, text, orderId, status: error ? "failed" : "sent", error: error ?? undefined })
   },
 })
+
+export const smsSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "sms")) ?? null })

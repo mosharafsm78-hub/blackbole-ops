@@ -5,7 +5,7 @@ import { Copy, Lock } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { ALL_STATUSES, PERMISSIONS, STATUS_LABEL, TRANSITIONS, moveKey } from "@/convex/rules"
+import { ALL_STATUSES, PERMISSIONS, SMS_STATUSES, STATUS_LABEL, TRANSITIONS, moveKey } from "@/convex/rules"
 import { Guard, useCan } from "@/components/app-shell"
 import { Loading, PageHeader, Pill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
@@ -46,6 +46,7 @@ function SettingsPage() {
         <TabsList className="mb-4 flex-wrap">
           <TabsTrigger value="shopify">Shopify</TabsTrigger>
           <TabsTrigger value="pathao">Pathao</TabsTrigger>
+          <TabsTrigger value="sms">SMS</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
           <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
@@ -53,6 +54,7 @@ function SettingsPage() {
         </TabsList>
         <TabsContent value="shopify"><ShopifyTab /></TabsContent>
         <TabsContent value="pathao"><PathaoTab /></TabsContent>
+        <TabsContent value="sms"><SmsTab /></TabsContent>
         <TabsContent value="warehouses"><WarehousesTab /></TabsContent>
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="roles"><RolesTab /></TabsContent>}
@@ -206,6 +208,109 @@ function PathaoTab() {
           <li>Every 30 minutes the app checks Pathao and moves parcels to In Transit, Delivered or Pending Return.</li>
           <li>If a booking fails, the reason shows on the order with a Retry button.</li>
         </ul>
+      </Section>
+    </div>
+  )
+}
+
+// ---------------- SMS (REVE) ----------------
+const SMS_WHEN: Record<string, string> = {
+  pending: "Order placed", approved: "Order confirmed", ready_to_ship: "Packed", in_transit: "Sent with courier",
+  delivered_paid: "Delivered", cancelled: "Cancelled",
+}
+function SmsTab() {
+  const info = useQuery(api.admin.commSettings)
+  const save = useMutation(api.admin.saveCommSettings)
+  const test = useAction(api.admin.testSms)
+  const [f, setF] = useState<any>(null)
+  const [apiKey, setApiKey] = useState("")
+  const [secretKey, setSecretKey] = useState("")
+  const [testPhone, setTestPhone] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (info && !f) setF({ ...info.sms, contact: info.contact }) }, [info, f])
+  if (!info || !f) return <Loading />
+  const saved = info.sms.hasKeys
+  const set = (patch: any) => setF({ ...f, ...patch })
+  const doSave = async () => {
+    setBusy(true)
+    try {
+      const { contact, hasKeys: _h, ...sms } = f
+      await save({ sms: { ...sms, provider: "reve", apiKey: apiKey || undefined, secretKey: secretKey || undefined }, contact })
+      setApiKey(""); setSecretKey("")
+      toast.success("SMS settings saved")
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-4">
+      <Section
+        title="REVE SMS"
+        sub={<>From smpp.revesms.com → Technical Details. {saved ? <Pill tone="green">Keys saved</Pill> : <Pill tone="amber">Not connected</Pill>}</>}
+      >
+        <div className="grid max-w-2xl gap-3 sm:grid-cols-3">
+          <div className="space-y-1.5"><Label>API key</Label><Input type="password" name="reve-api-key" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
+          <div className="space-y-1.5"><Label>Secret key</Label><Input type="password" name="reve-secret-key" autoComplete="new-password" data-1p-ignore data-lpignore="true" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} placeholder={saved ? "Saved — leave blank to keep" : ""} /></div>
+          <div className="space-y-1.5"><Label>Sender ID (name customers see)</Label><Input value={f.senderId} onChange={(e) => set({ senderId: e.target.value })} /></div>
+        </div>
+        <label className="mt-4 flex items-center gap-2 text-sm"><Switch checked={f.enabled} onCheckedChange={(v) => set({ enabled: v })} data-testid="sms-enabled" /> Send automatic SMS to customers</label>
+      </Section>
+
+      <Section title="When to send" sub="Tick the moments a customer gets a message. Write in English (Bangla letters cost more per SMS). {name} {invoice} {amount} {courier} {tracking} {hotline} are filled in automatically.">
+        <div className="space-y-3">
+          {SMS_STATUSES.map((st) => {
+            const on = f.statuses.includes(st)
+            return (
+              <div key={st} className="rounded-md border p-3">
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <Checkbox checked={on} onCheckedChange={(v) => set({ statuses: v ? [...f.statuses, st] : f.statuses.filter((x: string) => x !== st) })} />
+                  {SMS_WHEN[st] ?? st}
+                </label>
+                {on && (
+                  <textarea
+                    className="mt-2 w-full rounded-md border bg-background p-2 text-sm" rows={2}
+                    value={f.templates?.[st] ?? info.defaults[st] ?? ""}
+                    onChange={(e) => set({ templates: { ...f.templates, [st]: e.target.value } })}
+                  />
+                )}
+              </div>
+            )
+          })}
+          <div className="flex items-center gap-2 text-sm">
+            <span>{"{amount}"} means</span>
+            <Select value={f.valuePreference} onValueChange={(v) => set({ valuePreference: v })}>
+              <SelectTrigger className="h-8 w-48"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="total">Order total</SelectItem><SelectItem value="due">Amount to pay on delivery</SelectItem></SelectContent>
+            </Select>
+          </div>
+          <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Hotline ({"{hotline}"})</Label><Input value={f.contact.hotline} onChange={(e) => set({ contact: { ...f.contact, hotline: e.target.value } })} placeholder="01805-070650" /></div>
+          </div>
+        </div>
+        <div className="mt-4"><Button disabled={busy} onClick={doSave}>{busy ? "Saving…" : "Save SMS settings"}</Button></div>
+      </Section>
+
+      <Section title="Send a test SMS" sub="Uses the saved settings. Costs one SMS from your REVE balance.">
+        <div className="flex max-w-md gap-2">
+          <Input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="01XXXXXXXXX" inputMode="numeric" />
+          <Button variant="outline" disabled={busy || !testPhone} onClick={async () => {
+            setBusy(true)
+            try { const r = await test({ phone: testPhone }); r.ok ? toast.success("Test SMS sent") : toast.error(r.error ?? "Not sent") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Send test</Button>
+        </div>
+      </Section>
+
+      <Section title="Last messages">
+        {info.recent.length === 0 ? <p className="text-sm text-muted-foreground">No SMS sent yet.</p> : (
+          <div className="divide-y text-sm">
+            {info.recent.map((m: any) => (
+              <div key={m._id} className="flex flex-wrap items-start gap-2 py-2">
+                <Pill tone={m.status === "sent" ? "green" : "red"}>{m.status === "sent" ? "Sent" : "Failed"}</Pill>
+                <span className="font-medium">{m.phone}</span>
+                <span className="text-muted-foreground">{dateTime(m.at)}</span>
+                <span className="basis-full text-muted-foreground">{m.text}{m.error ? <span className="text-tone-red"> — {m.error}</span> : null}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
     </div>
   )

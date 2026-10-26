@@ -589,3 +589,21 @@ describe("COD form leads", () => {
     expect(await t.mutation(internal.checkouts.codLead, lead)).toBe("already ordered")
   })
 })
+
+describe("REVE SMS", () => {
+  it("builds the REVE send link and reads its answer", async () => {
+    const { smsRequest, sendSms } = await import("../../convex/outbound")
+    const r = smsRequest({ provider: "reve", apiKey: "K", secretKey: "S", senderId: "BLACKBOLE" }, "01711000000", "Hi Rahim")!
+    expect(r.url).toContain("smpp.revesms.com:7790/sendtext?")
+    expect(r.url).toContain("toUser=8801711000000")
+    expect(r.url).toContain("callerID=BLACKBOLE")
+    expect(r.url).toContain("messageContent=Hi+Rahim")
+    expect(smsRequest({ provider: "reve" }, "01711000000", "x")).toBeNull()
+    const real = globalThis.fetch
+    globalThis.fetch = (async () => new Response(JSON.stringify({ Status: "0", Text: "ACCEPTD" }))) as any
+    expect(await sendSms({ provider: "reve", apiKey: "K", secretKey: "S" }, "01711000000", "x")).toBeNull()
+    globalThis.fetch = (async () => new Response(JSON.stringify({ Status: "109", Text: "Invalid Sender ID" }))) as any
+    expect(await sendSms({ provider: "reve", apiKey: "K", secretKey: "S" }, "01711000000", "x")).toContain("109")
+    globalThis.fetch = real
+  })
+})
