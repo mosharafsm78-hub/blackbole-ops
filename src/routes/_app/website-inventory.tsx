@@ -41,7 +41,7 @@ function InventoryPage() {
   const [type, setType] = useState("")
   const [stock, setStock] = useState<Stock>("all")
   const [low, setLow] = useState(2)
-  const [web, setWeb] = useState<Web>("all")
+  const [web, setWeb] = useState<Web>("on") // like Shopify: the store's own products first; "Not on the website" via the filter
   const [sort, setSort] = useState<Sort>("product")
   const [page, setPage] = useState(0)
 

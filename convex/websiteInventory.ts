@@ -44,6 +44,7 @@ export function inventoryRows(input: {
   for (const vr of input.variants) {
     const own = byId.get(vr.productId as string)
     if (!vr.active || !own || !own.active || own.deletedAt) continue
+    if (/-DELETED$/i.test(String((vr as any).sku ?? ""))) continue // retired sizes kept only for old orders
     const parent = vr.web?.parent ? byId.get(vr.web.parent as string) : undefined
     const owner = parent && !parent.deletedAt ? parent : own
     const w: any = owner.web ?? {}
