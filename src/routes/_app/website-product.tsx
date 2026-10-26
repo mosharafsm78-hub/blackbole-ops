@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, ExternalLink, GripVertical, Plus, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, ArrowDownUp, ArrowLeft, Check, ChevronDown, ExternalLink, GripVertical, Plus, Search, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -243,7 +243,13 @@ function Variants({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Fo
   const total = f.vars.reduce((s, v) => s + v.stock, 0)
   return (
     <Section title="Sizes & prices" sub={`${f.vars.length} variant${f.vars.length === 1 ? "" : "s"} · ${total} in stock · price and stock come live from Ops`} flush
-      action={<Button size="sm" variant="ghost" onClick={() => setEditOpts((o) => !o)}>{editOpts ? "Done" : "Edit options"}</Button>}>
+      action={<>
+        {f.vars.length > 1 && <Button size="sm" variant="ghost" title="Sort by size (39, 40, 41…)" onClick={() => {
+          const key = (v: Var) => f.options.map((o) => v.options[o] ?? "").join(" ") || v.title
+          set("vars", [...f.vars].sort((a, b) => key(a).localeCompare(key(b), undefined, { numeric: true })))
+        }}><ArrowDownUp className="size-3.5" /> Sort sizes</Button>}
+        <Button size="sm" variant="ghost" onClick={() => setEditOpts((o) => !o)}>{editOpts ? "Done" : "Edit options"}</Button>
+      </>}>
       {editOpts && (
         <div className="mx-4 mb-3 space-y-2 rounded-lg border bg-muted/30 p-3">
           {f.options.map((o, i) => (

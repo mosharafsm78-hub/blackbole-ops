@@ -176,7 +176,7 @@ export function RichText({ value, onChange, placeholder = "Write a descriptionâ€
           }}
           style={{ minHeight }}
           className={cn(
-            "prose prose-sm max-w-none p-3 outline-none dark:prose-invert",
+            "prose prose-sm max-h-[480px] max-w-none overflow-y-auto p-3 outline-none dark:prose-invert",
             "prose-headings:mb-2 prose-headings:mt-4 prose-p:my-2 prose-ul:my-2 prose-ol:my-2",
             "empty:before:pointer-events-none empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]",
           )}

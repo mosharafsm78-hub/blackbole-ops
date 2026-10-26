@@ -501,7 +501,7 @@ function CollectionIndex({ data }: { data: ReturnType<typeof useQuery<typeof api
                     </div>
                   </div>
                 </td>
-                <td className="py-2.5 pr-3 tabular-nums">{c.live}<span className="text-muted-foreground">{c.total !== c.live ? ` of ${c.total}` : ""}</span></td>
+                <td className="py-2.5 pr-3 tabular-nums">{c.live} live<span className="text-muted-foreground">{c.total !== c.live ? ` · ${c.total - c.live} hidden` : ""}</span></td>
                 <td className="hidden py-2.5 pr-4 text-right text-muted-foreground sm:table-cell">{ago(c.updatedAt)}</td>
               </tr>
             ))}
