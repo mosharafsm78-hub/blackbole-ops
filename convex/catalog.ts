@@ -207,10 +207,22 @@ export const inventory = query({
     const pmap = new Map(products.map((p) => [p._id as string, p]))
     const variants = await ctx.db.query("variants").collect()
     const stock = await stockByVariant(ctx, locationId)
+    // which warehouses hold this product (any stock in any bucket), with their available count
+    const locName = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
+    const whOf = new Map<string, { name: string; available: number }[]>()
+    for (const r of (locationId
+      ? await ctx.db.query("stock").withIndex("by_location", (q) => q.eq("locationId", locationId)).collect()
+      : await ctx.db.query("stock").collect())) {
+      if (!r.available && !r.processing && !r.inTransit && !r.returning && !r.damaged) continue
+      const list = whOf.get(r.variantId) ?? []
+      list.push({ name: locName.get(r.locationId) ?? "Warehouse", available: r.available })
+      whOf.set(r.variantId, list)
+    }
     const rows = variants.map((vr) => {
       const st = stock.get(vr._id) ?? emptySum()
       const p = pmap.get(vr.productId)
       return {
+        wh: (whOf.get(vr._id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
         _id: vr._id, sku: vr.sku, title: vr.title, productName: p?.name ?? "", imageUrl: p?.imageUrl,
         price: vr.price, purchasePrice: vr.purchasePrice, ...st,
         stockValue: st.available * vr.price, costValue: st.available * vr.purchasePrice,

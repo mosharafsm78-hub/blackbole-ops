@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { whTone } from "@/lib/warehouse"
 
 export const Route = createFileRoute("/_app/inventory")({
   component: () => (
@@ -81,7 +82,7 @@ function InventoryPage() {
                   <table className="w-full text-sm">
                     <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                       <tr>
-                        <th className="p-3 font-medium">SKU</th><th className="p-3 font-medium">Product</th>
+                        <th className="p-3 font-medium">SKU</th><th className="p-3 font-medium">Product</th><th className="p-3 font-medium">Warehouse</th>
                         <th className="p-3 text-right font-medium">Available</th><th className="p-3 text-right font-medium">Processing</th>
                         <th className="p-3 text-right font-medium">In transit</th><th className="p-3 text-right font-medium">Returning</th>
                         <th className="p-3 text-right font-medium">Damaged</th><th className="p-3 text-right font-medium">Value</th><th className="p-3" />
@@ -92,6 +93,13 @@ function InventoryPage() {
                         <tr key={r._id} className="hover:bg-muted/30">
                           <td className="p-3 font-mono text-xs">{r.sku}</td>
                           <td className="p-3">{r.productName} <span className="text-muted-foreground">· {r.title}</span></td>
+                          <td className="p-3">
+                            <div className="flex flex-wrap gap-1">
+                              {r.wh.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : r.wh.map((w) => (
+                                <span key={w.name} className={cn("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold", whTone(w.name))}>{w.name}{r.wh.length > 1 || loc === "all" ? ` · ${w.available}` : ""}</span>
+                              ))}
+                            </div>
+                          </td>
                           <td className={cn("p-3 text-right font-semibold tabular-nums", r.available < 0 ? "text-tone-red" : r.available <= 2 ? "text-tone-amber" : "")}>{r.available}</td>
                           <td className="p-3 text-right tabular-nums">{r.processing}</td>
                           <td className="p-3 text-right tabular-nums">{r.inTransit}</td>
@@ -125,7 +133,7 @@ function InventoryPage() {
                     <tr key={l._id}>
                       <td className="whitespace-nowrap p-3 text-xs">{dateTime(l.at)}</td>
                       <td className="p-3 font-mono text-xs">{l.sku}</td>
-                      <td className="p-3 text-xs">{l.locationName}</td>
+                      <td className="p-3 text-xs"><span className={cn("whitespace-nowrap rounded-md px-1.5 py-0.5 font-semibold", whTone(l.locationName))}>{l.locationName}</span></td>
                       <td className="p-3 text-xs">{l.bucket}</td>
                       <td className={cn("p-3 text-right font-medium tabular-nums", l.change > 0 ? "text-tone-green" : "text-tone-red")}>{l.change > 0 ? `+${l.change}` : l.change}</td>
                       <td className="p-3 text-xs">{l.reason}{l.note ? ` — ${l.note}` : ""}</td>
