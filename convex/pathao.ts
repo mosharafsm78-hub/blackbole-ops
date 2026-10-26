@@ -945,6 +945,7 @@ export const orderFamily = internalQuery({
       .map((x) => ({ id: x._id, label: lbl(x) }))
     return {
       candidates,
+      labels: [...new Set(all.map(lbl))],
       original: { id: original._id, label: lbl(original) },
       exchanges: exchanges.map((x) => ({ id: x._id, label: lbl(x), cid: x.consignmentId ?? null, rcid: x.returnConsignmentId ?? null, status: x.status })),
     }
