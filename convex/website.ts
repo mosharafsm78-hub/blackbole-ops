@@ -126,16 +126,24 @@ export function buildCatalog(input: {
 }
 
 // ---------------- catalog feed ----------------
+/** Sellable pairs per variant (courier warehouses only), same rule as the website's live stock. */
+async function availableByVariantMap(ctx: QueryCtx) {
+  const locations = await ctx.db.query("locations").collect()
+  const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
+  const availableByVariant = new Map<string, number>()
+  for (const r of await ctx.db.query("stock").collect()) {
+    if (!active.has(r.locationId as string)) continue
+    availableByVariant.set(r.variantId as string, (availableByVariant.get(r.variantId as string) ?? 0) + r.available)
+  }
+  return availableByVariant
+}
+
+const isPreTag = (tags: unknown) => Array.isArray(tags) && tags.some((t) => String(t).toLowerCase() === "pre-order")
+
 export const catalogData = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const locations = await ctx.db.query("locations").collect()
-    const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
-    const availableByVariant = new Map<string, number>()
-    for (const r of await ctx.db.query("stock").collect()) {
-      if (!active.has(r.locationId as string)) continue
-      availableByVariant.set(r.variantId as string, (availableByVariant.get(r.variantId as string) ?? 0) + r.available)
-    }
+    const availableByVariant = await availableByVariantMap(ctx)
     return buildCatalog({
       products: await ctx.db.query("products").collect(),
       variants: await ctx.db.query("variants").collect(),
@@ -401,27 +409,40 @@ export const products = query({
     if (!s || !canManage(s.perms)) return null
     const all = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt)
     const variants = await ctx.db.query("variants").collect()
-    const count = new Map<string, { n: number; min: number; max: number }>()
+    const stock = await availableByVariantMap(ctx)
+    const count = new Map<string, { n: number; min: number; max: number; stock: number; inStock: number; noSku: number }>()
     const parented = new Map<string, string>() // product → product whose website page shows its variants
     for (const vr of variants) {
       const owner = (vr.web?.parent ?? vr.productId) as string
       if (vr.web?.parent) parented.set(vr.productId as string, vr.web.parent)
       if (!vr.active) continue
-      const c = count.get(owner) ?? { n: 0, min: Infinity, max: 0 }
-      c.n++; c.min = Math.min(c.min, vr.price); c.max = Math.max(c.max, vr.price)
+      const c = count.get(owner) ?? { n: 0, min: Infinity, max: 0, stock: 0, inStock: 0, noSku: 0 }
+      const a = Math.max(0, stock.get(vr._id as string) ?? 0)
+      c.n++; c.min = Math.min(c.min, vr.price); c.max = Math.max(c.max, vr.price); c.stock += a; if (a > 0) c.inStock++
+      if (vr.sku.startsWith("WEB-")) c.noSku++
       count.set(owner, c)
     }
+    const colls = await ctx.db.query("webCollections").collect()
+    const inColls = new Map<string, string[]>()
+    for (const c of colls) for (const h of c.productHandles) inColls.set(h, [...(inColls.get(h) ?? []), c._id as string])
     const names = new Map(all.map((p) => [p._id as string, p.web?.title || p.name]))
     return all
       .map((p) => {
         const c = count.get(p._id as string)
         const partOf = parented.get(p._id as string)
+        const w: any = p.web ?? {}
         return {
-          _id: p._id, name: p.name, title: p.web?.title || p.name, handle: p.handle ?? null, active: p.active,
-          image: p.web?.images?.[0]?.url ?? p.imageUrl ?? null, published: !!p.web?.published,
+          _id: p._id, name: p.name, title: w.title || p.name, handle: p.handle ?? null, active: p.active,
+          image: w.images?.[0]?.url ?? p.imageUrl ?? null, published: !!w.published, setUp: !!p.handle && !!p.web,
           variants: c?.n ?? 0, minPrice: c ? c.min : 0, maxPrice: c ? c.max : 0,
+          stock: c?.stock ?? 0, sizesInStock: c?.inStock ?? 0, noSku: c?.noSku ?? 0,
+          preOrder: !!p.preOrder || isPreTag(w.tags),
+          type: (w.type || p.category || "") as string,
+          collections: p.handle ? inColls.get(p.handle) ?? [] : [],
+          photos: Array.isArray(w.images) ? w.images.length : p.imageUrl ? 1 : 0,
+          hasDescription: String(w.html ?? p.description ?? "").replace(/<[^>]*>/g, "").trim().length > 0,
           partOf: partOf && !c ? names.get(partOf) ?? null : null,
-          updatedAt: p.web?.updatedAt ?? p.createdAt,
+          updatedAt: (w.updatedAt ?? p.createdAt) as number,
         }
       })
       .sort((a, b) => Number(b.published) - Number(a.published) || b.updatedAt - a.updatedAt)
@@ -440,26 +461,91 @@ export const product = query({
     const variants = [...own.filter((vr) => !vr.web?.parent || vr.web.parent === id), ...linked]
       .sort((a, b) => (a.web?.pos ?? 1e9) - (b.web?.pos ?? 1e9) || a.title.localeCompare(b.title, undefined, { numeric: true }))
       .map((vr) => ({ _id: vr._id, sku: vr.sku, title: vr.title, price: vr.price, active: vr.active, web: vr.web ?? null }))
+    const stock = await availableByVariantMap(ctx)
     const collections = (await ctx.db.query("webCollections").collect())
       .sort((a, b) => a.title.localeCompare(b.title))
-      .map((c) => ({ _id: c._id, handle: c.handle, title: c.title, member: !!p.handle && c.productHandles.includes(p.handle) }))
-    return { product: { _id: p._id, name: p.name, handle: p.handle ?? "", web: p.web ?? null, preOrder: !!p.preOrder, imageUrl: p.imageUrl ?? null, description: p.description ?? "", category: p.category ?? "" }, variants, collections }
+      .map((c) => ({ _id: c._id, handle: c.handle, title: c.title, count: c.productHandles.length, member: !!p.handle && c.productHandles.includes(p.handle) }))
+    // Suggestions for the organisation fields (from every website product)
+    const types = new Set<string>(), vendors = new Set<string>(), tags = new Set<string>()
+    const siblings: { id: string; title: string; image: string | null; published: boolean }[] = []
+    for (const o of await ctx.db.query("products").collect()) {
+      const w: any = o.web
+      if (!w) continue
+      if (o.handle && !o.deletedAt && o._id !== p._id) siblings.push({ id: String(w.id || `ops:${o._id}`), title: String(w.title || o.name), image: w.images?.[0]?.url ?? o.imageUrl ?? null, published: !!w.published })
+      if (w.type) types.add(String(w.type))
+      if (w.vendor) vendors.add(String(w.vendor))
+      for (const t of Array.isArray(w.tags) ? w.tags : []) tags.add(String(t))
+    }
+    const sort = (x: Set<string>) => [...x].sort((a, b) => a.localeCompare(b))
+    return {
+      product: { _id: p._id, name: p.name, handle: p.handle ?? "", web: p.web ?? null, preOrder: !!p.preOrder, active: p.active, imageUrl: p.imageUrl ?? null, description: p.description ?? "", category: p.category ?? "" },
+      variants: variants.map((vr) => ({ ...vr, stock: Math.max(0, stock.get(vr._id as string) ?? 0) })),
+      collections,
+      suggest: { types: sort(types), vendors: sort(vendors), tags: sort(tags) },
+      siblings: siblings.sort((a, b) => a.title.localeCompare(b.title)),
+      webId: String((p.web as any)?.id || `ops:${p._id}`),
+    }
   },
 })
+
+async function productInfoByHandle(ctx: QueryCtx) {
+  const prods = (await ctx.db.query("products").collect()).filter((p) => p.handle && !p.deletedAt)
+  const variants = await ctx.db.query("variants").collect()
+  const stock = await availableByVariantMap(ctx)
+  const agg = new Map<string, { stock: number; min: number; n: number }>()
+  for (const vr of variants) {
+    if (!vr.active) continue
+    const owner = (vr.web?.parent ?? vr.productId) as string
+    const a = agg.get(owner) ?? { stock: 0, min: Infinity, n: 0 }
+    a.stock += Math.max(0, stock.get(vr._id as string) ?? 0); a.min = Math.min(a.min, vr.price); a.n++
+    agg.set(owner, a)
+  }
+  type Info = { _id: Id<"products">; title: string; published: boolean; image: string | null; stock: number; price: number; preOrder: boolean; type: string }
+  return new Map<string, Info>(prods.map((p): [string, Info] => {
+    const w: any = p.web ?? {}
+    const a = agg.get(p._id as string)
+    return [p.handle as string, {
+      _id: p._id, title: (w.title || p.name) as string, published: !!w.published,
+      image: (w.images?.[0]?.url ?? p.imageUrl ?? null) as string | null,
+      stock: a?.stock ?? 0, price: a && a.n ? a.min : 0, preOrder: !!p.preOrder || isPreTag(w.tags), type: (w.type || p.category || "") as string,
+    }]
+  }))
+}
 
 export const collections = query({
   args: {},
   handler: async (ctx) => {
     const s = await currentStaff(ctx)
     if (!s || !canManage(s.perms)) return null
-    const prods = (await ctx.db.query("products").collect()).filter((p) => p.handle && !p.deletedAt)
-    const info = new Map(prods.map((p) => [p.handle as string, { title: p.web?.title || p.name, published: !!p.web?.published, image: p.web?.images?.[0]?.url ?? p.imageUrl ?? null }]))
+    const info = await productInfoByHandle(ctx)
     const rows = await ctx.db.query("webCollections").collect()
     return {
-      collections: rows.sort((a, b) => a.title.localeCompare(b.title)).map((c) => ({
-        ...c, products: c.productHandles.map((h) => ({ handle: h, ...(info.get(h) ?? { title: h, published: false, image: null }), missing: !info.has(h) })),
-      })),
-      allProducts: [...info.entries()].map(([handle, x]) => ({ handle, title: x.title, published: x.published })).sort((a, b) => a.title.localeCompare(b.title)),
+      collections: rows.sort((a, b) => a.title.localeCompare(b.title)).map((c) => {
+        const ps = c.productHandles.map((h) => info.get(h)).filter(Boolean) as NonNullable<ReturnType<typeof info.get>>[]
+        return {
+          _id: c._id, handle: c.handle, title: c.title, image: c.image ?? null, updatedAt: c.updatedAt,
+          total: c.productHandles.length, live: ps.filter((p) => p.published).length,
+          thumbs: ps.filter((p) => p.image).slice(0, 4).map((p) => p.image as string),
+          hasDescription: String(c.html ?? "").replace(/<[^>]*>/g, "").trim().length > 0,
+          productHandles: c.productHandles,
+        }
+      }),
+    }
+  },
+})
+
+export const collection = query({
+  args: { id: v.optional(v.id("webCollections")) },
+  handler: async (ctx, { id }) => {
+    const s = await currentStaff(ctx)
+    if (!s || !canManage(s.perms)) return null
+    const info = await productInfoByHandle(ctx)
+    const c = id ? await ctx.db.get(id) : null
+    if (id && !c) return { missing: true as const }
+    return {
+      missing: false as const,
+      collection: c ? { _id: c._id, handle: c.handle, title: c.title, html: c.html ?? "", image: c.image ?? null, seo: c.seo ?? { title: "", description: "" }, productHandles: c.productHandles } : null,
+      products: [...info.entries()].map(([handle, x]) => ({ handle, ...x })).sort((a, b) => Number(b.published) - Number(a.published) || a.title.localeCompare(b.title)),
     }
   },
 })
@@ -478,12 +564,47 @@ export const setPublished = mutation({
   args: { id: v.id("products"), published: v.boolean() },
   handler: async (ctx, { id, published }) => {
     await requireWebsite(ctx)
-    const p = await ctx.db.get(id)
-    if (!p || p.deletedAt) throw new ConvexError("Product not found")
-    const handle = p.handle || (await uniqueHandle(ctx, p.name, id))
-    const now = new Date().toISOString()
-    const web = { title: p.name, html: p.description ?? "", vendor: "BlackBole", type: p.category ?? "", tags: [], seo: { title: "", description: "" }, options: [], images: p.imageUrl ? [{ url: p.imageUrl, alt: p.name, w: null, h: null }] : [], mf: {}, createdAt: now, ...(p.web ?? {}), published, publishedAt: p.web?.publishedAt ?? (published ? now : undefined), updatedAt: Date.now() }
-    await ctx.db.patch(id, { handle, web })
+    await publish(ctx, id, published)
+    await queueRebuild(ctx)
+  },
+})
+
+async function publish(ctx: MutationCtx, id: Id<"products">, published: boolean) {
+  const p = await ctx.db.get(id)
+  if (!p || p.deletedAt) throw new ConvexError("Product not found")
+  const handle = p.handle || (await uniqueHandle(ctx, p.name, id))
+  const now = new Date().toISOString()
+  const web = { title: p.name, html: p.description ?? "", vendor: "BlackBole", type: p.category ?? "", tags: [], seo: { title: "", description: "" }, options: [], images: p.imageUrl ? [{ url: p.imageUrl, alt: p.name, w: null, h: null }] : [], mf: {}, createdAt: now, ...(p.web ?? {}), published, publishedAt: p.web?.publishedAt ?? (published ? now : undefined), updatedAt: Date.now() }
+  await ctx.db.patch(id, { handle, web })
+}
+
+export const bulkPublish = mutation({
+  args: { ids: v.array(v.id("products")), published: v.boolean() },
+  handler: async (ctx, { ids, published }) => {
+    await requireWebsite(ctx)
+    for (const id of ids.slice(0, 500)) await publish(ctx, id, published)
+    await queueRebuild(ctx)
+    return ids.length
+  },
+})
+
+export const bulkCollection = mutation({
+  args: { ids: v.array(v.id("products")), collection: v.id("webCollections"), add: v.boolean() },
+  handler: async (ctx, { ids, collection, add }) => {
+    await requireWebsite(ctx)
+    const c = await ctx.db.get(collection)
+    if (!c) throw new ConvexError("Collection not found")
+    let list = [...c.productHandles]
+    for (const id of ids.slice(0, 500)) {
+      const p = await ctx.db.get(id)
+      if (!p || p.deletedAt) continue
+      if (add) {
+        if (!p.web || !p.handle) await publish(ctx, id, !!p.web?.published)
+        const h = (await ctx.db.get(id))!.handle as string
+        if (!list.includes(h)) list.push(h)
+      } else if (p.handle) list = list.filter((h) => h !== p.handle)
+    }
+    await ctx.db.patch(collection, { productHandles: list, updatedAt: Date.now() })
     await queueRebuild(ctx)
   },
 })
