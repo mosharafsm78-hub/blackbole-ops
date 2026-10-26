@@ -10,6 +10,7 @@ import { catalogHttp as websiteCatalog } from "./website"
 import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discounts"
 import { statusHttp as orderStatus } from "./orderStatus"
 import { subscribeHttp } from "./subscribers"
+import { contentHttp as websiteContent } from "./content"
 
 const http = httpRouter()
 
@@ -36,5 +37,7 @@ http.route({ path: "/website/discount-check", method: "GET", handler: discountCh
 http.route({ path: "/website/order-status", method: "GET", handler: orderStatus })
 // Website newsletter sign-ups (same key)
 http.route({ path: "/website/subscribe", method: "POST", handler: subscribeHttp })
+// Website pages, blog, menus, redirects and store settings (same MARKETING_FEED_KEY)
+http.route({ path: "/website/content", method: "GET", handler: websiteContent })
 
 export default http

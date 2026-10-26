@@ -37,14 +37,19 @@ export function summaryLine(d: Pick<Doc<"discounts">, "type" | "value" | "scope"
   ].filter(Boolean).join(" · ")
 }
 
-/** Same title + tab row as the Website page, so Discounts feels like part of it. */
-export function WebsiteTabs({ active }: { active: "products" | "collections" | "discounts" | "subscribers" }) {
+/** Same title + tab row as the Website page, so every Website page feels like one section (like Shopify Admin). */
+export type WebsiteTab = "products" | "collections" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "settings"
+export function WebsiteTabs({ active }: { active: WebsiteTab }) {
   const cls = (k: string) => cn("-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 text-sm font-medium transition-colors", active === k ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")
   return (
     <div className="mb-4 flex gap-6 overflow-x-auto border-b">
       <Link to="/website" search={{ tab: "products", view: "live" }} className={cls("products")}>Products</Link>
       <Link to="/website" search={{ tab: "collections", view: "live" }} className={cls("collections")}>Collections</Link>
       <Link to="/website-discounts" className={cls("discounts")}>Discounts</Link>
+      <Link to="/website-pages" className={cls("pages")}>Pages</Link>
+      <Link to="/website-blog" className={cls("blog")}>Blog</Link>
+      <Link to="/website-navigation" className={cls("navigation")}>Navigation</Link>
+      <Link to="/website-settings" className={cls("settings")}>Settings</Link>
       <Link to="/website-subscribers" className={cls("subscribers")}>Subscribers</Link>
     </div>
   )

@@ -604,4 +604,43 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_email", ["email"]),
+
+  // Website content (Website → Pages, Blog, Navigation). Shapes match what the website build reads.
+  webPages: defineTable({
+    handle: v.string(),
+    title: v.string(),
+    body: v.string(), // HTML
+    seo: v.optional(v.any()), // { title, description }
+    isPublished: v.boolean(),
+    publishedAt: v.optional(v.union(v.string(), v.null())),
+    templateSuffix: v.optional(v.union(v.string(), v.null())), // "contact", "custom-shoes"… (special page layouts)
+    updatedAt: v.number(),
+  }).index("by_handle", ["handle"]),
+  webPosts: defineTable({
+    blogHandle: v.string(),
+    blogTitle: v.string(),
+    handle: v.string(),
+    title: v.string(),
+    body: v.string(), // HTML
+    summary: v.optional(v.string()),
+    tags: v.array(v.string()),
+    author: v.optional(v.string()),
+    image: v.optional(v.any()), // { url, altText, width, height } | null
+    isPublished: v.boolean(),
+    publishedAt: v.optional(v.union(v.string(), v.null())),
+    seo: v.optional(v.any()),
+    pos: v.number(),
+    updatedAt: v.number(),
+  }).index("by_blog_handle", ["blogHandle", "handle"]),
+  webMenus: defineTable({
+    handle: v.string(),
+    title: v.string(),
+    items: v.any(), // [{ title, url, type, items: [...] }]
+    updatedAt: v.number(),
+  }).index("by_handle", ["handle"]),
+  webRedirects: defineTable({
+    path: v.string(),
+    target: v.string(),
+    updatedAt: v.number(),
+  }).index("by_path", ["path"]),
 })
