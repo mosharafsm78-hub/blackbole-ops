@@ -169,7 +169,7 @@ export const catalogHttp = httpAction(async (ctx, req) => {
   // "Best selling" order uses pairs sold per product (worked out daily in the background, see salesTick).
   // It can never block the catalog: if it isn't there, collections simply keep their saved order.
   let sold: Record<string, number> = {}
-  try { sold = (await ctx.runQuery(internal.website.soldSnapshot, {})) ?? {} } catch { sold = {} }
+  try { sold = Object.fromEntries((await ctx.runQuery(internal.website.soldSnapshot, {})) ?? []) } catch { sold = {} }
   for (const p of data.products) p.sold = sold[p.handle] ?? 0
   finishCollections(data.products, data.collections)
   return json(data)
@@ -177,7 +177,7 @@ export const catalogHttp = httpAction(async (ctx, req) => {
 
 export const soldSnapshot = internalQuery({
   args: {},
-  handler: async (ctx) => ((await getSetting<{ at: number; byHandle: Record<string, number> }>(ctx, "websiteSold"))?.byHandle ?? {}),
+  handler: async (ctx): Promise<[string, number][]> => ((await getSetting<{ at: number; pairs: [string, number][] }>(ctx, "websiteSold"))?.pairs ?? []),
 })
 
 /** One page of recent orders → pairs sold per Ops product id (small pages keep every read well under Convex limits). */
@@ -185,32 +185,33 @@ export const soldPage = internalQuery({
   args: { since: v.number(), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { since, cursor }) => {
     const page = await ctx.db.query("orders").withIndex("by_creation_time", (q) => q.gt("_creationTime", since)).paginate({ cursor, numItems: 150 })
-    const byVariant: Record<string, number> = {}
+    // lists, not objects: Convex return values allow at most 1024 fields per object
+    const byVariant = new Map<string, number>()
     for (const o of page.page) {
       if (o.deletedAt || o.status === "cancelled") continue
-      for (const i of o.items) if (i.variantId) byVariant[i.variantId as string] = (byVariant[i.variantId as string] ?? 0) + (i.qty || 1)
+      for (const i of o.items) if (i.variantId) byVariant.set(i.variantId as string, (byVariant.get(i.variantId as string) ?? 0) + (i.qty || 1))
     }
-    return { byVariant, cursor: page.continueCursor, done: page.isDone }
+    return { pairs: [...byVariant], cursor: page.continueCursor, done: page.isDone }
   },
 })
 
 export const soldOwners = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const handleOf: Record<string, string> = {}
-    for (const p of await ctx.db.query("products").collect()) if (p.handle && !p.deletedAt) handleOf[p._id as string] = p.handle
-    const owner: Record<string, string> = {}
+    const handleOf = new Map<string, string>()
+    for (const p of await ctx.db.query("products").collect()) if (p.handle && !p.deletedAt) handleOf.set(p._id as string, p.handle)
+    const owner: [string, string][] = []
     for (const vr of await ctx.db.query("variants").collect()) {
-      const h = handleOf[(vr.web?.parent ?? vr.productId) as string]
-      if (h) owner[vr._id as string] = h
+      const h = handleOf.get((vr.web?.parent ?? vr.productId) as string)
+      if (h) owner.push([vr._id as string, h])
     }
     return owner
   },
 })
 
 export const saveSold = internalMutation({
-  args: { byHandle: v.record(v.string(), v.number()) },
-  handler: async (ctx, { byHandle }) => { await setSetting(ctx, "websiteSold", { at: Date.now(), byHandle }) },
+  args: { pairs: v.array(v.array(v.union(v.string(), v.number()))) },
+  handler: async (ctx, { pairs }) => { await setSetting(ctx, "websiteSold", { at: Date.now(), pairs }) },
 })
 
 /** Daily: pairs sold per website product in the last 90 days (cancelled orders left out), read in small pages. */
@@ -218,18 +219,18 @@ export const salesTick = internalAction({
   args: {},
   handler: async (ctx) => {
     const since = Date.now() - 90 * 24 * 60 * 60 * 1000
-    const byVariant: Record<string, number> = {}
+    const byVariant = new Map<string, number>()
     let cursor: string | null = null
     for (let n = 0; n < 400; n++) {
-      const r: { byVariant: Record<string, number>; cursor: string; done: boolean } = await ctx.runQuery(internal.website.soldPage, { since, cursor })
-      for (const [k, q] of Object.entries(r.byVariant)) byVariant[k] = (byVariant[k] ?? 0) + q
+      const r: { pairs: [string, number][]; cursor: string; done: boolean } = await ctx.runQuery(internal.website.soldPage, { since, cursor })
+      for (const [k, q] of r.pairs) byVariant.set(k, (byVariant.get(k) ?? 0) + q)
       if (r.done) break
       cursor = r.cursor
     }
-    const owner: Record<string, string> = await ctx.runQuery(internal.website.soldOwners, {})
-    const byHandle: Record<string, number> = {}
-    for (const [vid, q] of Object.entries(byVariant)) { const h = owner[vid]; if (h) byHandle[h] = (byHandle[h] ?? 0) + q }
-    await ctx.runMutation(internal.website.saveSold, { byHandle })
+    const owner = new Map<string, string>(await ctx.runQuery(internal.website.soldOwners, {}))
+    const byHandle = new Map<string, number>()
+    for (const [vid, q] of byVariant) { const h = owner.get(vid); if (h) byHandle.set(h, (byHandle.get(h) ?? 0) + q) }
+    await ctx.runMutation(internal.website.saveSold, { pairs: [...byHandle] })
   },
 })
 
