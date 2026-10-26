@@ -1034,7 +1034,8 @@ async function parcelGroupInner(ctx: any, orderId: Id<"orders">): Promise<{ parc
       linked = true
     }
     const used2 = linked ? await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) }) : used
-    const reOwner = Object.fromEntries(fam.exchanges.filter((x) => x.rcid).map((x) => [x.rcid!, x.label]))
+    const fam2 = linked ? await ctx.runQuery(internal.pathao.orderFamily, { id: orderId }) : fam
+    const reOwner = Object.fromEntries((fam2?.exchanges ?? []).filter((x: any) => x.rcid).map((x: any) => [x.rcid, x.label]))
     return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked, candidates: fam.candidates }
   }
 }
