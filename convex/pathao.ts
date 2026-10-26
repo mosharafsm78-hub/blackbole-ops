@@ -940,24 +940,41 @@ export const orderFamily = internalQuery({
     const exchanges = (await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", original.phone)).collect())
       .filter((x) => x.exchangeOfId === original._id && !x.deletedAt)
     const all = [original, ...exchanges]
+    const candidates = o.exchangeOfId || exchanges.length ? [] : (await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", o.phone)).collect())
+      .filter((x) => x._id !== o._id && !x.deletedAt && x.createdAt < o.createdAt && ["delivered_due", "delivered_paid"].includes(x.status))
+      .map((x) => ({ id: x._id, label: lbl(x) }))
     return {
-      labels: [...new Set(all.map(lbl))],
+      candidates,
       original: { id: original._id, label: lbl(original) },
       exchanges: exchanges.map((x) => ({ id: x._id, label: lbl(x), cid: x.consignmentId ?? null, rcid: x.returnConsignmentId ?? null, status: x.status })),
     }
   },
 })
 
+/** Mark an order as the exchange of an earlier order (for exchanges copied from Nuport without that link). */
+export const setExchangeOf = mutation({
+  args: { id: v.id("orders"), originalId: v.id("orders") },
+  handler: async (ctx, { id, originalId }) => {
+    const me = await requirePerm(ctx, "orders.edit")
+    const o = await ctx.db.get(id)
+    const orig = await ctx.db.get(originalId)
+    if (!o || !orig || id === originalId) throw new ConvexError("Order not found")
+    if (orig.phone !== o.phone) throw new ConvexError("The original order is for another customer")
+    await ctx.db.patch(id, { isExchange: true, exchangeOfId: originalId, updatedAt: Date.now() })
+    await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Marked as exchange of ${orig.invoiceCode ?? `BB-${orig.invoiceNo}`}`, byName: me.staff.name, at: Date.now() })
+  },
+})
+
 export const linkExchangeParcels = internalMutation({
-  args: { id: v.id("orders"), eb: v.optional(v.string()), re: v.optional(v.string()) },
-  handler: async (ctx, { id, eb, re }) => {
+  args: { id: v.id("orders"), eb: v.optional(v.string()), re: v.optional(v.string()), replace: v.optional(v.string()) },
+  handler: async (ctx, { id, eb, re, replace }) => {
     const o = await ctx.db.get(id)
     if (!o) return
     const patch: Record<string, unknown> = { updatedAt: Date.now() }
     const notes: string[] = []
-    if (eb && !o.consignmentId && !(await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", eb)).first())) {
+    if (eb && (!o.consignmentId || o.consignmentId === replace) && !(await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", eb)).first())) {
       Object.assign(patch, { consignmentId: eb, courier: "pathao", courierLinkedBy: "auto", courierError: undefined })
-      notes.push(`exchange parcel ${eb}`)
+      notes.push(`exchange parcel ${eb}${o.consignmentId ? ` (instead of cancelled ${o.consignmentId})` : ""}`)
     }
     if (re && o.returnConsignmentId !== re) { patch.returnConsignmentId = re; notes.push(`return parcel ${re} (old item coming back)`) }
     if (!notes.length) return
@@ -972,10 +989,10 @@ const parcelKind = (cid: string) => cid.startsWith("EB") ? "Exchange delivery" :
  *  Also links an exchange order to its EB/RE parcels when Pathao booked the exchange under the original order number. */
 export const parcelGroup = action({
   args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }): Promise<{ parcels: any[]; linked: boolean }> => {
+  handler: async (ctx, { orderId }): Promise<{ parcels: any[]; linked: boolean; candidates: { id: Id<"orders">; label: string }[] }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
     const fam = await ctx.runQuery(internal.pathao.orderFamily, { id: orderId })
-    if (!fam) return { parcels: [], linked: false }
+    if (!fam) return { parcels: [], linked: false, candidates: [] }
     const seen = new Map<string, any>()
     for (const label of fam.labels) {
       for (const archive of [0, 1]) {
@@ -997,9 +1014,10 @@ export const parcelGroup = action({
     const used = await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) })
     const freeEB = parcels.filter((p) => p.cid.startsWith("EB") && !used[p.cid] && p.mid === fam.original.label)
     const RE = parcels.filter((p) => p.cid.startsWith("RE") && p.mid === fam.original.label)
-    const open = fam.exchanges.filter((x) => !x.cid)
+    const cancelled = (cid: string | null) => !!cid && /cancel/i.test(String(seen.get(cid)?.status ?? ""))
+    const open = fam.exchanges.filter((x) => !x.cid || cancelled(x.cid))
     if (open.length === 1 && freeEB.length <= 1 && RE.length <= 1 && (freeEB.length || (RE.length && !open[0].rcid))) {
-      await ctx.runMutation(internal.pathao.linkExchangeParcels, { id: open[0].id, eb: freeEB[0]?.cid, re: RE[0]?.cid })
+      await ctx.runMutation(internal.pathao.linkExchangeParcels, { id: open[0].id, eb: freeEB[0]?.cid, re: RE[0]?.cid, replace: open[0].cid ?? undefined })
       linked = true
     } else if (fam.exchanges.length === 1 && RE.length === 1 && !fam.exchanges[0].rcid) {
       await ctx.runMutation(internal.pathao.linkExchangeParcels, { id: fam.exchanges[0].id, re: RE[0].cid })
@@ -1007,7 +1025,7 @@ export const parcelGroup = action({
     }
     const used2 = linked ? await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) }) : used
     const reOwner = Object.fromEntries(fam.exchanges.filter((x) => x.rcid).map((x) => [x.rcid!, x.label]))
-    return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked }
+    return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked, candidates: fam.candidates }
   },
 })
 

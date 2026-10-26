@@ -675,7 +675,8 @@ function FindParcel({ orderId, phone }: { orderId: Id<"orders">; phone: string }
 /** All Pathao parcels for this order and its exchange: Delivery (DB…), Exchange delivery (EB…), Return to you (RE…). */
 function ParcelGroup({ orderId, auto }: { orderId: Id<"orders">; auto: boolean }) {
   const load = useAction(api.pathao.parcelGroup)
-  const [data, setData] = useState<{ parcels: any[]; linked: boolean } | null>(null)
+  const [data, setData] = useState<{ parcels: any[]; linked: boolean; candidates: { id: Id<"orders">; label: string }[] } | null>(null)
+  const markExchange = useMutation(api.pathao.setExchangeOf)
   const [busy, setBusy] = useState(false)
   const run = async () => {
     setBusy(true)
@@ -693,6 +694,18 @@ function ParcelGroup({ orderId, auto }: { orderId: Id<"orders">; auto: boolean }
         </div>
         <Button size="sm" variant="outline" onClick={run} disabled={busy}><Truck className="size-4" /> {busy ? "Checking Pathao…" : data ? "Refresh" : "Show all parcels"}</Button>
       </div>
+      {data && data.candidates.length > 0 && (
+        <div className="mt-3 rounded-lg border border-dashed p-3 text-xs">
+          <div className="font-medium">Is this order an exchange? Link it to the customer's earlier order — then the exchange and return parcels Pathao made under that order number show and track here.</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {data.candidates.map((c) => (
+              <Button key={c.id} size="xs" variant="outline" onClick={async () => {
+                try { await markExchange({ id: orderId, originalId: c.id }); toast.success(`Marked as exchange of ${c.label}`); await run() } catch (e) { toast.error(errMsg(e)) }
+              }}>Exchange of {c.label}</Button>
+            ))}
+          </div>
+        </div>
+      )}
       {data && (data.parcels.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">Pathao has no parcels under this order number.</p> : (
         <div className="mt-3 divide-y rounded-lg border">
           {data.parcels.map((p) => (
