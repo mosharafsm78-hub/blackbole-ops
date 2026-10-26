@@ -33,6 +33,8 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
 import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
+import { Route as AppWebsiteRouteImport } from './routes/_app/website'
+import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
@@ -154,6 +156,16 @@ const AppSuppliersRoute = AppSuppliersRouteImport.update({
   path: '/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteRoute = AppWebsiteRouteImport.update({
+  id: '/website',
+  path: '/website',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWebsiteProductRoute = AppWebsiteProductRouteImport.update({
+  id: '/website-product',
+  path: '/website-product',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   id: '/api/pathao-proxy',
   path: '/api/pathao-proxy',
@@ -184,6 +196,8 @@ export interface FileRoutesByFullPath {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
+  '/website': typeof AppWebsiteRoute
+  '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
@@ -209,6 +223,8 @@ export interface FileRoutesByTo {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
+  '/website': typeof AppWebsiteRoute
+  '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
@@ -237,6 +253,8 @@ export interface FileRoutesById {
   '/_app/stock-in': typeof AppStockInRoute
   '/_app/supplier': typeof AppSupplierRoute
   '/_app/suppliers': typeof AppSuppliersRoute
+  '/_app/website': typeof AppWebsiteRoute
+  '/_app/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -266,6 +284,8 @@ export interface FileRouteTypes {
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
+    | '/website'
+    | '/website-product'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -291,6 +311,8 @@ export interface FileRouteTypes {
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
+    | '/website'
+    | '/website-product'
     | '/api/pathao-proxy'
     | '/'
   id:
@@ -318,6 +340,8 @@ export interface FileRouteTypes {
     | '/_app/stock-in'
     | '/_app/supplier'
     | '/_app/suppliers'
+    | '/_app/website'
+    | '/_app/website-product'
     | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -499,6 +523,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website': {
+      id: '/_app/website'
+      path: '/website'
+      fullPath: '/website'
+      preLoaderRoute: typeof AppWebsiteRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/website-product': {
+      id: '/_app/website-product'
+      path: '/website-product'
+      fullPath: '/website-product'
+      preLoaderRoute: typeof AppWebsiteProductRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/pathao-proxy': {
       id: '/api/pathao-proxy'
       path: '/api/pathao-proxy'
@@ -530,6 +568,8 @@ interface AppRouteChildren {
   AppStockInRoute: typeof AppStockInRoute
   AppSupplierRoute: typeof AppSupplierRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppWebsiteRoute: typeof AppWebsiteRoute
+  AppWebsiteProductRoute: typeof AppWebsiteProductRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -554,6 +594,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppStockInRoute: AppStockInRoute,
   AppSupplierRoute: AppSupplierRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppWebsiteRoute: AppWebsiteRoute,
+  AppWebsiteProductRoute: AppWebsiteProductRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

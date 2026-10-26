@@ -88,7 +88,12 @@ export default defineSchema({
     preOrderFrom: v.optional(v.union(v.literal("china"), v.literal("bangladesh"))), // where it comes from (default China)
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
-  }).searchIndex("search_name", { searchField: "name" }),
+    // Website (blackbole.com): URL handle + everything the site shows (see convex/website.ts). Optional.
+    handle: v.optional(v.string()),
+    web: v.optional(v.any()),
+  })
+    .searchIndex("search_name", { searchField: "name" })
+    .index("by_handle", ["handle"]),
 
   variants: defineTable({
     productId: v.id("products"),
@@ -104,6 +109,7 @@ export default defineSchema({
     active: v.boolean(),
     createdAt: v.optional(v.number()),
     shopifyItemId: v.optional(v.string()), // Shopify inventory item (cached for the stock sync)
+    web: v.optional(v.any()), // website: { id, compareAt, options, image, parent? } (see convex/website.ts)
   })
     .index("by_sku", ["sku"])
     .index("by_product", ["productId"]),
@@ -545,4 +551,15 @@ export default defineSchema({
     placeId: v.number(),
     name: v.string(),
   }).index("by_kind_parent", ["kind", "parentId"]),
+
+  // Website collections (blackbole.com), edited on the Website page
+  webCollections: defineTable({
+    handle: v.string(),
+    title: v.string(),
+    html: v.optional(v.string()),
+    image: v.optional(v.union(v.string(), v.null())),
+    seo: v.optional(v.any()),
+    productHandles: v.array(v.string()),
+    updatedAt: v.number(),
+  }).index("by_handle", ["handle"]),
 })

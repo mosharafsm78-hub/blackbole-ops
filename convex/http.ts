@@ -6,6 +6,7 @@ import { orders as apiOrders } from "./publicApi"
 import { handler as migrateHandler } from "./migrate"
 import { codLeadHttp } from "./checkouts"
 import { orders as marketingOrders, stock as marketingStock } from "./marketingFeed"
+import { catalogHttp as websiteCatalog } from "./website"
 
 const http = httpRouter()
 
@@ -23,5 +24,7 @@ http.route({ path: "/cod-lead", method: "OPTIONS", handler: codLeadHttp })
 // Read-only feed for BlackBole Marketing OS (needs MARKETING_FEED_KEY)
 http.route({ path: "/marketing/orders", method: "GET", handler: marketingOrders })
 http.route({ path: "/marketing/stock", method: "GET", handler: marketingStock })
+// Website build reads products + collections from here (same MARKETING_FEED_KEY)
+http.route({ path: "/website/catalog", method: "GET", handler: websiteCatalog })
 
 export default http

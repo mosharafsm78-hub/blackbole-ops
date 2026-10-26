@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -38,6 +38,7 @@ const NAV = [
   { to: "/customers", label: "Customers", icon: Users, perm: "orders.view", color: "bg-tone-pink-bg text-tone-pink", group: "Orders" },
   { to: "/products", label: "Products", icon: Package, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view", color: "bg-tone-teal-bg text-tone-teal", group: "Stock" },
+  { to: "/website", label: "Website", icon: Globe, perm: "website.manage", alt: "settings.manage", color: "bg-tone-blue-bg text-tone-blue", group: "Stock" },
   { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
   { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },
   { to: "/dispatch", label: "Dispatch report", icon: Truck, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Insights" },
@@ -162,7 +163,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         const heading = n.group && n.group !== NAV[i - 1]?.group
           ? <div key={`g-${n.group}`} className="px-2.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{n.group}</div>
           : null
-        if (!hasPerm(me.perms, n.perm)) {
+        if (!hasPerm(me.perms, n.perm) && !("alt" in n && hasPerm(me.perms, n.alt))) {
           return [heading, (
             <div key={n.to} title="Locked — ask your admin for access" className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground/50">
               <span className="flex size-7 items-center justify-center rounded-md bg-muted"><Icon className="size-4" /></span>{n.label}<Lock className="ml-auto size-3.5" />
@@ -272,6 +273,12 @@ export function Guard({ perm, children }: { perm: string; children: React.ReactN
     )
   }
   return <>{children}</>
+}
+
+/** Website pages: open with "website.manage" or "settings.manage". */
+export function WebsiteGuard({ children }: { children: React.ReactNode }) {
+  const me = useMe()
+  return <Guard perm={hasPerm(me.perms, "website.manage") ? "website.manage" : "settings.manage"}>{children}</Guard>
 }
 
 /**

@@ -29,6 +29,7 @@ import type * as rules from "../rules.js";
 import type * as settings from "../settings.js";
 import type * as shopify from "../shopify.js";
 import type * as team from "../team.js";
+import type * as website from "../website.js";
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 
@@ -57,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   shopify: typeof shopify;
   team: typeof team;
+  website: typeof website;
 }>;
 
 export declare const api: FilterApi<typeof fullApi, FunctionReference<any, "public">>;

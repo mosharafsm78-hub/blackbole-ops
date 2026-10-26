@@ -132,6 +132,7 @@ export const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: "expenses.approve", label: "Approve / pay expenses", group: "Accounting" },
   { key: "reports.view", label: "Create & view reports", group: "Reports" },
   { key: "ads.view", label: "View ads analytics", group: "Reports" },
+  { key: "website.manage", label: "Manage website products & collections", group: "Website" },
   { key: "settings.manage", label: "Manage settings & integrations", group: "Admin" },
   { key: "team.manage", label: "Manage team & roles", group: "Admin" },
 ]
