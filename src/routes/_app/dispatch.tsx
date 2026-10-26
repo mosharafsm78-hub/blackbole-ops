@@ -1,10 +1,9 @@
 import { useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "convex/react"
 import { Copy, Download, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import type { Id } from "@/convex/_generated/dataModel"
 import { Guard } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
 import { Button } from "@/components/ui/button"
@@ -41,16 +40,11 @@ const LINES = [
 function Dispatch() {
   const today = dayKey(Date.now())
   const [day, setDay] = useState(today)
-  const [loc, setLoc] = useState("__all")
-  const [partner, setPartner] = useState("__all")
-  const data = useQuery(api.dispatch.summary, {
-    from: dayStart(day), to: dayStart(day) + 86400000 - 1,
-    locationId: loc === "__all" ? undefined : (loc as Id<"locations">),
-    partner: partner === "__all" ? undefined : partner,
-  })
+  const [report, setReport] = useState("ctg")
+  const data = useQuery(api.dispatch.summary, { from: dayStart(day), to: dayStart(day) + 86400000 - 1, report })
   const row = data?.total ?? null
-  const whName = loc === "__all" ? "All warehouses" : data?.allWarehouses.find((w) => w.id === loc)?.name ?? "Warehouse"
-  const title = partner === "__all" ? "All couriers" : partner
+  const whName = report === "all" ? "All warehouses" : data?.reports.find((r) => r.key === report)?.name ?? "Warehouse"
+  const title = data?.partners.length ? data.partners.join(", ") : "—"
   const dates = nice(day)
 
   const text = row
@@ -87,25 +81,11 @@ function Dispatch() {
         <div className="space-y-1.5"><Label>Date</Label><Input type="date" value={day} max={today} onChange={(e) => e.target.value && setDay(e.target.value)} /></div>
         <div className="space-y-1.5">
           <Label>Warehouse</Label>
-          <Select value={loc} onValueChange={setLoc}>
-            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+          <Select value={report} onValueChange={setReport}>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Warehouse" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all">All warehouses</SelectItem>
-              {(data?.allWarehouses ?? []).map((w) => {
-                const c = data?.warehouses.find((x) => x.id === w.id)?.orders ?? 0
-                return <SelectItem key={w.id} value={w.id}>{w.name} ({c})</SelectItem>
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Delivery partner</Label>
-          <Select value={partner} onValueChange={setPartner}>
-            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">All couriers</SelectItem>
-              {(data?.partners ?? []).map((p) => <SelectItem key={p.name} value={p.name}>{p.name} ({p.orders})</SelectItem>)}
-              {partner !== "__all" && !(data?.partners ?? []).some((p) => p.name === partner) && <SelectItem value={partner}>{partner} (0)</SelectItem>}
+              {(data?.reports ?? []).map((r) => <SelectItem key={r.key} value={r.key}>{r.name} ({r.orders})</SelectItem>)}
+              <SelectItem value="all">All warehouses</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -137,8 +117,13 @@ function Dispatch() {
               <Button size="sm" variant="outline" onClick={image}><Download className="size-4" /> Save as image</Button>
             </div>
           )}
-          {loc === "__all" && data.warehouses.length > 1 && (
-            <div className="mt-5 text-xs text-muted-foreground">By warehouse: {data.warehouses.map((w) => `${w.name} ${w.orders}`).join(" · ")}</div>
+          {data.codes.length > 0 && (
+            <div className="mt-5 text-xs text-muted-foreground">
+              Orders in this report:{" "}
+              {data.codes.map((c, i) => (
+                <span key={c.id}>{i > 0 && ", "}<Link to="/order" search={{ id: c.id }} className="underline-offset-2 hover:underline">BB-{c.invoiceNo}</Link></span>
+              ))}
+            </div>
           )}
         </div>
       )}
