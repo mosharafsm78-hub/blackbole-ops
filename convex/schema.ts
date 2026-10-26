@@ -671,7 +671,7 @@ export default defineSchema({
 
   // Website → Files (Shopify's Content → Files): pictures and videos uploaded for the website.
   webFiles: defineTable({
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")), // none = a picture the website already had (imported by link, not uploaded)
     url: v.string(),
     name: v.string(),
     type: v.string(), // MIME type
@@ -680,5 +680,5 @@ export default defineSchema({
     h: v.optional(v.number()),
     alt: v.optional(v.string()),
     createdAt: v.number(),
-  }).index("by_created", ["createdAt"]),
+  }).index("by_created", ["createdAt"]).index("by_url", ["url"]),
 })

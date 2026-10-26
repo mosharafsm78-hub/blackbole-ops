@@ -1,18 +1,52 @@
 // Newsletter sign-ups from the website (footer "Join Now"). The website posts each sign-up to
 // POST /website/subscribe (X-Feed-Key = MARKETING_FEED_KEY); staff see them under Website → Subscribers.
 import { v, ConvexError } from "convex/values"
-import { httpAction, internalMutation, query } from "./_generated/server"
+import { httpAction, internalMutation, query, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
+import { mutation } from "./functions"
 import { currentStaff } from "./lib"
 import { hasPerm } from "./rules"
 
 const canManage = (perms: string[]) => hasPerm(perms, "website.manage") || hasPerm(perms, "settings.manage")
 const EMAIL = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i
 
+type AddArgs = { email: string; name?: string; phone?: string; source?: string; tags?: string }
+const addArgs = { email: v.string(), name: v.optional(v.string()), phone: v.optional(v.string()), source: v.optional(v.string()), tags: v.optional(v.string()) }
+
+async function requireManage(ctx: MutationCtx) {
+  const s = await currentStaff(ctx)
+  if (!s) throw new ConvexError("You are not signed in or your access was removed.")
+  if (!canManage(s.perms)) throw new ConvexError("You don't have permission for this action.")
+}
+
 /** Adds or refreshes one sign-up (deduplicated by email). */
 export const add = internalMutation({
-  args: { email: v.string(), name: v.optional(v.string()), phone: v.optional(v.string()), source: v.optional(v.string()), tags: v.optional(v.string()) },
+  args: addArgs,
+  handler: async (ctx, a) => upsert(ctx, a),
+})
+
+/** Staff add someone by hand (Customers → Subscribers → Add subscriber). */
+export const addManual = mutation({
+  args: addArgs,
   handler: async (ctx, a) => {
+    await requireManage(ctx)
+    return upsert(ctx, { ...a, source: "manual" })
+  },
+})
+
+/** Remove people from the list (they stop being exported). */
+export const remove = mutation({
+  args: { ids: v.array(v.id("subscribers")) },
+  handler: async (ctx, { ids }) => {
+    await requireManage(ctx)
+    let n = 0
+    for (const id of ids.slice(0, 1000)) if (await ctx.db.get(id)) { await ctx.db.delete(id); n++ }
+    return n
+  },
+})
+
+async function upsert(ctx: MutationCtx, a: AddArgs) {
+  {
     const email = a.email.trim().toLowerCase().slice(0, 120)
     if (!EMAIL.test(email)) throw new ConvexError("Invalid email")
     const now = Date.now()
@@ -25,8 +59,8 @@ export const add = internalMutation({
     }
     await ctx.db.insert("subscribers", { email, name, phone, source: (a.source || "footer").slice(0, 30), tags: a.tags?.slice(0, 200) || undefined, createdAt: now, updatedAt: now })
     return "added"
-  },
-})
+  }
+}
 
 export const list = query({
   args: {},
@@ -34,7 +68,7 @@ export const list = query({
     const s = await currentStaff(ctx)
     if (!s || !canManage(s.perms)) return null
     const rows = await ctx.db.query("subscribers").collect()
-    return rows.sort((a, b) => b.createdAt - a.createdAt).map((r) => ({ _id: r._id, email: r.email, name: r.name ?? "", phone: r.phone ?? "", source: r.source, createdAt: r.createdAt }))
+    return rows.sort((a, b) => b.createdAt - a.createdAt).map((r) => ({ _id: r._id, email: r.email, name: r.name ?? "", phone: r.phone ?? "", source: r.source, tags: r.tags ?? "", createdAt: r.createdAt, updatedAt: r.updatedAt }))
   },
 })
 

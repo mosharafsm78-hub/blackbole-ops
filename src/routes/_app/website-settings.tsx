@@ -1,16 +1,22 @@
+// Online Store → Preferences (like Shopify's): homepage title and meta description with a Google preview, social
+// sharing image, Meta pixel, announcement bar; plus delivery charges, contact, social links, homepage texts and the
+// store policies (like Shopify's Settings → Policies).
 import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { ChevronDown, Megaphone, Plus, Settings2, Trash2 } from "lucide-react"
+import { Copy, ExternalLink, Megaphone, Plus, Settings2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import { WebsiteGuard } from "@/components/app-shell"
 import { Loading } from "@/components/bits"
-import { EmptyImport, WebsiteHeader } from "@/components/content-ui"
-import { Field, RichText, SaveBar, Section, useDirty, useReorder } from "@/components/website-ui"
+import { EmptyImport } from "@/components/content-ui"
+import { WebsiteTabs } from "@/components/discount-ui"
+import { MediaField } from "@/components/file-picker"
+import { Badge, Field, PageHeader, PREVIEW_URL, RichText, SaveBar, Section, SITE_URL, useDirty, useReorder } from "@/components/website-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -19,19 +25,27 @@ export const Route = createFileRoute("/_app/website-settings")({
   component: () => <WebsiteGuard><TooltipProvider delayDuration={200}><SettingsPage /></TooltipProvider></WebsiteGuard>,
 })
 
+/** The website's Meta (Facebook) pixel. It lives in the website's code (src/site.config.json), so it is shown, not edited. */
+const META_PIXEL_ID = "1001403508128349"
+
+type Policy = { type: string; title: string; body: string }
 type S = {
   announcements: string[]
   delivery: { inside: number; outside: number }
   preOrderDays: string
   contact: { phone: string; whatsapp: string; email: string }
   social: { facebook: string; instagram: string; tiktok: string; youtube: string }
-  home: { seoTitle: string; seoDescription: string; heroKicker: string; heroTitle: string; heroButton: string; heroLink: string; newCollection: string; bestCollection: string; store1Address: string; store2Address: string; hours: string }
-  policies: { type: string; title: string; body: string }[]
+  home: { seoTitle: string; seoDescription: string; heroKicker: string; heroTitle: string; heroButton: string; heroLink: string; newCollection: string; bestCollection: string; store1Address: string; store2Address: string; hours: string; shareImage: string }
+  policies: Policy[]
 }
-const POLICY: Record<string, string> = {
-  CONTACT_INFORMATION: "Contact information", PRIVACY_POLICY: "Privacy policy", REFUND_POLICY: "Return & refund policy",
-  SHIPPING_POLICY: "Shipping policy", TERMS_OF_SERVICE: "Terms of service",
-}
+/** Shopify's policies, in Shopify's order, with their web addresses on the website. */
+const POLICY: [string, string][] = [
+  ["REFUND_POLICY", "Return and refund policy"], ["PRIVACY_POLICY", "Privacy policy"], ["TERMS_OF_SERVICE", "Terms of service"],
+  ["SHIPPING_POLICY", "Shipping policy"], ["CONTACT_INFORMATION", "Contact information"],
+]
+const POLICY_NAME = Object.fromEntries(POLICY)
+const policyPath = (type: string) => `/policies/${type.toLowerCase().replace(/_/g, "-")}`
+const words = (html: string) => html.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length
 
 /** Fills any field missing from what was saved, so the form always has every input. */
 function complete(x: any): S {
@@ -45,6 +59,7 @@ function complete(x: any): S {
     home: {
       seoTitle: h.seoTitle ?? "", seoDescription: h.seoDescription ?? "", heroKicker: h.heroKicker ?? "", heroTitle: h.heroTitle ?? "", heroButton: h.heroButton ?? "",
       heroLink: h.heroLink ?? "", newCollection: h.newCollection ?? "", bestCollection: h.bestCollection ?? "", store1Address: h.store1Address ?? "", store2Address: h.store2Address ?? "", hours: h.hours ?? "",
+      shareImage: h.shareImage ?? "",
     },
     policies: Array.isArray(x?.policies) ? x.policies.map((p: any) => ({ type: String(p.type), title: String(p.title ?? ""), body: String(p.body ?? "") })) : [],
   }
@@ -54,12 +69,23 @@ function SettingsPage() {
   const saved = useQuery(api.content.settings)
   if (saved === undefined) return <Loading />
   return (
-    <div className="mx-auto max-w-6xl pb-24">
-      <WebsiteHeader active="settings" sub="Announcement bar, delivery charges, contact details, homepage and policies." />
+    <div className="mx-auto max-w-5xl pb-24">
+      <WebsiteTabs active="settings" />
+      <PageHeader title="Preferences" subtitle="How the website looks on Google and social media, the announcement bar, delivery charges, contact details and policies." />
       {saved === null ? (
         <EmptyImport icon={<Settings2 className="size-5" />} what="settings" title="Store settings aren't in Ops yet"
           text="The website uses the settings it had on Shopify. Copy them here once, then change anything you like." />
       ) : <SettingsForm initial={complete(saved)} />}
+    </div>
+  )
+}
+
+/** Shopify's two-column settings row: heading and help on the left, the card on the right. */
+function Row({ title, sub, children }: { title: string; sub?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-3 border-b pb-6 last:border-0 md:grid-cols-[240px_minmax(0,1fr)] md:gap-6">
+      <div><h2 className="text-sm font-semibold">{title}</h2>{sub && <p className="mt-1 text-[13px] text-muted-foreground">{sub}</p>}</div>
+      <div className="min-w-0 space-y-4">{children}</div>
     </div>
   )
 }
@@ -72,6 +98,7 @@ function SettingsForm({ initial }: { initial: S }) {
   const [base, setBase] = useState<S>(start)
   const { dirty, markSaved } = useDirty(f)
   const [saving, setSaving] = useState(false)
+  const [policy, setPolicy] = useState<string | null>(null)
   const up = <K extends keyof S>(k: K, v: S[K]) => setF((x) => ({ ...x, [k]: v }))
   const sub = <K extends "delivery" | "contact" | "social" | "home">(k: K, field: keyof S[K], v: any) => setF((x) => ({ ...x, [k]: { ...x[k], [field]: v } }))
   const { props, drag, over } = useReorder(f.announcements, (v) => up("announcements", v))
@@ -81,19 +108,68 @@ function SettingsForm({ initial }: { initial: S }) {
     try {
       await save({ settings: f })
       markSaved(f); setBase(f)
-      toast.success("Settings saved — live on the website in about a minute")
+      toast.success("Preferences saved — live on the website in about a minute")
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
   const collOptions = (colls?.collections ?? []).map((c) => c.handle)
   const themes = useQuery(api.themes.overview)
   const themed = !!themes?.live // once the theme is in Ops, the theme editor owns the homepage design
+  // every Shopify policy gets a row, even if it has no text yet (empty ones aren't shown on the website)
+  const policies: Policy[] = [...POLICY.map(([type, name]) => f.policies.find((p) => p.type === type) ?? { type, title: name, body: "" }), ...f.policies.filter((p) => !POLICY_NAME[p.type])]
+  const editing = policies.find((p) => p.type === policy) ?? null
+  const setPolicyValue = (np: Policy) => up("policies", f.policies.some((p) => p.type === np.type) ? f.policies.map((p) => (p.type === np.type ? np : p)) : [...f.policies, np])
+  const t = f.home.seoTitle.trim(), d = f.home.seoDescription.replace(/\s+/g, " ").trim()
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <SaveBar dirty={dirty} saving={saving} onSave={onSave} onDiscard={() => setF(base)} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Section title={<span className="flex items-center gap-2"><Megaphone className="size-4" /> Announcement bar</span>} sub="The short messages that rotate at the very top of every page.">
+
+      <Row title="Title and meta description" sub="The title and meta description help define how the website shows up on search engines.">
+        <Section>
+          <div className="space-y-4">
+            <Field label="Homepage title" right={<Count n={f.home.seoTitle.length} max={70} />}><Input value={f.home.seoTitle} onChange={(e) => sub("home", "seoTitle", e.target.value)} /></Field>
+            <Field label="Homepage meta description" right={<Count n={f.home.seoDescription.length} max={160} />}><Textarea rows={3} value={f.home.seoDescription} onChange={(e) => sub("home", "seoDescription", e.target.value)} placeholder="Describe the store in a sentence or two, with words people search for." /></Field>
+            <div className="rounded-lg border bg-background p-3">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Search engine listing preview</div>
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="flex size-6 items-center justify-center rounded-full bg-neutral-900 text-[9px] font-bold text-white">BB</span>
+                <div className="leading-tight"><div className="text-foreground">BlackBole</div><div>{SITE_URL}</div></div>
+              </div>
+              <div className="mt-1.5 line-clamp-1 text-[17px] leading-snug text-[#1a0dab] dark:text-[#8ab4f8]">{t || "Add a homepage title"}</div>
+              <div className="line-clamp-2 text-[13px] leading-snug text-muted-foreground">{d || "Add a meta description so shoppers know what they'll find."}</div>
+            </div>
+          </div>
+        </Section>
+      </Row>
+
+      <Row title="Social sharing image" sub="When you share a link to the website on Facebook, WhatsApp or other social media, this picture is shown for pages that have no picture of their own. 1200 × 628 px works best.">
+        <Section>
+          <MediaField kind="image" value={f.home.shareImage} onChange={(v) => sub("home", "shareImage", v)} />
+          {f.home.shareImage && (
+            <div className="mt-3 overflow-hidden rounded-lg border">
+              <img src={f.home.shareImage} alt="" className="aspect-[1200/628] w-full object-cover" />
+              <div className="border-t bg-muted/40 px-3 py-2 text-xs"><div className="uppercase text-muted-foreground">{SITE_URL.replace(/^https?:\/\//, "")}</div><div className="font-semibold">{t || "BlackBole"}</div></div>
+            </div>
+          )}
+        </Section>
+      </Row>
+
+      <Row title="Meta pixel" sub="Tracks visits and orders for Facebook and Instagram ads.">
+        <Section>
+          <Field label="Pixel ID" hint="Set in the website's code. Ask the developer if it ever needs to change. Preview sites and the theme editor never send pixel events.">
+            <div className="flex gap-2">
+              <Input readOnly value={META_PIXEL_ID} className="font-mono" onFocus={(e) => e.target.select()} />
+              <Button size="sm" variant="outline" className="h-9" onClick={() => { navigator.clipboard.writeText(META_PIXEL_ID); toast.success("Pixel ID copied") }}><Copy className="size-4" /> Copy</Button>
+            </div>
+          </Field>
+          <div className="mt-2"><Badge tone="success" dot>Connected</Badge></div>
+        </Section>
+      </Row>
+
+      <Row title="Announcement bar" sub="The short messages that rotate at the very top of every page. Drag to reorder.">
+        <Section>
           <div className="space-y-2">
+            {f.announcements.length === 0 && <p className="text-sm text-muted-foreground"><Megaphone className="mr-1 inline size-4" /> No messages. The website shows its built-in ones.</p>}
             {f.announcements.map((m, i) => (
               <div key={i} {...props(i)} className={cn("flex items-center gap-2", drag === i && "opacity-40", over === i && drag !== i && "rounded-md ring-2 ring-primary/30")}>
                 <span className="w-5 cursor-grab text-center text-xs tabular-nums text-muted-foreground">{i + 1}</span>
@@ -104,77 +180,96 @@ function SettingsForm({ initial }: { initial: S }) {
             {f.announcements.length < 8 && <Button size="sm" variant="outline" onClick={() => up("announcements", [...f.announcements, ""])}><Plus className="size-4" /> Add message</Button>}
           </div>
         </Section>
+      </Row>
 
-        <Section title="Delivery charges" sub="Added at checkout and in the cash-on-delivery form. Bangladesh pre-orders keep their ৳90 booking instead.">
+      <Row title="Delivery charges" sub="Added at checkout and in the cash-on-delivery form. Bangladesh pre-orders keep their ৳90 booking instead.">
+        <Section>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Inside Dhaka"><Money value={f.delivery.inside} onChange={(v) => sub("delivery", "inside", v)} /></Field>
             <Field label="Outside Dhaka"><Money value={f.delivery.outside} onChange={(v) => sub("delivery", "outside", v)} /></Field>
           </div>
           <div className="mt-4"><Field label="Pre-orders arrive in (days)" hint="Used when a pre-order product has no days of its own."><Input value={f.preOrderDays} onChange={(e) => up("preOrderDays", e.target.value)} placeholder="15–20" className="max-w-40" /></Field></div>
         </Section>
+      </Row>
 
-        <Section title="Contact" sub="Shown on the contact page, order confirmation, track-order page and error messages.">
+      <Row title="Contact" sub="Shown on the contact page, order confirmation, track-order page and error messages.">
+        <Section>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Phone"><Input value={f.contact.phone} onChange={(e) => sub("contact", "phone", e.target.value)} placeholder="01805-070650" /></Field>
             <Field label="WhatsApp" hint="Country code first, e.g. 8801805070650"><Input value={f.contact.whatsapp} onChange={(e) => sub("contact", "whatsapp", e.target.value)} /></Field>
             <Field label="Email" className="sm:col-span-2"><Input type="email" value={f.contact.email} onChange={(e) => sub("contact", "email", e.target.value)} /></Field>
           </div>
         </Section>
+      </Row>
 
-        <Section title="Social links" sub="The icons in the website footer.">
+      <Row title="Social links" sub="The icons in the website footer.">
+        <Section>
           <div className="grid gap-3">
             {(["facebook", "instagram", "tiktok", "youtube"] as const).map((k) => (
               <Field key={k} label={k === "tiktok" ? "TikTok" : k === "youtube" ? "YouTube" : k[0].toUpperCase() + k.slice(1)}><Input value={f.social[k]} onChange={(e) => sub("social", k, e.target.value)} placeholder="https://…" /></Field>
             ))}
           </div>
         </Section>
-      </div>
+      </Row>
 
-      <Section title="Homepage" sub={themed ? "How the homepage appears on Google." : "The big photo text at the top, the product rows and how the homepage appears on Google."}>
-        {themed ? (
-          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">The banner, its texts, the product rows and the store addresses are now changed in <Link to="/website-themes" className="font-medium text-foreground underline">Themes → Customize</Link>.</p>
-        ) : <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Small line above the title"><Input value={f.home.heroKicker} onChange={(e) => sub("home", "heroKicker", e.target.value)} placeholder="Autumn 2026" /></Field>
-          <Field label="Big title"><Input value={f.home.heroTitle} onChange={(e) => sub("home", "heroTitle", e.target.value)} placeholder="The Veyron Collection" /></Field>
-          <Field label="Button text"><Input value={f.home.heroButton} onChange={(e) => sub("home", "heroButton", e.target.value)} placeholder="Discover" /></Field>
-          <Field label="Button goes to"><Input value={f.home.heroLink} onChange={(e) => sub("home", "heroLink", e.target.value)} placeholder="/collections/veyron" /></Field>
-          <Field label="“New In” row shows collection"><Pick value={f.home.newCollection} options={collOptions} onChange={(v) => sub("home", "newCollection", v)} /></Field>
-          <Field label="“Best Sellers” row shows collection"><Pick value={f.home.bestCollection} options={collOptions} onChange={(v) => sub("home", "bestCollection", v)} /></Field>
-          <Field label="Chattogram store address"><Input value={f.home.store1Address} onChange={(e) => sub("home", "store1Address", e.target.value)} /></Field>
-          <Field label="Dhaka store address"><Input value={f.home.store2Address} onChange={(e) => sub("home", "store2Address", e.target.value)} /></Field>
-          <Field label="Opening hours"><Input value={f.home.hours} onChange={(e) => sub("home", "hours", e.target.value)} placeholder="Open daily, 10 AM – 10 PM" /></Field>
-        </div>}
-        <div className="mt-4 grid gap-3 border-t pt-4">
-          <Field label="Homepage title on Google" right={<Count n={f.home.seoTitle.length} max={70} />}><Input value={f.home.seoTitle} onChange={(e) => sub("home", "seoTitle", e.target.value)} /></Field>
-          <Field label="Homepage description on Google" right={<Count n={f.home.seoDescription.length} max={160} />}><Textarea rows={3} value={f.home.seoDescription} onChange={(e) => sub("home", "seoDescription", e.target.value)} /></Field>
-        </div>
-      </Section>
+      <Row title="Homepage" sub={themed ? "The homepage design is changed in the theme editor." : "The big photo text at the top, the product rows and the store addresses."}>
+        <Section>
+          {themed ? (
+            <p className="text-sm text-muted-foreground">The banner, its texts, the product rows and the store addresses are now changed in <Link to="/website-themes" className="font-medium text-foreground underline">Themes → Customize</Link>.</p>
+          ) : <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Small line above the title"><Input value={f.home.heroKicker} onChange={(e) => sub("home", "heroKicker", e.target.value)} placeholder="Autumn 2026" /></Field>
+            <Field label="Big title"><Input value={f.home.heroTitle} onChange={(e) => sub("home", "heroTitle", e.target.value)} placeholder="The Veyron Collection" /></Field>
+            <Field label="Button text"><Input value={f.home.heroButton} onChange={(e) => sub("home", "heroButton", e.target.value)} placeholder="Discover" /></Field>
+            <Field label="Button goes to"><Input value={f.home.heroLink} onChange={(e) => sub("home", "heroLink", e.target.value)} placeholder="/collections/veyron" /></Field>
+            <Field label="“New In” row shows collection"><Pick value={f.home.newCollection} options={collOptions} onChange={(v) => sub("home", "newCollection", v)} /></Field>
+            <Field label="“Best Sellers” row shows collection"><Pick value={f.home.bestCollection} options={collOptions} onChange={(v) => sub("home", "bestCollection", v)} /></Field>
+            <Field label="Chattogram store address"><Input value={f.home.store1Address} onChange={(e) => sub("home", "store1Address", e.target.value)} /></Field>
+            <Field label="Dhaka store address"><Input value={f.home.store2Address} onChange={(e) => sub("home", "store2Address", e.target.value)} /></Field>
+            <Field label="Opening hours"><Input value={f.home.hours} onChange={(e) => sub("home", "hours", e.target.value)} placeholder="Open daily, 10 AM – 10 PM" /></Field>
+          </div>}
+        </Section>
+      </Row>
 
-      <Section title="Policies" sub="The policy pages linked at checkout (/policies/…).">
-        <div className="space-y-2">
-          {f.policies.length === 0 && <p className="text-sm text-muted-foreground">No policies.</p>}
-          {f.policies.map((p, i) => <PolicyRow key={p.type} p={p} onChange={(np) => up("policies", f.policies.map((x, j) => (j === i ? np : x)))} />)}
-        </div>
-      </Section>
+      <Row title="Policies" sub="Linked at checkout and in the website footer. A policy with no text isn't shown on the website.">
+        <section className="overflow-hidden rounded-xl border bg-card">
+          {policies.map((p) => (
+            <button key={p.type} type="button" onClick={() => setPolicy(p.type)} className="flex w-full items-center gap-3 border-b px-4 py-3 text-left last:border-0 hover:bg-muted/40">
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold">{POLICY_NAME[p.type] ?? p.title}</div>
+                <div className="truncate text-xs text-muted-foreground">{p.body ? `${policyPath(p.type)} · ${words(p.body)} words` : "No policy set"}</div>
+              </div>
+              {p.body ? <Badge tone="success">On website</Badge> : <Badge>Not shown</Badge>}
+            </button>
+          ))}
+        </section>
+      </Row>
+
+      <PolicyDialog policy={editing} onClose={() => setPolicy(null)} onChange={setPolicyValue} />
     </div>
   )
 }
 
-function PolicyRow({ p, onChange }: { p: S["policies"][number]; onChange: (p: S["policies"][number]) => void }) {
-  const [open, setOpen] = useState(false)
+/** Shopify's policy editor: title and text; the change joins the page's unsaved changes (Save at the top). */
+function PolicyDialog({ policy, onClose, onChange }: { policy: Policy | null; onClose: () => void; onChange: (p: Policy) => void }) {
   return (
-    <div className="rounded-lg border">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-3 py-2.5 text-left">
-        <span className="text-sm font-medium">{POLICY[p.type] ?? p.title}</span>
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">{p.body ? `${p.body.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length} words` : "Empty"}<ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} /></span>
-      </button>
-      {open && (
-        <div className="space-y-3 border-t p-3">
-          <Field label="Title"><Input value={p.title} onChange={(e) => onChange({ ...p, title: e.target.value })} /></Field>
-          <RichText value={p.body} onChange={(v) => onChange({ ...p, body: v })} minHeight={240} />
-        </div>
-      )}
-    </div>
+    <Dialog open={!!policy} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{policy ? POLICY_NAME[policy.type] ?? policy.title : ""}</DialogTitle>
+          <DialogDescription>{policy ? <>Shown at <span className="font-mono">{policyPath(policy.type)}</span>. Press Done, then Save at the top.</> : ""}</DialogDescription>
+        </DialogHeader>
+        {policy && (
+          <div className="space-y-3">
+            <Field label="Title"><Input value={policy.title} onChange={(e) => onChange({ ...policy, title: e.target.value })} /></Field>
+            <RichText value={policy.body} onChange={(v) => onChange({ ...policy, body: v })} minHeight={300} placeholder="Write the policy…" />
+          </div>
+        )}
+        <DialogFooter className="sm:justify-between">
+          {policy?.body ? <Button variant="ghost" asChild><a href={`${PREVIEW_URL}${policyPath(policy.type)}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View on website</a></Button> : <span />}
+          <Button onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

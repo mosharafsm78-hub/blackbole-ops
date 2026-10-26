@@ -57,16 +57,54 @@ export function cleanRedirect(path: string, target: string) {
   return { path: from, target: to }
 }
 
+/** Shopify's "Visible on <date>": visible and the publish date has come (no date = visible now). */
+export function isLive(isPublished: boolean, publishedAt: string | null | undefined, now = Date.now()) {
+  if (!isPublished) return false
+  const t = publishedAt ? Date.parse(publishedAt) : NaN
+  return !Number.isFinite(t) || t <= now
+}
+
+/** Publish date to store: a chosen date wins; clearing a future date publishes now; hidden items keep their old date. */
+export function nextPublishedAt(isPublished: boolean, chosen: string | null | undefined, prev: string | null | undefined, now = Date.now()) {
+  const nowIso = new Date(now).toISOString()
+  if (chosen) {
+    const t = Date.parse(chosen)
+    if (!Number.isFinite(t)) throw new ConvexError("The visibility date doesn't look right")
+    return new Date(t).toISOString()
+  }
+  if (chosen === undefined) return prev ?? (isPublished ? nowIso : null)
+  const past = prev && Date.parse(prev) <= now ? prev : null
+  return past ?? (isPublished ? nowIso : null)
+}
+
+/** When something is scheduled, ask for a website update right when it should appear. */
+async function rebuildAt(ctx: MutationCtx, isPublished: boolean, publishedAt: string | null) {
+  const t = publishedAt ? Date.parse(publishedAt) : NaN
+  if (isPublished && Number.isFinite(t) && t > Date.now()) await ctx.scheduler.runAt(t + 5000, internal.website.queueRebuildInternal, {})
+}
+
+/** Adds (or re-points) a URL redirect, used when a handle changes and "create redirect" is ticked. */
+async function upsertRedirect(ctx: MutationCtx, path: string, target: string) {
+  const r = cleanRedirect(path, target)
+  const cur = await ctx.db.query("webRedirects").withIndex("by_path", (q) => q.eq("path", r.path)).first()
+  if (cur) await ctx.db.patch(cur._id, { target: r.target, updatedAt: Date.now() })
+  else await ctx.db.insert("webRedirects", { ...r, updatedAt: Date.now() })
+  // a redirect from the new address back to the old one would loop: drop it
+  const loop = await ctx.db.query("webRedirects").withIndex("by_path", (q) => q.eq("path", r.target)).first()
+  if (loop && loop.target === r.path) await ctx.db.delete(loop._id)
+}
+
 // ---------------- feed for the website build ----------------
 // Split into small reads (posts paged 50 at a time) so no single query nears Convex's per-function limits as the blog grows.
 export const contentData = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const now = Date.now()
     const pages = (await ctx.db.query("webPages").collect()).sort((a, b) => a.title.localeCompare(b.title))
     const menus = await ctx.db.query("webMenus").collect()
     const redirects = (await ctx.db.query("webRedirects").collect()).sort((a, b) => a._creationTime - b._creationTime)
     return {
-      pages: pages.map((p) => ({ handle: p.handle, title: p.title, body: p.body, isPublished: p.isPublished, publishedAt: p.publishedAt ?? null, templateSuffix: p.templateSuffix ?? null, seo: { title: p.seo?.title ?? "", description: p.seo?.description ?? "" } })),
+      pages: pages.map((p) => ({ handle: p.handle, title: p.title, body: p.body, isPublished: isLive(p.isPublished, p.publishedAt, now), publishedAt: p.publishedAt ?? null, templateSuffix: p.templateSuffix ?? null, seo: { title: p.seo?.title ?? "", description: p.seo?.description ?? "" } })),
       menus: menus.map((m) => ({ handle: m.handle, title: m.title, items: m.items })),
       redirects: redirects.map((r) => ({ path: r.path, target: r.target })),
       settings: (await getSetting(ctx, SETTINGS_KEY)) ?? null,
@@ -78,8 +116,9 @@ export const contentPosts = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }) => {
     const r = await ctx.db.query("webPosts").paginate({ cursor, numItems: 50 })
+    const now = Date.now()
     return {
-      posts: r.page.map((p) => ({ blogHandle: p.blogHandle, blogTitle: p.blogTitle, pos: p.pos, handle: p.handle, title: p.title, body: p.body, summary: p.summary ?? "", tags: p.tags, author: p.author ?? "", image: p.image ?? null, isPublished: p.isPublished, publishedAt: p.publishedAt ?? null, seo: p.seo ?? null })),
+      posts: r.page.map((p) => ({ blogHandle: p.blogHandle, blogTitle: p.blogTitle, pos: p.pos, handle: p.handle, title: p.title, body: p.body, summary: p.summary ?? "", tags: p.tags, author: p.author ?? "", image: p.image ?? null, isPublished: isLive(p.isPublished, p.publishedAt, now), publishedAt: p.publishedAt ?? null, seo: p.seo ?? null })),
       cursor: r.isDone ? null : r.continueCursor,
     }
   },
@@ -124,7 +163,7 @@ export const pages = query({
   handler: async (ctx) => {
     if (!(await allowed(ctx))) return null
     return (await ctx.db.query("webPages").collect())
-      .map((p) => ({ _id: p._id, handle: p.handle, title: p.title, isPublished: p.isPublished, templateSuffix: p.templateSuffix ?? null, updatedAt: p.updatedAt, words: p.body.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length }))
+      .map((p) => ({ _id: p._id, handle: p.handle, title: p.title, isPublished: p.isPublished, publishedAt: p.publishedAt ?? null, templateSuffix: p.templateSuffix ?? null, updatedAt: p.updatedAt, words: p.body.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length }))
       .sort((a, b) => a.title.localeCompare(b.title))
   },
 })
@@ -145,7 +184,10 @@ async function uniquePageHandle(ctx: QueryCtx, base: string, self?: Id<"webPages
 }
 
 export const savePage = mutation({
-  args: { id: v.optional(v.id("webPages")), title: v.string(), handle: v.string(), body: v.string(), isPublished: v.boolean(), seo: v.object({ title: v.string(), description: v.string() }) },
+  args: {
+    id: v.optional(v.id("webPages")), title: v.string(), handle: v.string(), body: v.string(), isPublished: v.boolean(), seo: v.object({ title: v.string(), description: v.string() }),
+    publishedAt: v.optional(v.union(v.string(), v.null())), templateSuffix: v.optional(v.union(v.string(), v.null())), redirectOld: v.optional(v.boolean()),
+  },
   handler: async (ctx, a) => {
     await requireManage(ctx)
     const title = a.title.trim()
@@ -157,11 +199,15 @@ export const savePage = mutation({
     const handle = a.handle.trim() ? want : await uniquePageHandle(ctx, title, a.id)
     const prev = a.id ? await ctx.db.get(a.id) : null
     if (a.id && !prev) throw new ConvexError("Page not found")
+    const tpl = a.templateSuffix === undefined ? (prev?.templateSuffix ?? null) : (a.templateSuffix || "").trim() || null
+    if (tpl && !/^[a-z0-9-]{1,40}$/.test(tpl)) throw new ConvexError("Unknown page template")
     const row = {
       handle, title, body: a.body, isPublished: a.isPublished, seo: { title: a.seo.title.trim(), description: a.seo.description.trim() },
-      publishedAt: prev?.publishedAt ?? (a.isPublished ? new Date().toISOString() : null), templateSuffix: prev?.templateSuffix ?? null, updatedAt: Date.now(),
+      publishedAt: nextPublishedAt(a.isPublished, a.publishedAt, prev?.publishedAt), templateSuffix: tpl, updatedAt: Date.now(),
     }
     const id = a.id ? (await ctx.db.patch(a.id, row), a.id) : await ctx.db.insert("webPages", row)
+    if (prev && a.redirectOld && prev.handle !== handle) await upsertRedirect(ctx, `/pages/${prev.handle}`, `/pages/${handle}`)
+    await rebuildAt(ctx, row.isPublished, row.publishedAt)
     await rebuild(ctx)
     return id
   },
@@ -176,18 +222,94 @@ export const deletePage = mutation({
   },
 })
 
+const bulkV = v.union(v.literal("show"), v.literal("hide"), v.literal("delete"))
+
+/** Pages list → select → Make visible / Hide / Delete. */
+export const bulkPages = mutation({
+  args: { ids: v.array(v.id("webPages")), action: bulkV },
+  handler: async (ctx, { ids, action }) => {
+    await requireManage(ctx)
+    let n = 0
+    for (const id of ids.slice(0, 500)) {
+      const p = await ctx.db.get(id)
+      if (!p) continue
+      if (action === "delete") await ctx.db.delete(id)
+      else if (action === "hide") await ctx.db.patch(id, { isPublished: false, updatedAt: Date.now() })
+      else await ctx.db.patch(id, { isPublished: true, publishedAt: nextPublishedAt(true, null, p.publishedAt), updatedAt: Date.now() })
+      n++
+    }
+    await rebuild(ctx)
+    return n
+  },
+})
+
 // ---------------- blog ----------------
+const BLOGS_KEY = "websiteBlogs"
+type Blog = { handle: string; title: string }
+/** Blogs = any blog a post is in (first post's blog first, as before) + empty ones made under Manage blogs. */
+async function allBlogs(ctx: QueryCtx, posts?: { blogHandle: string; blogTitle: string; pos: number }[]) {
+  const rows = posts ?? (await ctx.db.query("webPosts").collect())
+  const map = new Map<string, { handle: string; title: string; posts: number }>()
+  for (const p of [...rows].sort((a, b) => a.pos - b.pos)) {
+    const b = map.get(p.blogHandle)
+    if (b) b.posts++
+    else map.set(p.blogHandle, { handle: p.blogHandle, title: p.blogTitle, posts: 1 })
+  }
+  for (const b of (await getSetting<Blog[]>(ctx, BLOGS_KEY)) ?? []) if (!map.has(b.handle)) map.set(b.handle, { handle: b.handle, title: b.title, posts: 0 })
+  return [...map.values()]
+}
+
+export const blogs = query({
+  args: {},
+  handler: async (ctx) => ((await allowed(ctx)) ? await allBlogs(ctx) : null),
+})
+
+/** Create a blog, or rename it / change its web address (every post moves with it; optional redirect from the old address). */
+export const saveBlog = mutation({
+  args: { handle: v.optional(v.string()), title: v.string(), newHandle: v.optional(v.string()), redirectOld: v.optional(v.boolean()) },
+  handler: async (ctx, a) => {
+    await requireManage(ctx)
+    const title = a.title.trim()
+    if (!title) throw new ConvexError("Give the blog a name")
+    const list = await allBlogs(ctx)
+    const old = a.handle ? list.find((b) => b.handle === a.handle) : undefined
+    if (a.handle && !old) throw new ConvexError("Blog not found")
+    const handle = slug(a.newHandle || (old ? old.handle : title))
+    if (!handle) throw new ConvexError("The web address needs letters or numbers")
+    if (list.some((b) => b.handle === handle && b.handle !== old?.handle)) throw new ConvexError(`Another blog already uses /blogs/${handle}`)
+    if (old) {
+      for (const p of await ctx.db.query("webPosts").collect()) if (p.blogHandle === old.handle) await ctx.db.patch(p._id, { blogHandle: handle, blogTitle: title, updatedAt: Date.now() })
+      if (a.redirectOld && old.handle !== handle) {
+        await upsertRedirect(ctx, `/blogs/${old.handle}`, `/blogs/${handle}`)
+        await upsertRedirect(ctx, `/blogs/${old.handle}/*`, `/blogs/${handle}/:splat`)
+      }
+    }
+    const saved = ((await getSetting<Blog[]>(ctx, BLOGS_KEY)) ?? []).filter((b) => b.handle !== old?.handle && b.handle !== handle)
+    await setSetting(ctx, BLOGS_KEY, [...saved, { handle, title }])
+    await rebuild(ctx)
+    return handle
+  },
+})
+
+export const deleteBlog = mutation({
+  args: { handle: v.string() },
+  handler: async (ctx, { handle }) => {
+    await requireManage(ctx)
+    const n = (await ctx.db.query("webPosts").collect()).filter((p) => p.blogHandle === handle).length
+    if (n) throw new ConvexError(`This blog still has ${n} post${n === 1 ? "" : "s"}. Move or delete them first.`)
+    await setSetting(ctx, BLOGS_KEY, ((await getSetting<Blog[]>(ctx, BLOGS_KEY)) ?? []).filter((b) => b.handle !== handle))
+  },
+})
+
 export const posts = query({
   args: {},
   handler: async (ctx) => {
     if (!(await allowed(ctx))) return null
     const rows = await ctx.db.query("webPosts").collect()
-    const blogs = new Map<string, string>()
-    for (const p of rows.sort((a, b) => a.pos - b.pos)) if (!blogs.has(p.blogHandle)) blogs.set(p.blogHandle, p.blogTitle)
     return {
-      blogs: [...blogs].map(([handle, title]) => ({ handle, title })),
+      blogs: (await allBlogs(ctx, rows)).map((b) => ({ handle: b.handle, title: b.title, posts: b.posts })),
       posts: rows
-        .map((p) => ({ _id: p._id, blogHandle: p.blogHandle, blogTitle: p.blogTitle, handle: p.handle, title: p.title, isPublished: p.isPublished, publishedAt: p.publishedAt ?? null, author: p.author ?? "", image: p.image?.url ?? null, updatedAt: p.updatedAt }))
+        .map((p) => ({ _id: p._id, blogHandle: p.blogHandle, blogTitle: p.blogTitle, handle: p.handle, title: p.title, isPublished: p.isPublished, publishedAt: p.publishedAt ?? null, author: p.author ?? "", image: p.image?.url ?? null, tags: p.tags, updatedAt: p.updatedAt }))
         .sort((a, b) => String(b.publishedAt ?? "").localeCompare(String(a.publishedAt ?? ""))),
     }
   },
@@ -203,13 +325,14 @@ export const savePost = mutation({
     id: v.optional(v.id("webPosts")), blogHandle: v.string(), blogTitle: v.string(), title: v.string(), handle: v.string(), body: v.string(),
     summary: v.string(), tags: v.array(v.string()), author: v.string(), image: v.union(v.null(), v.object({ url: v.string(), altText: v.string(), width: v.union(v.number(), v.null()), height: v.union(v.number(), v.null()) })),
     isPublished: v.boolean(), publishedAt: v.union(v.string(), v.null()), seo: v.object({ title: v.string(), description: v.string() }),
+    redirectOld: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     await requireManage(ctx)
     const title = a.title.trim()
     if (!title) throw new ConvexError("Add a title")
     const blogHandle = slug(a.blogHandle || a.blogTitle) || "news"
-    const blogTitle = a.blogTitle.trim() || "News"
+    const blogTitle = a.blogTitle.trim() || (await allBlogs(ctx)).find((b) => b.handle === blogHandle)?.title || "News"
     const root = slug(a.handle || title) || "post"
     let handle = root, n = 1
     for (;;) {
@@ -224,15 +347,37 @@ export const savePost = mutation({
     const row = {
       blogHandle, blogTitle, handle, title, body: a.body, summary: a.summary.trim(), tags: [...new Set(a.tags.map((t) => t.trim()).filter(Boolean))],
       author: a.author.trim(), image: a.image, isPublished: a.isPublished,
-      publishedAt: a.publishedAt || prev?.publishedAt || (a.isPublished ? new Date().toISOString() : null),
+      publishedAt: nextPublishedAt(a.isPublished, a.publishedAt, prev?.publishedAt),
       seo: { title: a.seo.title.trim(), description: a.seo.description.trim() }, pos: prev?.pos ?? (last ?? -1) + 1, updatedAt: Date.now(),
     }
     // renaming a blog renames it for every post in it
     if (prev && prev.blogHandle === blogHandle && prev.blogTitle !== blogTitle)
       for (const p of await ctx.db.query("webPosts").collect()) if (p.blogHandle === blogHandle && p._id !== prev._id) await ctx.db.patch(p._id, { blogTitle })
     const id = a.id ? (await ctx.db.patch(a.id, row), a.id) : await ctx.db.insert("webPosts", row)
+    if (prev && a.redirectOld && (prev.handle !== handle || prev.blogHandle !== blogHandle))
+      await upsertRedirect(ctx, `/blogs/${prev.blogHandle}/${prev.handle}`, `/blogs/${blogHandle}/${handle}`)
+    await rebuildAt(ctx, row.isPublished, row.publishedAt)
     await rebuild(ctx)
     return id
+  },
+})
+
+/** Blog posts list → select → Make visible / Hide / Delete. */
+export const bulkPosts = mutation({
+  args: { ids: v.array(v.id("webPosts")), action: bulkV },
+  handler: async (ctx, { ids, action }) => {
+    await requireManage(ctx)
+    let n = 0
+    for (const id of ids.slice(0, 500)) {
+      const p = await ctx.db.get(id)
+      if (!p) continue
+      if (action === "delete") await ctx.db.delete(id)
+      else if (action === "hide") await ctx.db.patch(id, { isPublished: false, updatedAt: Date.now() })
+      else await ctx.db.patch(id, { isPublished: true, publishedAt: nextPublishedAt(true, null, p.publishedAt), updatedAt: Date.now() })
+      n++
+    }
+    await rebuild(ctx)
+    return n
   },
 })
 
@@ -289,13 +434,13 @@ export const linkTargets = query({
     const colls = await ctx.db.query("webCollections").collect()
     const pages = await ctx.db.query("webPages").collect()
     const posts = await ctx.db.query("webPosts").collect()
-    const blogs = new Map<string, string>()
-    for (const p of posts) blogs.set(p.blogHandle, p.blogTitle)
+    const blogs = await allBlogs(ctx, posts)
     return {
       collections: colls.map((c) => ({ title: c.title, url: `/collections/${c.handle}` })).sort((a, b) => a.title.localeCompare(b.title)),
       products: products.map((p) => ({ title: String(p.web?.title || p.name), url: `/products/${p.handle}` })).sort((a, b) => a.title.localeCompare(b.title)),
       pages: pages.map((p) => ({ title: p.title, url: `/pages/${p.handle}` })).sort((a, b) => a.title.localeCompare(b.title)),
-      blogs: [...blogs].map(([h, t]) => ({ title: t, url: `/blogs/${h}` })),
+      blogs: blogs.map((b) => ({ title: b.title, url: `/blogs/${b.handle}` })),
+      posts: posts.map((p) => ({ title: p.title, url: `/blogs/${p.blogHandle}/${p.handle}` })).sort((a, b) => a.title.localeCompare(b.title)),
     }
   },
 })
@@ -331,6 +476,41 @@ export const deleteRedirect = mutation({
   },
 })
 
+export const deleteRedirects = mutation({
+  args: { ids: v.array(v.id("webRedirects")) },
+  handler: async (ctx, { ids }) => {
+    await requireManage(ctx)
+    let n = 0
+    for (const id of ids.slice(0, 1000)) if (await ctx.db.get(id)) { await ctx.db.delete(id); n++ }
+    await rebuild(ctx)
+    return n
+  },
+})
+
+/** CSV import (Shopify's format: "Redirect from","Redirect to"), sent in chunks of up to 500 rows. */
+export const importRedirects = mutation({
+  args: { rows: v.array(v.object({ path: v.string(), target: v.string() })), overwrite: v.boolean() },
+  handler: async (ctx, { rows, overwrite }) => {
+    await requireManage(ctx)
+    const out = { added: 0, updated: 0, skipped: 0, errors: [] as string[] }
+    for (const raw of rows.slice(0, 500)) {
+      let r: { path: string; target: string }
+      try { r = cleanRedirect(raw.path, raw.target) } catch (e) {
+        out.skipped++
+        if (out.errors.length < 10) out.errors.push(`${raw.path || "(empty)"}: ${e instanceof ConvexError ? String(e.data) : "invalid"}`)
+        continue
+      }
+      const cur = await ctx.db.query("webRedirects").withIndex("by_path", (q) => q.eq("path", r.path)).first()
+      if (cur) {
+        if (!overwrite || cur.target === r.target) { out.skipped++; continue }
+        await ctx.db.patch(cur._id, { target: r.target, updatedAt: Date.now() }); out.updated++
+      } else { await ctx.db.insert("webRedirects", { ...r, updatedAt: Date.now() }); out.added++ }
+    }
+    if (out.added || out.updated) await rebuild(ctx)
+    return out
+  },
+})
+
 // ---------------- store settings ----------------
 export const settings = query({
   args: {},
@@ -346,6 +526,7 @@ const settingsV = v.object({
   home: v.object({
     seoTitle: v.string(), seoDescription: v.string(), heroKicker: v.string(), heroTitle: v.string(), heroButton: v.string(), heroLink: v.string(),
     newCollection: v.string(), bestCollection: v.string(), store1Address: v.string(), store2Address: v.string(), hours: v.string(),
+    shareImage: v.optional(v.string()), // social sharing image: og:image for pages without a picture of their own
   }),
   policies: v.array(v.object({ type: v.string(), title: v.string(), body: v.string() })),
 })
@@ -361,6 +542,7 @@ export const saveSettings = mutation({
     const wa = s.contact.whatsapp.replace(/[^\d]/g, "")
     if (s.contact.whatsapp && !/^8801\d{9}$/.test(wa)) throw new ConvexError("WhatsApp number must look like 8801XXXXXXXXX")
     if (s.contact.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.contact.email.trim())) throw new ConvexError("The email address doesn't look right")
+    if (s.home.shareImage && !/^https:\/\/\S+$/.test(s.home.shareImage.trim())) throw new ConvexError("The social sharing image must be a web address (https://…)")
     await setSetting(ctx, SETTINGS_KEY, {
       ...s,
       announcements: s.announcements.map((m) => m.trim()).filter(Boolean).slice(0, 8),
