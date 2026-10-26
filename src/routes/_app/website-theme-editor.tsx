@@ -146,6 +146,7 @@ function Editor({ theme }: { theme: { _id: Id<"webThemes">; name: string; role: 
         <Button variant="ghost" size="icon" aria-label="Reload preview" onClick={() => { setFrameKey((k) => k + 1); preview.recheck() }}><RefreshCw className="size-4" /></Button>
         <Button variant="ghost" size="icon" aria-label="Open preview" asChild><a href={src} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /></a></Button>
         {editable && <Button size="sm" variant="outline" disabled={dirty || saving} onClick={() => setAskPublish(true)} title={dirty ? "Save first" : undefined}><Rocket className="size-4" /> <span className="hidden sm:inline">Publish</span></Button>}
+        {editable && dirty && <Button size="sm" variant="ghost" disabled={saving} onClick={() => setData(JSON.parse(base))}>Discard</Button>}
         {editable && <Button size="sm" disabled={!dirty || saving} onClick={doSave}>{saving && <Loader2 className="size-4 animate-spin" />} Save</Button>}
       </header>
 
