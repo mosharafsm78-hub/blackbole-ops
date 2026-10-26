@@ -52,6 +52,8 @@ function Editor({ data }: { data: Data | null }) {
   const [payMethod, setPayMethod] = useState("Cash")
   const [payRef, setPayRef] = useState("")
   const [paySlip, setPaySlip] = useState<Slip>(null)
+  const [invFile, setInvFile] = useState<Slip>(null)
+  const [invType, setInvType] = useState("application/octet-stream")
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
 
@@ -99,6 +101,10 @@ function Editor({ data }: { data: Data | null }) {
   async function doSave(nextStatus?: "draft" | "ordered") {
     if (!locationId) return toast.error("Choose the warehouse")
     if (!supplierId) return toast.error("Choose a supplier (or add a new one)")
+    if (payAmt > 0 && !paySlip) return toast.error("Attach the payment slip (bank slip / bKash screenshot / receipt)")
+    const placing = nextStatus === "ordered" && po?.status !== "ordered"
+    if (placing && !supplierRef.trim()) return toast.error("Write the supplier invoice / PI number before placing the order")
+    if (placing && !invFile && !(po?.files.length)) return toast.error("Attach the supplier invoice (photo or PDF) before placing the order")
     setBusy(true)
     try {
       const newId = await save({
@@ -106,7 +112,9 @@ function Editor({ data }: { data: Data | null }) {
         supplierRef: supplierRef || undefined, tracking: tracking || undefined, expectedAt: fromDateInput(expected), note: note || undefined,
         lines: lines.map((l) => ({ variantId: l.variantId, orderedQty: l.orderedQty, unitCost: l.unitCost })),
         discount, shippingCost: shipping, otherCost: other, status: nextStatus,
+        invoiceFile: invFile ? { storageId: invFile.slipId, name: invFile.slipName, type: invType } : undefined,
       })
+      setInvFile(null)
       setDirty(false)
       if (payAmt > 0 && can("purchases.pay")) {
         await addPayment({ id: newId, amount: payAmt, method: payMethod, reference: payRef || undefined, ...(paySlip ?? {}) })
@@ -168,7 +176,10 @@ function Editor({ data }: { data: Data | null }) {
                 <SelectContent>{locations.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5"><Label>Supplier invoice / PI no.</Label><Input value={supplierRef} disabled={!editable} onChange={(e) => { setSupplierRef(e.target.value); touch() }} /></div>
+            <div className="space-y-1.5"><Label>Supplier invoice / PI no. <span className="text-tone-red">*</span></Label><Input value={supplierRef} disabled={!editable} onChange={(e) => { setSupplierRef(e.target.value); touch() }} />
+              {editable && !(po?.files.length) && <SlipPicker value={invFile} onChange={(f) => { setInvFile(f); touch() }} onType={setInvType} required label="Attach supplier invoice (photo / PDF) — required" />}
+              {!!po?.files.length && <p className="text-[11px] text-tone-green">✓ Invoice attached ({po.files.length} file{po.files.length > 1 ? "s" : ""})</p>}
+            </div>
             <div className="space-y-1.5"><Label>Shipment tracking / forwarder</Label><Input value={tracking} disabled={!editable} onChange={(e) => { setTracking(e.target.value); touch() }} placeholder="e.g. Sea cargo, BL / tracking no." /></div>
             <div className="space-y-1.5"><Label>Expected arrival</Label><Input type="date" value={expected} disabled={!editable} onChange={(e) => { setExpected(e.target.value); touch() }} /></div>
             <div className="space-y-1.5 sm:col-span-3"><Label>Note</Label><Textarea rows={2} value={note} disabled={!editable} onChange={(e) => { setNote(e.target.value); touch() }} /></div>
@@ -244,9 +255,9 @@ function Editor({ data }: { data: Data | null }) {
                   </Select>
                 </div>
                 <Input className="h-8" placeholder="Reference / TrxID / cheque no. (optional)" value={payRef} onChange={(e) => setPayRef(e.target.value)} />
-                <SlipPicker value={paySlip} onChange={setPaySlip} />
+                {payAmt > 0 && <SlipPicker value={paySlip} onChange={setPaySlip} required />}
                 {po && !dirty ? (
-                  <Button size="sm" className="w-full" disabled={payAmt <= 0 || busy} onClick={async () => {
+                  <Button size="sm" className="w-full" disabled={payAmt <= 0 || !paySlip || busy} onClick={async () => {
                     setBusy(true)
                     try { await addPayment({ id: po._id, amount: payAmt, method: payMethod, reference: payRef || undefined, ...(paySlip ?? {}) }); toast.success(`Payment ${taka(payAmt)} recorded`); setPayAmt(0); setPayRef(""); setPaySlip(null) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
                   }}>Save payment</Button>
@@ -465,9 +476,9 @@ function PayDialog({ poId, due, open, onOpenChange }: { poId: Id<"purchaseOrders
             <Select value={method} onValueChange={setMethod}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{SUPPLIER_PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
           </div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Reference / TT no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
-          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} required /></div>
         </div>
-        <DialogFooter><Button onClick={async () => {
+        <DialogFooter><Button disabled={amount <= 0 || !slip} onClick={async () => {
           try { await pay({ id: poId, amount, method, reference: ref || undefined, ...(slip ?? {}) }); toast.success("Payment saved"); onOpenChange(false) } catch (e) { toast.error(errMsg(e)) }
         }}>Save payment</Button></DialogFooter>
       </DialogContent>

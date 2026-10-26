@@ -127,10 +127,10 @@ function PayDialog({ supplierId, due, open, onOpenChange }: { supplierId: Id<"su
           </div>
           <div className="space-y-1.5"><Label>Reference / TT / cheque no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
           <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
-          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} required /></div>
         </div>
         <DialogFooter>
-          <Button disabled={busy || amount <= 0} onClick={async () => {
+          <Button disabled={busy || amount <= 0 || !slip} onClick={async () => {
             setBusy(true)
             try {
               const r = await pay({ id: supplierId, amount, method, reference: ref || undefined, note: note || undefined, ...(slip ?? {}) })

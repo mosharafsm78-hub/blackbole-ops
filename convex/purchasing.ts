@@ -2,6 +2,7 @@ import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
+import { hasPerm } from "./rules"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
 
 // ---------------- Suppliers ----------------
@@ -69,6 +70,7 @@ export const paySupplier = mutation({
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "purchases.pay")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
+    if (!a.slipId) throw new ConvexError("Attach the payment slip (bank slip / bKash screenshot / receipt)")
     const sp = await ctx.db.get(a.id)
     if (!sp) throw new ConvexError("Supplier not found")
     const acc = await supplierAccount(ctx, sp)
@@ -236,6 +238,12 @@ async function buildLines(ctx: any, lines: { variantId: Id<"variants">; orderedQ
   return out
 }
 
+/** A purchase can only be placed with the supplier's invoice / PI number and the invoice file attached. */
+function placeRules(ref: string | undefined, files: unknown[]) {
+  if (!ref?.trim()) throw new ConvexError("Write the supplier invoice / PI number before placing the order")
+  if (!files.length) throw new ConvexError("Attach the supplier invoice (photo or PDF) before placing the order")
+}
+
 export const savePO = mutation({
   args: {
     id: v.optional(v.id("purchaseOrders")),
@@ -251,6 +259,7 @@ export const savePO = mutation({
     otherCost: v.number(),
     note: v.optional(v.string()),
     status: v.optional(v.string()), // draft | ordered
+    invoiceFile: v.optional(v.object({ storageId: v.id("_storage"), name: v.string(), type: v.string() })),
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "purchases.manage")
@@ -264,10 +273,12 @@ export const savePO = mutation({
     const t = totals(items, a.discount, a.shippingCost, a.otherCost, old?.paid ?? 0)
     const now = Date.now()
     const status = old && !["draft", "ordered"].includes(old.status) ? old.status : (a.status ?? old?.status ?? "draft")
+    const files = [...(old?.files ?? []), ...(a.invoiceFile ? [{ ...a.invoiceFile, at: now }] : [])]
+    if (status === "ordered" && old?.status !== "ordered") placeRules(a.supplierRef, files)
     const data = {
       supplierId: a.supplierId, supplierName, locationId: a.locationId, supplierRef: a.supplierRef, tracking: a.tracking,
       expectedAt: a.expectedAt, items, discount: a.discount, shippingCost: a.shippingCost, otherCost: a.otherCost,
-      subtotal: t.subtotal, total: t.total, due: t.due, note: a.note, status, updatedAt: now,
+      subtotal: t.subtotal, total: t.total, due: t.due, note: a.note, status, updatedAt: now, files,
       ...(status === "ordered" && !old?.orderedAt ? { orderedAt: now } : {}),
     }
     if (old) {
@@ -275,7 +286,7 @@ export const savePO = mutation({
       return old._id
     }
     const code = await nextCounter(ctx, "po", 1)
-    return await ctx.db.insert("purchaseOrders", { ...data, code, paid: 0, files: [], createdBy: me.staff.name, createdAt: now })
+    return await ctx.db.insert("purchaseOrders", { ...data, code, paid: 0, createdBy: me.staff.name, createdAt: now })
   },
 })
 
@@ -289,6 +300,7 @@ export const setPOStatus = mutation({
     if (status === "cancelled" && received) throw new ConvexError("Part of this purchase was already received — close it instead")
     if (!["draft", "ordered", "shipped", "cancelled", "received"].includes(status)) throw new ConvexError("Unknown status")
     if (status === "received" && !received) throw new ConvexError("Nothing received yet")
+    if (status === "ordered" && po.status === "draft") placeRules(po.supplierRef, po.files)
     const now = Date.now()
     await ctx.db.patch(id, {
       status, updatedAt: now,
@@ -370,6 +382,7 @@ export const addSupplierPayment = mutation({
     const po = await ctx.db.get(a.id)
     if (!po) throw new ConvexError("Purchase not found")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
+    if (!a.slipId) throw new ConvexError("Attach the payment slip (bank slip / bKash screenshot / receipt)")
     await ctx.db.insert("supplierPayments", { poId: a.id, supplierId: po.supplierId, amount: a.amount, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: Date.now() })
     const paid = po.paid + a.amount
     await ctx.db.patch(a.id, { paid, due: Math.max(0, po.total - paid), updatedAt: Date.now() })
@@ -381,7 +394,8 @@ export const addSupplierPayment = mutation({
 export const slipUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requirePerm(ctx, "purchases.pay")
+    const s = await currentStaff(ctx)
+    if (!s || !(hasPerm(s.perms, "purchases.pay") || hasPerm(s.perms, "purchases.manage"))) throw new ConvexError("Not allowed")
     return await ctx.storage.generateUploadUrl()
   },
 })

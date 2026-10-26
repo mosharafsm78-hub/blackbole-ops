@@ -397,7 +397,7 @@ export const poCode = (n: number) => `PO-${String(n).padStart(4, "0")}`
 export type Slip = { slipId: Id<"_storage">; slipName: string } | null
 
 /** Upload a bank slip / bKash screenshot / money receipt (image or PDF). Uploads as soon as a file is chosen. */
-export function SlipPicker({ value, onChange, compact }: { value: Slip; onChange: (s: Slip) => void; compact?: boolean }) {
+export function SlipPicker({ value, onChange, compact, label, required, onType }: { value: Slip; onChange: (s: Slip) => void; compact?: boolean; label?: string; required?: boolean; onType?: (t: string) => void }) {
   const getUrl = useMutation(api.purchasing.slipUploadUrl)
   const [busy, setBusy] = useState(false)
   const pick = async (f: File | undefined) => {
@@ -409,11 +409,12 @@ export function SlipPicker({ value, onChange, compact }: { value: Slip; onChange
       const r = await fetch(url, { method: "POST", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f })
       if (!r.ok) throw new Error("Upload failed")
       const { storageId } = await r.json()
+      onType?.(f.type || "application/octet-stream")
       onChange({ slipId: storageId, slipName: f.name })
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
   return (
-    <div className={cn("flex items-center gap-2 text-xs", compact ? "" : "rounded-md border border-dashed p-2")}>
+    <div className={cn("flex items-center gap-2 text-xs", compact ? "" : "rounded-md border border-dashed p-2", required && !value && "border-tone-red/60 bg-tone-red-bg/30")}>
       {value ? (
         <>
           <Paperclip className="size-3.5 shrink-0 text-tone-green" />
@@ -423,7 +424,7 @@ export function SlipPicker({ value, onChange, compact }: { value: Slip; onChange
       ) : (
         <label className="flex flex-1 cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
           <Paperclip className="size-3.5 shrink-0" />
-          {busy ? "Uploading…" : "Attach bank slip / bKash screenshot / receipt (optional)"}
+          {busy ? "Uploading…" : label ?? `Attach bank slip / bKash screenshot / receipt${required ? " (required)" : ""}`}
           <input type="file" accept="image/*,application/pdf" className="hidden" disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = "" }} />
         </label>
       )}
