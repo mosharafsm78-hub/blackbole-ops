@@ -117,3 +117,34 @@ describe("website catalog", () => {
     expect(st.hook).toBe(false)
   })
 })
+
+describe("website add product", () => {
+  it("creates a China pre-order: booking on the website, full price in Ops, pre-order flag, collection", async () => {
+    const { t, as } = await setup()
+    const coll = await t.run((ctx) => ctx.db.insert("webCollections", { handle: "pre-order", title: "Pre-order", html: "", image: null, seo: { title: "", description: "" }, productHandles: [], updatedAt: 0 }))
+    const id = await as.mutation(api.website.createProduct, {
+      title: "Cloud Runner", handle: "", html: "<p>Light</p>", vendor: "BlackBole", type: "Sneakers", tags: [],
+      seo: { title: "", description: "" }, options: ["Size"], images: [{ url: "https://x.y/a.jpg", alt: "a", w: 1, h: 1 }], mf: {},
+      published: true, preOrder: true, preOrderFrom: "china", collections: [coll],
+      variants: [
+        { sku: "po-cr-40", title: "40", options: { Size: "40" }, price: 500, fullPrice: 3200, compareAt: 3200, cost: 1400, weightKg: 0.6 },
+        { sku: "PO-CR-41", title: "41", options: { Size: "41" }, price: 500, fullPrice: 3200, compareAt: 3200, cost: 1400, weightKg: 0.6 },
+      ],
+    })
+    const p = await t.run((ctx) => ctx.db.get(id))
+    expect(p).toMatchObject({ name: "Cloud Runner", preOrder: true, preOrderFrom: "china", handle: "cloud-runner", active: true })
+    expect((p!.web as any).tags).toContain("pre-order")
+    const vs = await t.run((ctx) => ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", id)).collect())
+    expect(vs.map((v) => [v.sku, v.price, v.purchasePrice, (v.web as any).price, (v.web as any).compareAt])).toEqual([
+      ["PO-CR-40", 3200, 1400, 500, 3200], ["PO-CR-41", 3200, 1400, 500, 3200],
+    ])
+    const c = await t.run((ctx) => ctx.db.get(coll))
+    expect(c!.productHandles).toEqual(["cloud-runner"])
+    // a SKU that already exists is refused
+    await expect(as.mutation(api.website.createProduct, {
+      title: "Copy", handle: "", html: "", vendor: "", type: "", tags: [], seo: { title: "", description: "" }, options: ["Size"], images: [], mf: {},
+      published: false, preOrder: false, preOrderFrom: "china", collections: [],
+      variants: [{ sku: "BB-HSS-41", title: "41", options: { Size: "41" }, price: 1000, fullPrice: 1000, compareAt: null, cost: 0, weightKg: 0.5 }],
+    })).rejects.toThrow(/already used/)
+  })
+})

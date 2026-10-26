@@ -53,9 +53,9 @@ function WebsitePage() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" asChild><a href={PREVIEW_URL} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View website</a></Button>
           {tab === "products"
-            ? <Button size="sm" onClick={() => setAdding(true)}><Plus className="size-4" /> Add product</Button>
+            ? <Button size="sm" asChild><Link to="/website-new"><Plus className="size-4" /> Add product</Link></Button>
             : <Button size="sm" asChild><Link to="/website-collection" search={{ id: "" }}><Plus className="size-4" /> New collection</Link></Button>}
-          <MoreActions />
+          <MoreActions onAddExisting={() => setAdding(true)} />
         </div>
       </div>
 
@@ -120,7 +120,7 @@ function PublishStatus() {
   )
 }
 
-function MoreActions() {
+function MoreActions({ onAddExisting }: { onAddExisting: () => void }) {
   const importCatalog = useAction(api.website.importCatalog)
   const rebuild = useMutation(api.website.rebuildNow)
   const st = useQuery(api.website.status)
@@ -134,6 +134,7 @@ function MoreActions() {
           <DropdownMenuItem onClick={async () => {
             try { const r = await rebuild({}); toast.success(r.hook ? "Publishing now — live in about a minute" : "Publishing is off (no deploy hook)") } catch (e) { toast.error(errMsg(e)) }
           }}><RefreshCw className="size-4" /> Publish now</DropdownMenuItem>
+          <DropdownMenuItem onClick={onAddExisting}><Plus className="size-4" /> Put an existing Ops product on the website</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setConfirm(true)}><Download className="size-4" /> Import from current website</DropdownMenuItem>
           {st?.lastImport && <><DropdownMenuSeparator /><DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Last import {dateTime(st.lastImport.at)}</DropdownMenuLabel></>}
         </DropdownMenuContent>

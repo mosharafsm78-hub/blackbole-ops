@@ -35,6 +35,7 @@ import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
 import { Route as AppWebsiteRouteImport } from './routes/_app/website'
 import { Route as AppWebsiteCollectionRouteImport } from './routes/_app/website-collection'
+import { Route as AppWebsiteNewRouteImport } from './routes/_app/website-new'
 import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
@@ -167,6 +168,11 @@ const AppWebsiteCollectionRoute = AppWebsiteCollectionRouteImport.update({
   path: '/website-collection',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteNewRoute = AppWebsiteNewRouteImport.update({
+  id: '/website-new',
+  path: '/website-new',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteProductRoute = AppWebsiteProductRouteImport.update({
   id: '/website-product',
   path: '/website-product',
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
+  '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
@@ -232,6 +239,7 @@ export interface FileRoutesByTo {
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
+  '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
@@ -263,6 +271,7 @@ export interface FileRoutesById {
   '/_app/suppliers': typeof AppSuppliersRoute
   '/_app/website': typeof AppWebsiteRoute
   '/_app/website-collection': typeof AppWebsiteCollectionRoute
+  '/_app/website-new': typeof AppWebsiteNewRoute
   '/_app/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
@@ -295,6 +304,7 @@ export interface FileRouteTypes {
     | '/suppliers'
     | '/website'
     | '/website-collection'
+    | '/website-new'
     | '/website-product'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
@@ -323,6 +333,7 @@ export interface FileRouteTypes {
     | '/suppliers'
     | '/website'
     | '/website-collection'
+    | '/website-new'
     | '/website-product'
     | '/api/pathao-proxy'
     | '/'
@@ -353,6 +364,7 @@ export interface FileRouteTypes {
     | '/_app/suppliers'
     | '/_app/website'
     | '/_app/website-collection'
+    | '/_app/website-new'
     | '/_app/website-product'
     | '/api/pathao-proxy'
     | '/_app/'
@@ -549,6 +561,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteCollectionRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-new': {
+      id: '/_app/website-new'
+      path: '/website-new'
+      fullPath: '/website-new'
+      preLoaderRoute: typeof AppWebsiteNewRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website-product': {
       id: '/_app/website-product'
       path: '/website-product'
@@ -589,6 +608,7 @@ interface AppRouteChildren {
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppWebsiteRoute: typeof AppWebsiteRoute
   AppWebsiteCollectionRoute: typeof AppWebsiteCollectionRoute
+  AppWebsiteNewRoute: typeof AppWebsiteNewRoute
   AppWebsiteProductRoute: typeof AppWebsiteProductRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -616,6 +636,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSuppliersRoute: AppSuppliersRoute,
   AppWebsiteRoute: AppWebsiteRoute,
   AppWebsiteCollectionRoute: AppWebsiteCollectionRoute,
+  AppWebsiteNewRoute: AppWebsiteNewRoute,
   AppWebsiteProductRoute: AppWebsiteProductRoute,
   AppIndexRoute: AppIndexRoute,
 }

@@ -766,6 +766,102 @@ export const deleteCollection = mutation({
   },
 })
 
+// ---------------- new product (Website → Add product) ----------------
+/** Creates a new product the Shopify way, in one step: the product and its sizes (SKU, price, cost, weight) in Ops,
+ *  plus its website page (photos, text, collections, SEO). Pre-order: the website price is the booking money
+ *  (Tk 500 China / Tk 90 Bangladesh), the full price is the compare-at and the Ops price. */
+export const createProduct = mutation({
+  args: {
+    title: v.string(),
+    handle: v.string(),
+    html: v.string(),
+    vendor: v.string(),
+    type: v.string(),
+    tags: v.array(v.string()),
+    seo: v.object({ title: v.string(), description: v.string() }),
+    options: v.array(v.string()),
+    images: v.array(imageV),
+    mf: v.record(v.string(), v.string()),
+    published: v.boolean(),
+    preOrder: v.boolean(),
+    preOrderFrom: v.union(v.literal("china"), v.literal("bangladesh")),
+    collections: v.array(v.id("webCollections")),
+    variants: v.array(v.object({
+      sku: v.string(),
+      title: v.string(),
+      options: v.record(v.string(), v.string()),
+      price: v.number(), // website selling price (pre-order: booking money)
+      fullPrice: v.number(), // Ops price (the pair's full price)
+      compareAt: v.union(v.number(), v.null()),
+      cost: v.number(),
+      weightKg: v.number(),
+    })),
+  },
+  handler: async (ctx, a) => {
+    await requireWebsite(ctx)
+    const title = a.title.trim()
+    if (!title) throw new ConvexError("Add a title")
+    if (!a.variants.length) throw new ConvexError("Add at least one size")
+    const skus = a.variants.map((x) => x.sku.trim().toUpperCase())
+    if (skus.some((x) => !x)) throw new ConvexError("Every size needs a SKU")
+    if (new Set(skus).size !== skus.length) throw new ConvexError("Two sizes have the same SKU")
+    for (const sku of skus) {
+      const clash = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (clash) throw new ConvexError(`SKU ${sku} is already used by another product`)
+    }
+    if (a.variants.some((x) => !(x.price > 0))) throw new ConvexError("Every size needs a price")
+    const now = Date.now(), iso = new Date().toISOString()
+    const optNames = a.options.map((o) => o.trim()).filter(Boolean)
+    const tags = [...new Set(a.tags.map((t) => t.trim()).filter(Boolean))]
+    if (a.preOrder && !tags.some((t) => t.toLowerCase() === "pre-order")) tags.push("pre-order")
+    const productId = await ctx.db.insert("products", {
+      name: title, category: a.type.trim() || undefined, description: a.html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() || undefined,
+      imageUrl: a.images[0]?.url, active: true, preOrder: a.preOrder || undefined, preOrderFrom: a.preOrder ? a.preOrderFrom : undefined, createdAt: now,
+    })
+    const handle = await uniqueHandle(ctx, a.handle || title, productId)
+    await ctx.db.patch(productId, {
+      handle,
+      web: {
+        id: `ops:${productId}`, title, html: a.html, vendor: a.vendor.trim() || "BlackBole", type: a.type.trim(), tags, category: null,
+        seo: { title: a.seo.title.trim(), description: a.seo.description.trim() },
+        options: optNames.map((name) => ({ name, values: [] })),
+        images: a.images.map((i) => ({ url: i.url, alt: i.alt ?? "", w: i.w ?? null, h: i.h ?? null })),
+        mf: a.mf, published: a.published, createdAt: iso, publishedAt: a.published ? iso : undefined, updatedAt: now,
+      },
+    })
+    for (const [i, x] of a.variants.entries()) {
+      const opts: Record<string, string> = {}
+      for (const n of optNames) if (x.options[n]?.trim()) opts[n] = x.options[n].trim()
+      await ctx.db.insert("variants", {
+        productId, sku: skus[i], title: x.title.trim() || "Default", weightKg: x.weightKg > 0 ? x.weightKg : 0.5,
+        price: Math.round(x.fullPrice > 0 ? x.fullPrice : x.price), purchasePrice: Math.max(0, Math.round(x.cost)), active: true, createdAt: now,
+        web: { id: newVariantId(now + i), price: Math.round(x.price), compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: null, pos: i },
+      })
+    }
+    for (const cid of a.collections) {
+      const c = await ctx.db.get(cid)
+      if (c && !c.productHandles.includes(handle)) await ctx.db.patch(cid, { productHandles: [...c.productHandles, handle], updatedAt: now })
+    }
+    await queueRebuild(ctx)
+    return productId
+  },
+})
+
+/** SKUs already used (for the new-product form to warn early). */
+export const skusTaken = query({
+  args: { skus: v.array(v.string()) },
+  handler: async (ctx, { skus }) => {
+    const s = await currentStaff(ctx)
+    if (!s || !canManage(s.perms)) return []
+    const out: string[] = []
+    for (const sku of skus.slice(0, 200)) {
+      const x = sku.trim().toUpperCase()
+      if (x && (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", x)).first())) out.push(x)
+    }
+    return out
+  },
+})
+
 // ---------------- photos (Convex file storage) ----------------
 export const uploadUrl = mutation({
   args: {},

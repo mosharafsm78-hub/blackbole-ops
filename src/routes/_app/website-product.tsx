@@ -414,7 +414,7 @@ function PageContent({ f, setMf }: { f: Form; setMf: (k: string, v: string) => v
 }
 
 // ---------------------------------------------------------------- pickers
-function CollectionPicker({ all, value, onChange }: { all: Data["collections"]; value: string[]; onChange: (v: string[]) => void }) {
+export function CollectionPicker({ all, value, onChange }: { all: Data["collections"]; value: string[]; onChange: (v: string[]) => void }) {
   const [q, setQ] = useState("")
   const chosen = all.filter((c) => value.includes(c._id))
   const list = all.filter((c) => !q.trim() || c.title.toLowerCase().includes(q.trim().toLowerCase()))
