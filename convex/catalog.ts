@@ -1,3 +1,4 @@
+import { queueReceipt } from "./shopifyStock"
 import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
@@ -263,6 +264,7 @@ export const receiveStock = mutation({
       await bumpStock(ctx, { variantId: i.variantId, locationId: a.locationId, bucket: "available", change: i.qty, reason: `Stock in GRN-${code}`, byName: me.staff.name, receiptId })
       if (a.updateCost && i.unitCost > 0) await ctx.db.patch(i.variantId, { purchasePrice: i.unitCost })
     }
+    await queueReceipt(ctx, receiptId)
     return code
   },
 })
@@ -294,13 +296,15 @@ export const listReceipts = query({
 })
 
 export const stockLogs = query({
-  args: { variantId: v.optional(v.id("variants")) },
-  handler: async (ctx, { variantId }) => {
+  args: { variantId: v.optional(v.id("variants")), locationId: v.optional(v.id("locations")) },
+  handler: async (ctx, { variantId, locationId }) => {
     const s = await currentStaff(ctx)
     if (!s) return null
     const rows = variantId
-      ? await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", variantId)).order("desc").take(200)
-      : await ctx.db.query("stockLogs").withIndex("by_at").order("desc").take(200)
+      ? (await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", variantId)).order("desc").take(400)).filter((r) => !locationId || r.locationId === locationId).slice(0, 200)
+      : locationId
+        ? await ctx.db.query("stockLogs").withIndex("by_location", (q) => q.eq("locationId", locationId)).order("desc").take(200)
+        : await ctx.db.query("stockLogs").withIndex("by_at").order("desc").take(200)
     const locs = await ctx.db.query("locations").collect()
     return await Promise.all(
       rows.map(async (r) => {

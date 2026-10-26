@@ -85,6 +85,72 @@ function ShopifyPrivateLink({ linked }: { linked: boolean }) {
   )
 }
 
+function ShopifyStockSync() {
+  const st = useQuery(api.shopifyStock.status)
+  const save = useMutation(api.shopifyStock.save)
+  const test = useAction(api.shopifyStock.test)
+  const [shop, setShop] = useState("")
+  const [clientId, setClientId] = useState("")
+  const [secret, setSecret] = useState("")
+  const [on, setOn] = useState(false)
+  const [map, setMap] = useState<Record<string, string>>({})
+  const [shopLocs, setShopLocs] = useState<{ id: string; name: string }[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (!st || loaded) return
+    setShop(st.shop || "a88d34-65.myshopify.com"); setClientId(st.clientId); setOn(st.on)
+    setMap(Object.fromEntries(st.warehouses.map((w) => [w._id, w.shopifyLocationId])))
+    setLoaded(true)
+  }, [st, loaded])
+  if (!st) return null
+  const doSave = async (next = on) => {
+    await save({ shop, clientId, secret: secret || undefined, on: next, map: st.warehouses.map((w) => ({ id: w._id as Id<"locations">, shopifyLocationId: map[w._id] ?? "" })) })
+    setSecret("")
+  }
+  return (
+    <Section title="Stock in → Shopify" sub={st.on ? <Pill tone="green">On</Pill> : <Pill tone="gray">Off</Pill>}>
+      <p className="mb-3 text-sm text-muted-foreground">When goods are received in Ops (purchase “Receive goods” or Stock in), the same good pairs are added to Shopify stock automatically. Sales are not sent — Shopify already takes stock off when an order is placed.</p>
+      <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5"><Label>Shop domain</Label><Input value={shop} onChange={(e) => setShop(e.target.value)} placeholder="xxxx.myshopify.com" /></div>
+        <div className="space-y-1.5"><Label>Client ID (Dev Dashboard app)</Label><Input value={clientId} onChange={(e) => setClientId(e.target.value)} /></div>
+        <div className="space-y-1.5 sm:col-span-2"><Label>Client secret</Label>
+          <Input type="password" autoComplete="new-password" data-1p-ignore value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={st.hasSecret ? "Saved — paste a new one to replace it" : "Paste the client secret"} />
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="outline" disabled={busy} onClick={async () => {
+          setBusy(true)
+          try { await doSave(); const r = await test(); setShopLocs(r.locations); toast.success(`Connected to ${r.shop}`) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+        }}>Save & test connection</Button>
+      </div>
+      {st.lastError && <p className="mt-2 text-xs text-tone-red">{String(st.lastError)}</p>}
+      <div className="mt-4 space-y-2">
+        <div className="text-sm font-medium">Which Shopify location gets the stock</div>
+        {st.warehouses.map((w) => (
+          <div key={w._id} className="flex max-w-2xl items-center gap-3 text-sm">
+            <span className="w-56 truncate">{w.name}{w.exchange && <span className="text-xs text-muted-foreground"> (exchange)</span>}</span>
+            <Select value={map[w._id] || "__none"} onValueChange={(v) => setMap((m) => ({ ...m, [w._id]: v === "__none" ? "" : v }))}>
+              <SelectTrigger className="w-72"><SelectValue placeholder="Not sent to Shopify" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">Not sent to Shopify</SelectItem>
+                {(shopLocs ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                {map[w._id] && !(shopLocs ?? []).some((l) => l.id === map[w._id]) && <SelectItem value={map[w._id]}>Linked location</SelectItem>}
+              </SelectContent>
+            </Select>
+          </div>
+        ))}
+        {!shopLocs && <p className="text-xs text-muted-foreground">Click “Save & test connection” to load your Shopify locations.</p>}
+      </div>
+      <label className="mt-4 flex items-center gap-2 text-sm">
+        <Switch checked={on} onCheckedChange={async (v) => { setOn(v); try { await doSave(v); toast.success(v ? "Stock sync switched on" : "Stock sync switched off") } catch (e) { setOn(!v); toast.error(errMsg(e)) } }} />
+        Add received stock to Shopify automatically
+      </label>
+      <div className="mt-2"><Button size="sm" disabled={busy} onClick={async () => { try { await doSave(); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) } }}>Save</Button></div>
+    </Section>
+  )
+}
+
 function ShopifyTab() {
   const info = useQuery(api.settings.integrations)
   const save = useMutation(api.settings.saveShopifySecret)
@@ -113,6 +179,7 @@ function ShopifyTab() {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">Products are matched by SKU. Keep the same SKUs in Shopify and here so stock moves automatically.</p>
       </Section>
+      <ShopifyStockSync />
       <ShopifyPrivateLink linked={info.shopifyLinked} />
       <Section title="Last webhook received">
         {info.shopifyLast ? (

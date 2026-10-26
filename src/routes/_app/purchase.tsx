@@ -8,7 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
-import { POStatus, ProductBuilder, SupplierDialog, UploadList, poCode, type POLine } from "@/components/purchase-parts"
+import { POStatus, ProductBuilder, SlipLink, SlipPicker, SupplierDialog, UploadList, poCode, type POLine, type Slip } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -51,6 +51,7 @@ function Editor({ data }: { data: Data | null }) {
   const [payAmt, setPayAmt] = useState(0)
   const [payMethod, setPayMethod] = useState("Cash")
   const [payRef, setPayRef] = useState("")
+  const [paySlip, setPaySlip] = useState<Slip>(null)
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
 
@@ -108,8 +109,8 @@ function Editor({ data }: { data: Data | null }) {
       })
       setDirty(false)
       if (payAmt > 0 && can("purchases.pay")) {
-        await addPayment({ id: newId, amount: payAmt, method: payMethod, reference: payRef || undefined })
-        setPayAmt(0); setPayRef("")
+        await addPayment({ id: newId, amount: payAmt, method: payMethod, reference: payRef || undefined, ...(paySlip ?? {}) })
+        setPayAmt(0); setPayRef(""); setPaySlip(null)
       }
       toast.success((nextStatus === "ordered" ? "Purchase placed (Ordered)" : "Saved") + (payAmt > 0 && can("purchases.pay") ? ` · payment ${taka(payAmt)} recorded` : ""))
       if (!po) navigate({ to: "/purchase", search: { id: newId } })
@@ -243,10 +244,11 @@ function Editor({ data }: { data: Data | null }) {
                   </Select>
                 </div>
                 <Input className="h-8" placeholder="Reference / TrxID / cheque no. (optional)" value={payRef} onChange={(e) => setPayRef(e.target.value)} />
+                <SlipPicker value={paySlip} onChange={setPaySlip} />
                 {po && !dirty ? (
                   <Button size="sm" className="w-full" disabled={payAmt <= 0 || busy} onClick={async () => {
                     setBusy(true)
-                    try { await addPayment({ id: po._id, amount: payAmt, method: payMethod, reference: payRef || undefined }); toast.success(`Payment ${taka(payAmt)} recorded`); setPayAmt(0); setPayRef("") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+                    try { await addPayment({ id: po._id, amount: payAmt, method: payMethod, reference: payRef || undefined, ...(paySlip ?? {}) }); toast.success(`Payment ${taka(payAmt)} recorded`); setPayAmt(0); setPayRef(""); setPaySlip(null) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
                   }}>Save payment</Button>
                 ) : (
                   <p className="text-[11px] text-muted-foreground">{payAmt > 0 ? "Saved together when you click Save / Place order." : "Leave empty if you haven't paid yet."}</p>
@@ -352,6 +354,19 @@ function SizePicker({ locationId, onAdd }: { locationId?: Id<"locations">; onAdd
   )
 }
 
+function ShopifySyncBadge({ receipt }: { receipt: { _id: Id<"receipts">; shopifySync?: any } }) {
+  const retry = useMutation(api.shopifyStock.retry)
+  const st = receipt.shopifySync
+  if (!st) return null
+  if (st.status === "done") return <span className="rounded bg-tone-green-bg px-1.5 py-0.5 text-[11px] font-semibold text-tone-green" title={st.missing ? `Not found in Shopify: ${st.missing.join(", ")}` : undefined}>Shopify +{st.pushed}{st.missing ? ` · ${st.missing.length} SKU not found` : ""}</span>
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px]">
+      <span className="rounded bg-tone-red-bg px-1.5 py-0.5 font-semibold text-tone-red" title={st.error}>Shopify {st.status === "skipped" ? "not linked" : "failed"}</span>
+      <button className="underline" onClick={async () => { try { await retry({ id: receipt._id }); toast.success("Sending to Shopify…") } catch (e) { toast.error(errMsg(e)) } }}>Retry</button>
+    </span>
+  )
+}
+
 function ShipDialog({ open, onOpenChange, tracking, onConfirm }: { open: boolean; onOpenChange: (o: boolean) => void; tracking: string; onConfirm: (t: string) => void }) {
   const [t, setT] = useState(tracking)
   useEffect(() => { if (open) setT(tracking) }, [open, tracking])
@@ -451,7 +466,8 @@ function PayDialog({ poId, due, open, onOpenChange }: { poId: Id<"purchaseOrders
   const [amount, setAmount] = useState(due)
   const [method, setMethod] = useState("Bank transfer")
   const [ref, setRef] = useState("")
-  useEffect(() => { if (open) { setAmount(due); setRef("") } }, [open, due])
+  const [slip, setSlip] = useState<Slip>(null)
+  useEffect(() => { if (open) { setAmount(due); setRef(""); setSlip(null) } }, [open, due])
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -462,9 +478,10 @@ function PayDialog({ poId, due, open, onOpenChange }: { poId: Id<"purchaseOrders
             <Select value={method} onValueChange={setMethod}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{SUPPLIER_PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
           </div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Reference / TT no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} /></div>
         </div>
         <DialogFooter><Button onClick={async () => {
-          try { await pay({ id: poId, amount, method, reference: ref || undefined }); toast.success("Payment saved"); onOpenChange(false) } catch (e) { toast.error(errMsg(e)) }
+          try { await pay({ id: poId, amount, method, reference: ref || undefined, ...(slip ?? {}) }); toast.success("Payment saved"); onOpenChange(false) } catch (e) { toast.error(errMsg(e)) }
         }}>Save payment</Button></DialogFooter>
       </DialogContent>
     </Dialog>
@@ -522,7 +539,8 @@ function History({ data }: { data: Data }) {
             {data.receipts.map((r) => (
               <li key={r._id} className="flex items-center justify-between gap-2 py-2">
                 <div><div className="font-medium">GRN-{r.code} · {r.totalQty} pcs{r.items.some((i) => i.damaged) ? ` · ${r.items.reduce((t, i) => t + (i.damaged ?? 0), 0)} damaged` : ""}</div><div className="text-xs text-muted-foreground">{dateTime(r.at)} · {r.byName}{r.note ? ` · ${r.note}` : ""}</div></div>
-                <Button size="xs" variant="outline" asChild><a href={`/labels?receipt=${r._id}`} target="_blank" rel="noreferrer"><Printer className="size-3" /> Labels</a></Button>
+                <div className="flex items-center gap-2"><ShopifySyncBadge receipt={r} />
+                <Button size="xs" variant="outline" asChild><a href={`/labels?receipt=${r._id}`} target="_blank" rel="noreferrer"><Printer className="size-3" /> Labels</a></Button></div>
               </li>
             ))}
           </ul>
@@ -535,6 +553,7 @@ function History({ data }: { data: Data }) {
             {data.payments.map((p) => (
               <li key={p._id} className="flex items-center justify-between gap-2 py-2">
                 <div><div className="font-medium">{taka(p.amount)} · {p.method}</div><div className="text-xs text-muted-foreground">{dateTime(p.at)} · {p.byName}{p.reference ? ` · ${p.reference}` : ""}</div></div>
+                <SlipLink paymentId={p._id} url={p.slipUrl} />
               </li>
             ))}
           </ul>

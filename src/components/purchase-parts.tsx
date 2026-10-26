@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { parseCsv } from "@/lib/csv"
 import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { Trash2 } from "lucide-react"
+import { Paperclip, Trash2, X } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export type POLine = { variantId: Id<"variants">; sku: string; name: string; title: string; orderedQty: number; unitCost: number; receivedQty?: number; damagedQty?: number }
@@ -316,8 +316,8 @@ export function SupplierDialog({ supplier, open, onOpenChange, onSaved, onDelete
       <DialogContent>
         <DialogHeader><DialogTitle>{supplier ? "Edit supplier" : "New supplier"}</DialogTitle></DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5 sm:col-span-2"><Label>Name</Label><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Guangzhou Shoe Factory / Own factory" autoFocus /></div>
-          <div className="space-y-1.5"><Label>Contact person</Label><Input value={f.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label>Factory name</Label><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Guangzhou Shoe Factory / Own factory" autoFocus /></div>
+          <div className="space-y-1.5"><Label>Representative name</Label><Input value={f.contactPerson} onChange={(e) => set("contactPerson", e.target.value)} /></div>
           <div className="space-y-1.5"><Label>Phone / WeChat</Label><Input value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Email</Label><Input value={f.email} onChange={(e) => set("email", e.target.value)} /></div>
           <div className="space-y-1.5 sm:col-span-2"><Label>Address</Label><Input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
@@ -379,3 +379,66 @@ export function POStatus({ status, label }: { status: string; label: string }) {
 }
 
 export const poCode = (n: number) => `PO-${String(n).padStart(4, "0")}`
+
+export type Slip = { slipId: Id<"_storage">; slipName: string } | null
+
+/** Upload a bank slip / bKash screenshot / money receipt (image or PDF). Uploads as soon as a file is chosen. */
+export function SlipPicker({ value, onChange, compact }: { value: Slip; onChange: (s: Slip) => void; compact?: boolean }) {
+  const getUrl = useMutation(api.purchasing.slipUploadUrl)
+  const [busy, setBusy] = useState(false)
+  const pick = async (f: File | undefined) => {
+    if (!f) return
+    if (f.size > 10 * 1024 * 1024) return toast.error("File is larger than 10 MB")
+    setBusy(true)
+    try {
+      const url = await getUrl()
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f })
+      if (!r.ok) throw new Error("Upload failed")
+      const { storageId } = await r.json()
+      onChange({ slipId: storageId, slipName: f.name })
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className={cn("flex items-center gap-2 text-xs", compact ? "" : "rounded-md border border-dashed p-2")}>
+      {value ? (
+        <>
+          <Paperclip className="size-3.5 shrink-0 text-tone-green" />
+          <span className="min-w-0 flex-1 truncate font-medium text-tone-green">{value.slipName}</span>
+          <button type="button" className="text-muted-foreground hover:text-tone-red" onClick={() => onChange(null)} aria-label="Remove slip"><X className="size-3.5" /></button>
+        </>
+      ) : (
+        <label className="flex flex-1 cursor-pointer items-center gap-2 text-muted-foreground hover:text-foreground">
+          <Paperclip className="size-3.5 shrink-0" />
+          {busy ? "Uploading…" : "Attach bank slip / bKash screenshot / receipt (optional)"}
+          <input type="file" accept="image/*,application/pdf" className="hidden" disabled={busy} onChange={(e) => { pick(e.target.files?.[0]); e.target.value = "" }} />
+        </label>
+      )}
+    </div>
+  )
+}
+
+/** On a saved payment: show the slip, or a small button to attach one later. */
+export function SlipLink({ paymentId, url }: { paymentId: Id<"supplierPayments">; url?: string | null }) {
+  const attach = useMutation(api.purchasing.attachSlip)
+  const getUrl = useMutation(api.purchasing.slipUploadUrl)
+  const [busy, setBusy] = useState(false)
+  if (url) return <a href={url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-xs font-medium text-tone-blue hover:underline"><Paperclip className="size-3" /> Slip</a>
+  return (
+    <label className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={(e) => e.stopPropagation()}>
+      <Paperclip className="size-3" /> {busy ? "Uploading…" : "Add slip"}
+      <input type="file" accept="image/*,application/pdf" className="hidden" disabled={busy} onChange={async (e) => {
+        const f = e.target.files?.[0]; e.target.value = ""
+        if (!f) return
+        setBusy(true)
+        try {
+          const up = await getUrl()
+          const r = await fetch(up, { method: "POST", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f })
+          if (!r.ok) throw new Error("Upload failed")
+          const { storageId } = await r.json()
+          await attach({ id: paymentId, slipId: storageId, slipName: f.name })
+          toast.success("Slip attached")
+        } catch (err) { toast.error(errMsg(err)) } finally { setBusy(false) }
+      }} />
+    </label>
+  )
+}

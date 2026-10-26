@@ -8,7 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader, Stat } from "@/components/bits"
-import { POStatus, SupplierDialog, poCode } from "@/components/purchase-parts"
+import { POStatus, SlipLink, SlipPicker, SupplierDialog, poCode, type Slip } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -87,7 +87,7 @@ function SupplierPage() {
               {st.rows.map((r, i) => (
                 <tr key={i} className={cn(r.poId && "cursor-pointer hover:bg-muted/30")} onClick={() => r.poId && navigate({ to: "/purchase", search: { id: r.poId } })}>
                   <td className="p-3 text-xs whitespace-nowrap">{dateOnly(r.at)}</td>
-                  <td className="p-3">{r.text}</td>
+                  <td className="p-3">{r.text}{r.paymentId && <span className="no-print ml-2"><SlipLink paymentId={r.paymentId} url={r.slipUrl} /></span>}</td>
                   <td className="p-3 text-right tabular-nums">{r.debit ? taka(r.debit) : ""}</td>
                   <td className="p-3 text-right tabular-nums text-tone-green">{r.credit ? taka(r.credit) : ""}</td>
                   <td className={cn("p-3 text-right font-medium tabular-nums", r.balance > 0 ? "text-tone-red" : r.balance < 0 ? "text-tone-blue" : "")}>{r.balance < 0 ? `${taka(-r.balance)} advance` : taka(r.balance)}</td>
@@ -111,7 +111,8 @@ function PayDialog({ supplierId, due, open, onOpenChange }: { supplierId: Id<"su
   const [ref, setRef] = useState("")
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
-  useEffect(() => { if (open) { setAmount(due); setRef(""); setNote("") } }, [open, due])
+  const [slip, setSlip] = useState<Slip>(null)
+  useEffect(() => { if (open) { setAmount(due); setRef(""); setNote(""); setSlip(null) } }, [open, due])
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -126,12 +127,13 @@ function PayDialog({ supplierId, due, open, onOpenChange }: { supplierId: Id<"su
           </div>
           <div className="space-y-1.5"><Label>Reference / TT / cheque no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
           <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} /></div>
         </div>
         <DialogFooter>
           <Button disabled={busy || amount <= 0} onClick={async () => {
             setBusy(true)
             try {
-              const r = await pay({ id: supplierId, amount, method, reference: ref || undefined, note: note || undefined })
+              const r = await pay({ id: supplierId, amount, method, reference: ref || undefined, note: note || undefined, ...(slip ?? {}) })
               toast.success(`Payment saved — ${r.applied.join(", ")}`)
               onOpenChange(false)
             } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }

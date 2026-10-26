@@ -28,7 +28,7 @@ function InventoryPage() {
   const locations = useQuery(api.team.listLocations)
   const [loc, setLoc] = useState<string>("all")
   const data = useQuery(api.catalog.inventory, { locationId: loc === "all" ? undefined : (loc as Id<"locations">) })
-  const logs = useQuery(api.catalog.stockLogs, {})
+  const logs = useQuery(api.catalog.stockLogs, { locationId: loc === "all" ? undefined : (loc as Id<"locations">) })
   const [q, setQ] = useState("")
   const [only, setOnly] = useState<"all" | "low" | "short">("all")
   const [adjust, setAdjust] = useState<{ variantId: Id<"variants">; label: string } | null>(null)

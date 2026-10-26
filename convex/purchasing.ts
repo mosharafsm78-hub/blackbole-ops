@@ -2,6 +2,7 @@ import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
+import { queueReceipt } from "./shopifyStock"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
 
 // ---------------- Suppliers ----------------
@@ -48,12 +49,12 @@ export const supplierStatement = query({
     if (!sp) return null
     const a = await supplierAccount(ctx, sp)
     const poCode = (n: number) => `PO-${String(n).padStart(4, "0")}`
-    const entries: { at: number; kind: "opening" | "purchase" | "payment"; text: string; debit: number; credit: number; poId?: Id<"purchaseOrders"> }[] = []
+    const entries: { at: number; kind: "opening" | "purchase" | "payment"; text: string; debit: number; credit: number; poId?: Id<"purchaseOrders">; paymentId?: Id<"supplierPayments">; slipUrl?: string | null }[] = []
     if (a.opening) entries.push({ at: sp.createdAt, kind: "opening", text: "Previous due (before BlackBole Ops)", debit: a.opening, credit: 0 })
     for (const p of a.pos) entries.push({ at: p.orderedAt ?? p.createdAt, kind: "purchase", text: `${poCode(p.code)}${p.supplierRef ? ` · Inv ${p.supplierRef}` : ""} · ${p.items.reduce((t, i) => t + i.orderedQty, 0)} pcs`, debit: p.total, credit: 0, poId: p._id })
     for (const pay of a.payments) {
       const po = pay.poId ? a.pos.find((p) => p._id === pay.poId) : undefined
-      entries.push({ at: pay.at, kind: "payment", text: `Paid · ${pay.method}${pay.reference ? ` · ${pay.reference}` : ""}${po ? ` · for ${poCode(po.code)}` : pay.poId ? "" : " · on account"}`, debit: 0, credit: pay.amount, poId: pay.poId })
+      entries.push({ at: pay.at, kind: "payment", text: `Paid · ${pay.method}${pay.reference ? ` · ${pay.reference}` : ""}${po ? ` · for ${poCode(po.code)}` : pay.poId ? "" : " · on account"}`, debit: 0, credit: pay.amount, poId: pay.poId, paymentId: pay._id, slipUrl: pay.slipId ? await ctx.storage.getUrl(pay.slipId) : null })
     }
     entries.sort((x, y) => x.at - y.at || (x.kind === "payment" ? 1 : -1))
     let bal = 0
@@ -65,7 +66,7 @@ export const supplierStatement = query({
 
 /** Pay a supplier any amount: clears the previous due first, then the oldest unpaid purchases. Extra stays as advance. */
 export const paySupplier = mutation({
-  args: { id: v.id("suppliers"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()) },
+  args: { id: v.id("suppliers"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()), slipId: v.optional(v.id("_storage")), slipName: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "purchases.pay")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
@@ -74,7 +75,7 @@ export const paySupplier = mutation({
     const acc = await supplierAccount(ctx, sp)
     const now = Date.now()
     let left = a.amount
-    const base = { supplierId: a.id, method: a.method, reference: a.reference, note: a.note, byName: me.staff.name, at: now }
+    const base = { supplierId: a.id, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: now }
     const applied: string[] = []
     if (acc.openingLeft > 0) {
       const x = Math.min(left, acc.openingLeft)
@@ -112,7 +113,7 @@ export const saveSupplier = mutation({
   },
   handler: async (ctx, { id, ...a }) => {
     await requirePerm(ctx, "purchases.manage")
-    if (!a.name.trim()) throw new ConvexError("Supplier name is required")
+    if (!a.name.trim()) throw new ConvexError("Factory name is required")
     const data = { ...a, name: a.name.trim() }
     const same = (await ctx.db.query("suppliers").collect()).find((x) => x._id !== id && x.name.trim().toLowerCase() === data.name.toLowerCase())
     if (same) throw new ConvexError(`"${same.name}" already exists — choose it from the list instead`)
@@ -201,7 +202,7 @@ export const getPO = query({
       const p = vr ? await ctx.db.get(vr.productId) : null
       return { ...i, imageUrl: vr?.imageUrl ?? p?.imageUrl, price: vr?.price ?? 0, currentCost: vr?.purchasePrice ?? 0 }
     }))
-    return { missing: false as const, po: { ...po, items: lines, files }, location, supplier, receipts, payments: payments.sort((a, b) => b.at - a.at) }
+    return { missing: false as const, po: { ...po, items: lines, files }, location, supplier, receipts, payments: await Promise.all(payments.sort((a, b) => b.at - a.at).map(async (p) => ({ ...p, slipUrl: p.slipId ? await ctx.storage.getUrl(p.slipId) : null }))) }
   },
 })
 
@@ -359,24 +360,46 @@ export const receivePO = mutation({
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
     await ctx.db.patch(po._id, { items, status: done ? "received" : "partial", updatedAt: Date.now(), ...(done ? { receivedAt: Date.now() } : {}) })
+    await queueReceipt(ctx, receiptId)
     return { code, receiptId }
   },
 })
 
 export const addSupplierPayment = mutation({
-  args: { id: v.id("purchaseOrders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()) },
+  args: { id: v.id("purchaseOrders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()), slipId: v.optional(v.id("_storage")), slipName: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "purchases.pay")
     const po = await ctx.db.get(a.id)
     if (!po) throw new ConvexError("Purchase not found")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
-    await ctx.db.insert("supplierPayments", { poId: a.id, supplierId: po.supplierId, amount: a.amount, method: a.method, reference: a.reference, note: a.note, byName: me.staff.name, at: Date.now() })
+    await ctx.db.insert("supplierPayments", { poId: a.id, supplierId: po.supplierId, amount: a.amount, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: Date.now() })
     const paid = po.paid + a.amount
     await ctx.db.patch(a.id, { paid, due: Math.max(0, po.total - paid), updatedAt: Date.now() })
   },
 })
 
 // ---------------- Files (supplier invoice, packing list, photos) ----------------
+/** Upload link for a payment slip (bank slip, bKash screenshot, money receipt). */
+export const slipUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "purchases.pay")
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+/** Attach (or replace) the slip on a payment already saved — all parts of a split payment get it. */
+export const attachSlip = mutation({
+  args: { id: v.id("supplierPayments"), slipId: v.id("_storage"), slipName: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    await requirePerm(ctx, "purchases.pay")
+    const p = await ctx.db.get(a.id)
+    if (!p) throw new ConvexError("Payment not found")
+    const same = p.supplierId ? (await ctx.db.query("supplierPayments").withIndex("by_supplier", (q) => q.eq("supplierId", p.supplierId)).collect()).filter((x) => x.at === p.at && x.byName === p.byName) : [p]
+    for (const x of same) await ctx.db.patch(x._id, { slipId: a.slipId, slipName: a.slipName })
+  },
+})
+
 export const uploadUrl = mutation({
   args: {},
   handler: async (ctx) => {

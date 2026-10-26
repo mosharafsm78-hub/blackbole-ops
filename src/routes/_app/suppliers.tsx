@@ -45,7 +45,7 @@ function Suppliers() {
           <table className="w-full text-sm">
             <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
-                <th className="p-3 font-medium">Supplier</th><th className="p-3 font-medium">Contact</th><th className="p-3 text-right font-medium">Purchases</th>
+                <th className="p-3 font-medium">Factory</th><th className="p-3 font-medium">Representative</th><th className="p-3 text-right font-medium">Purchases</th>
                 <th className="p-3 text-right font-medium">Bought</th><th className="p-3 text-right font-medium">Paid</th><th className="p-3 text-right font-medium">Due</th>
                 <th className="p-3 font-medium">Last purchase</th><th className="p-3" />
               </tr>

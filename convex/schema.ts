@@ -75,6 +75,7 @@ export default defineSchema({
     active: v.boolean(),
     // Exchange warehouse: internal stock + exchange parcels only — orders here are NEVER sent to Pathao
     noCourier: v.optional(v.boolean()),
+    shopifyLocationId: v.optional(v.string()), // received stock here is also added to this Shopify location
   }),
 
   products: defineTable({
@@ -134,6 +135,7 @@ export default defineSchema({
     at: v.number(),
   })
     .index("by_variant", ["variantId", "at"])
+    .index("by_location", ["locationId", "at"])
     .index("by_at", ["at"]),
 
   // Factories / suppliers we buy from
@@ -195,6 +197,8 @@ export default defineSchema({
     method: v.string(),
     reference: v.optional(v.string()),
     note: v.optional(v.string()),
+    slipId: v.optional(v.id("_storage")), // bank slip / bKash screenshot / receipt
+    slipName: v.optional(v.string()),
     byName: v.string(),
     at: v.number(),
   })
@@ -223,6 +227,7 @@ export default defineSchema({
     totalCost: v.number(),
     byName: v.string(),
     at: v.number(),
+    shopifySync: v.optional(v.any()), // { status: done | failed | skipped, at, error?, pushed?, missing? }
   }).index("by_at", ["at"]),
 
   customers: defineTable({
