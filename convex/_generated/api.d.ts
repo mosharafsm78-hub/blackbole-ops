@@ -30,6 +30,7 @@ import type * as reports from "../reports.js";
 import type * as rules from "../rules.js";
 import type * as settings from "../settings.js";
 import type * as shopify from "../shopify.js";
+import type * as subscribers from "../subscribers.js";
 import type * as team from "../team.js";
 import type * as website from "../website.js";
 
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   rules: typeof rules;
   settings: typeof settings;
   shopify: typeof shopify;
+  subscribers: typeof subscribers;
   team: typeof team;
   website: typeof website;
 }>;

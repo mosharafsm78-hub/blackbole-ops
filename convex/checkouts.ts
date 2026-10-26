@@ -188,8 +188,10 @@ export const relinkOpen = internalMutation({
 })
 
 export const codLead = internalMutation({
-  args: { phone: v.string(), name: v.string(), email: v.optional(v.string()), address: v.string(), zone: v.optional(v.string()), items: v.array(leadItem), url: v.optional(v.string()) },
+  // source "checkout" = the website's own checkout page (shown as "Website checkout"); default = COD popup
+  args: { phone: v.string(), name: v.string(), email: v.optional(v.string()), address: v.string(), zone: v.optional(v.string()), items: v.array(leadItem), url: v.optional(v.string()), source: v.optional(v.string()) },
   handler: async (ctx, a) => {
+    const kind = a.source === "checkout" ? "webcheckout" : "codform"
     const phone = normalizePhone(a.phone)
     if (!/^01[3-9]\d{8}$/.test(phone)) return "bad phone"
     const now = Date.now()
@@ -213,20 +215,21 @@ export const codLead = internalMutation({
       address: a.address.trim().slice(0, 300), cityName: a.zone === "inside" ? "Dhaka" : undefined,
       items, subtotal, discount: 0, deliveryFee, total: subtotal + deliveryFee, recoveryUrl: a.url?.slice(0, 300), shopUpdatedAt: now,
     }
+    // one lead per phone, shared by the COD popup and the checkout page, so any order for the number closes it
     const checkoutId = `codform:${phone}`
     const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", checkoutId)).first()
     if (!old) {
-      await ctx.db.insert("checkouts", { checkoutId, kind: "codform", ...data, shopCreatedAt: now, status: "open", callCount: 0 })
+      await ctx.db.insert("checkouts", { checkoutId, kind, ...data, shopCreatedAt: now, status: "open", callCount: 0 })
       return "added"
     }
     if (now - old.shopUpdatedAt < 5000) return "too fast"
     if (old.status === "open") {
-      await ctx.db.patch(old._id, { ...data, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
+      await ctx.db.patch(old._id, { ...data, kind, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
       return "updated"
     }
     // came back another time (older lead was ordered / lost / converted): start a fresh lead
     if (now - (old.closedAt ?? old.shopUpdatedAt) < 6 * 3600000) return "recently closed"
-    await ctx.db.patch(old._id, { ...data, shopCreatedAt: now, status: "open", callCount: 0, orderId: undefined, closedAt: undefined, followUpAt: undefined, lastOutcome: undefined, lastNote: undefined, lastCallBy: undefined, lastCallAt: undefined })
+    await ctx.db.patch(old._id, { ...data, kind, shopCreatedAt: now, status: "open", callCount: 0, orderId: undefined, closedAt: undefined, followUpAt: undefined, lastOutcome: undefined, lastNote: undefined, lastCallBy: undefined, lastCallAt: undefined })
     return "reopened"
   },
 })
@@ -251,6 +254,7 @@ export const codLeadHttp = httpAction(async (ctx, req) => {
     }))
     const res = await ctx.runMutation(internal.checkouts.codLead, {
       phone: str(b.phone, 20), name: str(b.name, 80), email: str(b.email, 120), address: str(b.address, 300), zone: str(b.zone, 10), items, url: str(b.url, 300),
+      source: b.source === "checkout" ? "checkout" : undefined,
     })
     return new Response(JSON.stringify({ ok: true, res }), { status: 200, headers: { ...CORS, "Content-Type": "application/json" } })
   } catch {

@@ -39,6 +39,7 @@ import { Route as AppWebsiteDiscountRouteImport } from './routes/_app/website-di
 import { Route as AppWebsiteDiscountsRouteImport } from './routes/_app/website-discounts'
 import { Route as AppWebsiteNewRouteImport } from './routes/_app/website-new'
 import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
+import { Route as AppWebsiteSubscribersRouteImport } from './routes/_app/website-subscribers'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
@@ -190,6 +191,11 @@ const AppWebsiteProductRoute = AppWebsiteProductRouteImport.update({
   path: '/website-product',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteSubscribersRoute = AppWebsiteSubscribersRouteImport.update({
+  id: '/website-subscribers',
+  path: '/website-subscribers',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   id: '/api/pathao-proxy',
   path: '/api/pathao-proxy',
@@ -226,6 +232,7 @@ export interface FileRoutesByFullPath {
   '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
+  '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
@@ -257,6 +264,7 @@ export interface FileRoutesByTo {
   '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
+  '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
@@ -291,6 +299,7 @@ export interface FileRoutesById {
   '/_app/website-discounts': typeof AppWebsiteDiscountsRoute
   '/_app/website-new': typeof AppWebsiteNewRoute
   '/_app/website-product': typeof AppWebsiteProductRoute
+  '/_app/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -326,6 +335,7 @@ export interface FileRouteTypes {
     | '/website-discounts'
     | '/website-new'
     | '/website-product'
+    | '/website-subscribers'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -357,6 +367,7 @@ export interface FileRouteTypes {
     | '/website-discounts'
     | '/website-new'
     | '/website-product'
+    | '/website-subscribers'
     | '/api/pathao-proxy'
     | '/'
   id:
@@ -390,6 +401,7 @@ export interface FileRouteTypes {
     | '/_app/website-discounts'
     | '/_app/website-new'
     | '/_app/website-product'
+    | '/_app/website-subscribers'
     | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -613,6 +625,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteProductRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-subscribers': {
+      id: '/_app/website-subscribers'
+      path: '/website-subscribers'
+      fullPath: '/website-subscribers'
+      preLoaderRoute: typeof AppWebsiteSubscribersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/pathao-proxy': {
       id: '/api/pathao-proxy'
       path: '/api/pathao-proxy'
@@ -650,6 +669,7 @@ interface AppRouteChildren {
   AppWebsiteDiscountsRoute: typeof AppWebsiteDiscountsRoute
   AppWebsiteNewRoute: typeof AppWebsiteNewRoute
   AppWebsiteProductRoute: typeof AppWebsiteProductRoute
+  AppWebsiteSubscribersRoute: typeof AppWebsiteSubscribersRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -680,6 +700,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebsiteDiscountsRoute: AppWebsiteDiscountsRoute,
   AppWebsiteNewRoute: AppWebsiteNewRoute,
   AppWebsiteProductRoute: AppWebsiteProductRoute,
+  AppWebsiteSubscribersRoute: AppWebsiteSubscribersRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

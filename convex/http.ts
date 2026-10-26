@@ -9,6 +9,7 @@ import { orders as marketingOrders, stock as marketingStock } from "./marketingF
 import { catalogHttp as websiteCatalog } from "./website"
 import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discounts"
 import { statusHttp as orderStatus } from "./orderStatus"
+import { subscribeHttp } from "./subscribers"
 
 const http = httpRouter()
 
@@ -33,5 +34,7 @@ http.route({ path: "/website/discounts", method: "GET", handler: discountFeed })
 http.route({ path: "/website/discount-check", method: "GET", handler: discountCheck })
 // Website "Track your order": invoice + mobile → safe status (no key; rate-limited per IP)
 http.route({ path: "/website/order-status", method: "GET", handler: orderStatus })
+// Website newsletter sign-ups (same key)
+http.route({ path: "/website/subscribe", method: "POST", handler: subscribeHttp })
 
 export default http

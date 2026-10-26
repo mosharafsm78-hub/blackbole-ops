@@ -590,4 +590,15 @@ export default defineSchema({
     windowStart: v.number(),
     count: v.number(),
   }).index("by_key", ["key"]),
+
+  // Newsletter sign-ups from the website footer ("Join Now"), one row per email.
+  subscribers: defineTable({
+    email: v.string(), // lowercase
+    name: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    source: v.string(), // footer | checkout | …
+    tags: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_email", ["email"]),
 })
