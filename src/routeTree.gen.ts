@@ -34,12 +34,14 @@ import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
 import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
 import { Route as AppWebsiteRouteImport } from './routes/_app/website'
+import { Route as AppWebsiteAnalyticsRouteImport } from './routes/_app/website-analytics'
 import { Route as AppWebsiteBlogRouteImport } from './routes/_app/website-blog'
 import { Route as AppWebsiteCollectionRouteImport } from './routes/_app/website-collection'
 import { Route as AppWebsiteCollectionsRouteImport } from './routes/_app/website-collections'
 import { Route as AppWebsiteDiscountRouteImport } from './routes/_app/website-discount'
 import { Route as AppWebsiteDiscountsRouteImport } from './routes/_app/website-discounts'
 import { Route as AppWebsiteFilesRouteImport } from './routes/_app/website-files'
+import { Route as AppWebsiteHomeRouteImport } from './routes/_app/website-home'
 import { Route as AppWebsiteInventoryRouteImport } from './routes/_app/website-inventory'
 import { Route as AppWebsiteNavigationRouteImport } from './routes/_app/website-navigation'
 import { Route as AppWebsiteNewRouteImport } from './routes/_app/website-new'
@@ -178,6 +180,11 @@ const AppWebsiteRoute = AppWebsiteRouteImport.update({
   path: '/website',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteAnalyticsRoute = AppWebsiteAnalyticsRouteImport.update({
+  id: '/website-analytics',
+  path: '/website-analytics',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteBlogRoute = AppWebsiteBlogRouteImport.update({
   id: '/website-blog',
   path: '/website-blog',
@@ -206,6 +213,11 @@ const AppWebsiteDiscountsRoute = AppWebsiteDiscountsRouteImport.update({
 const AppWebsiteFilesRoute = AppWebsiteFilesRouteImport.update({
   id: '/website-files',
   path: '/website-files',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWebsiteHomeRoute = AppWebsiteHomeRouteImport.update({
+  id: '/website-home',
+  path: '/website-home',
   getParentRoute: () => AppRoute,
 } as any)
 const AppWebsiteInventoryRoute = AppWebsiteInventoryRouteImport.update({
@@ -299,12 +311,14 @@ export interface FileRoutesByFullPath {
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
+  '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
   '/website-collections': typeof AppWebsiteCollectionsRoute
   '/website-discount': typeof AppWebsiteDiscountRoute
   '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-files': typeof AppWebsiteFilesRoute
+  '/website-home': typeof AppWebsiteHomeRoute
   '/website-inventory': typeof AppWebsiteInventoryRoute
   '/website-navigation': typeof AppWebsiteNavigationRoute
   '/website-new': typeof AppWebsiteNewRoute
@@ -343,12 +357,14 @@ export interface FileRoutesByTo {
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
+  '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
   '/website-collections': typeof AppWebsiteCollectionsRoute
   '/website-discount': typeof AppWebsiteDiscountRoute
   '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-files': typeof AppWebsiteFilesRoute
+  '/website-home': typeof AppWebsiteHomeRoute
   '/website-inventory': typeof AppWebsiteInventoryRoute
   '/website-navigation': typeof AppWebsiteNavigationRoute
   '/website-new': typeof AppWebsiteNewRoute
@@ -390,12 +406,14 @@ export interface FileRoutesById {
   '/_app/supplier': typeof AppSupplierRoute
   '/_app/suppliers': typeof AppSuppliersRoute
   '/_app/website': typeof AppWebsiteRoute
+  '/_app/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/_app/website-blog': typeof AppWebsiteBlogRoute
   '/_app/website-collection': typeof AppWebsiteCollectionRoute
   '/_app/website-collections': typeof AppWebsiteCollectionsRoute
   '/_app/website-discount': typeof AppWebsiteDiscountRoute
   '/_app/website-discounts': typeof AppWebsiteDiscountsRoute
   '/_app/website-files': typeof AppWebsiteFilesRoute
+  '/_app/website-home': typeof AppWebsiteHomeRoute
   '/_app/website-inventory': typeof AppWebsiteInventoryRoute
   '/_app/website-navigation': typeof AppWebsiteNavigationRoute
   '/_app/website-new': typeof AppWebsiteNewRoute
@@ -438,12 +456,14 @@ export interface FileRouteTypes {
     | '/supplier'
     | '/suppliers'
     | '/website'
+    | '/website-analytics'
     | '/website-blog'
     | '/website-collection'
     | '/website-collections'
     | '/website-discount'
     | '/website-discounts'
     | '/website-files'
+    | '/website-home'
     | '/website-inventory'
     | '/website-navigation'
     | '/website-new'
@@ -482,12 +502,14 @@ export interface FileRouteTypes {
     | '/supplier'
     | '/suppliers'
     | '/website'
+    | '/website-analytics'
     | '/website-blog'
     | '/website-collection'
     | '/website-collections'
     | '/website-discount'
     | '/website-discounts'
     | '/website-files'
+    | '/website-home'
     | '/website-inventory'
     | '/website-navigation'
     | '/website-new'
@@ -528,12 +550,14 @@ export interface FileRouteTypes {
     | '/_app/supplier'
     | '/_app/suppliers'
     | '/_app/website'
+    | '/_app/website-analytics'
     | '/_app/website-blog'
     | '/_app/website-collection'
     | '/_app/website-collections'
     | '/_app/website-discount'
     | '/_app/website-discounts'
     | '/_app/website-files'
+    | '/_app/website-home'
     | '/_app/website-inventory'
     | '/_app/website-navigation'
     | '/_app/website-new'
@@ -734,6 +758,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-analytics': {
+      id: '/_app/website-analytics'
+      path: '/website-analytics'
+      fullPath: '/website-analytics'
+      preLoaderRoute: typeof AppWebsiteAnalyticsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website-blog': {
       id: '/_app/website-blog'
       path: '/website-blog'
@@ -774,6 +805,13 @@ declare module '@tanstack/react-router' {
       path: '/website-files'
       fullPath: '/website-files'
       preLoaderRoute: typeof AppWebsiteFilesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/website-home': {
+      id: '/_app/website-home'
+      path: '/website-home'
+      fullPath: '/website-home'
+      preLoaderRoute: typeof AppWebsiteHomeRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/website-inventory': {
@@ -892,12 +930,14 @@ interface AppRouteChildren {
   AppSupplierRoute: typeof AppSupplierRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppWebsiteRoute: typeof AppWebsiteRoute
+  AppWebsiteAnalyticsRoute: typeof AppWebsiteAnalyticsRoute
   AppWebsiteBlogRoute: typeof AppWebsiteBlogRoute
   AppWebsiteCollectionRoute: typeof AppWebsiteCollectionRoute
   AppWebsiteCollectionsRoute: typeof AppWebsiteCollectionsRoute
   AppWebsiteDiscountRoute: typeof AppWebsiteDiscountRoute
   AppWebsiteDiscountsRoute: typeof AppWebsiteDiscountsRoute
   AppWebsiteFilesRoute: typeof AppWebsiteFilesRoute
+  AppWebsiteHomeRoute: typeof AppWebsiteHomeRoute
   AppWebsiteInventoryRoute: typeof AppWebsiteInventoryRoute
   AppWebsiteNavigationRoute: typeof AppWebsiteNavigationRoute
   AppWebsiteNewRoute: typeof AppWebsiteNewRoute
@@ -935,12 +975,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppSupplierRoute: AppSupplierRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppWebsiteRoute: AppWebsiteRoute,
+  AppWebsiteAnalyticsRoute: AppWebsiteAnalyticsRoute,
   AppWebsiteBlogRoute: AppWebsiteBlogRoute,
   AppWebsiteCollectionRoute: AppWebsiteCollectionRoute,
   AppWebsiteCollectionsRoute: AppWebsiteCollectionsRoute,
   AppWebsiteDiscountRoute: AppWebsiteDiscountRoute,
   AppWebsiteDiscountsRoute: AppWebsiteDiscountsRoute,
   AppWebsiteFilesRoute: AppWebsiteFilesRoute,
+  AppWebsiteHomeRoute: AppWebsiteHomeRoute,
   AppWebsiteInventoryRoute: AppWebsiteInventoryRoute,
   AppWebsiteNavigationRoute: AppWebsiteNavigationRoute,
   AppWebsiteNewRoute: AppWebsiteNewRoute,

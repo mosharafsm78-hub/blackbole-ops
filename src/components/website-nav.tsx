@@ -1,10 +1,11 @@
 // Website sub-navigation, laid out like the Shopify Admin left menu:
 // main items with an icon, and their sub-items indented under them while that part is open.
 import { Link } from "@tanstack/react-router"
-import { BadgePercent, FileText, Store, Tag, Users } from "lucide-react"
+import { BadgePercent, ChartColumn, FileText, House, Store, Tag, Users } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export type WebsiteNavKey =
+  | "home" | "analytics"
   | "products" | "collections" | "inventory" | "reviews"
   | "discounts"
   | "content" | "files" | "menus" | "blog" | "pages"
@@ -16,6 +17,8 @@ type Item = Sub & { icon: typeof Tag; subs: Sub[] }
 
 // `/website-inventory` is added by another page; the link works once that page exists.
 export const WEBSITE_NAV: Item[] = [
+  { key: "home", label: "Home", to: "/website-home", icon: House, subs: [] },
+  { key: "analytics", label: "Analytics", to: "/website-analytics", icon: ChartColumn, subs: [] },
   {
     key: "products", label: "Products", to: "/website", search: { tab: "products", view: "live" }, icon: Tag,
     subs: [
@@ -54,6 +57,8 @@ export function websiteNavKey(path: string, search: Record<string, unknown> = {}
   if (!p.startsWith("/website-")) return null
   const page = p.slice("/website-".length)
   switch (page) {
+    case "home": return "home"
+    case "analytics": return "analytics"
     case "product": case "new": return "products"
     case "collection": case "collections": return "collections"
     case "inventory": return "inventory"

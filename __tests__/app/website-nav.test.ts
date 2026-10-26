@@ -17,6 +17,8 @@ describe("Website sidebar menu", () => {
     expect(websiteNavKey("/website-theme-editor")).toBe("themes")
     expect(websiteNavKey("/website-settings")).toBe("preferences")
     expect(websiteNavKey("/website-subscribers")).toBe("subscribers")
+    expect(websiteNavKey("/website-home")).toBe("home")
+    expect(websiteNavKey("/website-analytics")).toBe("analytics")
     expect(websiteNavKey("/orders")).toBeNull()
     expect(websiteNavKey("/websites")).toBeNull()
   })
@@ -31,6 +33,6 @@ describe("Website sidebar menu", () => {
   })
 
   it("has the Shopify order", () => {
-    expect(WEBSITE_NAV.map((n) => n.label)).toEqual(["Products", "Discounts", "Content", "Online Store", "Customers"])
+    expect(WEBSITE_NAV.map((n) => n.label)).toEqual(["Home", "Analytics", "Products", "Discounts", "Content", "Online Store", "Customers"])
   })
 })
