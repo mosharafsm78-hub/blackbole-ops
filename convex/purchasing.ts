@@ -114,6 +114,8 @@ export const saveSupplier = mutation({
     await requirePerm(ctx, "purchases.manage")
     if (!a.name.trim()) throw new ConvexError("Supplier name is required")
     const data = { ...a, name: a.name.trim() }
+    const same = (await ctx.db.query("suppliers").collect()).find((x) => x._id !== id && x.name.trim().toLowerCase() === data.name.toLowerCase())
+    if (same) throw new ConvexError(`"${same.name}" already exists — choose it from the list instead`)
     if (id) {
       await ctx.db.patch(id, data)
       // keep the name on open POs in sync
@@ -123,6 +125,31 @@ export const saveSupplier = mutation({
       return id
     }
     return await ctx.db.insert("suppliers", { ...data, createdAt: Date.now() })
+  },
+})
+
+/** Remove a supplier. One with purchases or payments can't just vanish: its history is moved to another supplier (merge). */
+export const deleteSupplier = mutation({
+  args: { id: v.id("suppliers"), moveTo: v.optional(v.id("suppliers")) },
+  handler: async (ctx, { id, moveTo }) => {
+    await requirePerm(ctx, "purchases.manage")
+    const sp = await ctx.db.get(id)
+    if (!sp) throw new ConvexError("Supplier not found")
+    const pos = await ctx.db.query("purchaseOrders").withIndex("by_supplier", (q) => q.eq("supplierId", id)).collect()
+    const pays = await ctx.db.query("supplierPayments").withIndex("by_supplier", (q) => q.eq("supplierId", id)).collect()
+    const recs = (await ctx.db.query("receipts").collect()).filter((r) => r.supplierId === id)
+    const used = pos.length + pays.length + recs.length > 0 || (sp.openingDue ?? 0) !== 0
+    if (used) {
+      if (!moveTo || moveTo === id) throw new ConvexError("This supplier has purchases or payments. Choose another supplier to move them to.")
+      const to = await ctx.db.get(moveTo)
+      if (!to) throw new ConvexError("Supplier to move to not found")
+      for (const p of pos) await ctx.db.patch(p._id, { supplierId: moveTo, supplierName: to.name })
+      for (const p of pays) await ctx.db.patch(p._id, { supplierId: moveTo })
+      for (const r of recs) await ctx.db.patch(r._id, { supplierId: moveTo, supplier: to.name })
+      if (sp.openingDue) await ctx.db.patch(moveTo, { openingDue: (to.openingDue ?? 0) + sp.openingDue })
+    }
+    await ctx.db.delete(id)
+    return { moved: pos.length + pays.length }
   },
 })
 

@@ -190,7 +190,7 @@ export const searchVariants = query({
       .map((vr) => {
         const p = pmap.get(vr.productId)
         return {
-          _id: vr._id, sku: vr.sku, title: vr.title, attrs: vr.attrs, price: vr.price, purchasePrice: vr.purchasePrice,
+          _id: vr._id, productId: vr.productId, sku: vr.sku, title: vr.title, attrs: vr.attrs, price: vr.price, purchasePrice: vr.purchasePrice,
           weightKg: vr.weightKg, productName: p?.name ?? "", imageUrl: p?.imageUrl,
           available: stock.get(vr._id)?.available ?? 0,
         }

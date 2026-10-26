@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { parseCsv } from "@/lib/csv"
 import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { Trash2 } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 export type POLine = { variantId: Id<"variants">; sku: string; name: string; title: string; orderedQty: number; unitCost: number; receivedQty?: number; damagedQty?: number }
 
@@ -289,13 +291,21 @@ export function UploadList({ open, onOpenChange, onAdd, onCreateNew }: {
   )
 }
 
-export function SupplierDialog({ supplier, open, onOpenChange, onSaved }: {
+export function SupplierDialog({ supplier, open, onOpenChange, onSaved, onDeleted }: {
   supplier?: { _id: Id<"suppliers">; name: string; contactPerson?: string; phone?: string; email?: string; address?: string; note?: string; openingDue?: number; active: boolean } | null
   open: boolean
   onOpenChange: (o: boolean) => void
   onSaved?: (id: Id<"suppliers">) => void
+  onDeleted?: (movedTo?: Id<"suppliers">) => void
 }) {
   const save = useMutation(api.purchasing.saveSupplier)
+  const del = useMutation(api.purchasing.deleteSupplier)
+  const all = useQuery(api.purchasing.listSuppliers) ?? []
+  const me = all.find((x) => x._id === supplier?._id)
+  const hasHistory = !!me && (me.poCount > 0 || me.paid !== 0 || (me.opening ?? 0) !== 0)
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [moveTo, setMoveTo] = useState("")
+  useEffect(() => { if (open) { setConfirmDel(false); setMoveTo("") } }, [open])
   const [f, setF] = useState({ name: "", contactPerson: "", phone: "", email: "", address: "", note: "", openingDue: 0, active: true })
   useEffect(() => {
     if (open) setF({ name: supplier?.name ?? "", contactPerson: supplier?.contactPerson ?? "", phone: supplier?.phone ?? "", email: supplier?.email ?? "", address: supplier?.address ?? "", note: supplier?.note ?? "", openingDue: supplier?.openingDue ?? 0, active: supplier?.active ?? true })
@@ -318,7 +328,33 @@ export function SupplierDialog({ supplier, open, onOpenChange, onSaved }: {
           </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => set("active", v)} /> Active</label>
         </div>
-        <DialogFooter>
+        {supplier && confirmDel && (
+          <div className="space-y-2 rounded-md border border-tone-red/40 bg-tone-red-bg/40 p-3 text-sm">
+            <div className="font-semibold text-tone-red">Delete "{supplier.name}"?</div>
+            {hasHistory ? (
+              <>
+                <p className="text-xs text-muted-foreground">This supplier has purchases or payments. They will be moved to the supplier you choose (nothing is lost).</p>
+                <Select value={moveTo} onValueChange={setMoveTo}>
+                  <SelectTrigger className="w-full bg-background"><SelectValue placeholder="Move purchases & payments to…" /></SelectTrigger>
+                  <SelectContent>{all.filter((x) => x._id !== supplier._id).map((x) => <SelectItem key={x._id} value={x._id}>{x.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </>
+            ) : <p className="text-xs text-muted-foreground">No purchases or payments use this supplier, so it can be removed safely.</p>}
+            <div className="flex gap-2">
+              <Button size="sm" variant="destructive" disabled={hasHistory && !moveTo} onClick={async () => {
+                try {
+                  await del({ id: supplier._id, moveTo: moveTo ? (moveTo as Id<"suppliers">) : undefined })
+                  toast.success("Supplier deleted")
+                  onDeleted?.(moveTo ? (moveTo as Id<"suppliers">) : undefined)
+                  onOpenChange(false)
+                } catch (e) { toast.error(errMsg(e)) }
+              }}>Yes, delete</Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmDel(false)}>Keep it</Button>
+            </div>
+          </div>
+        )}
+        <DialogFooter className="gap-2">
+          {supplier && !confirmDel && <Button variant="outline" className="mr-auto text-tone-red" onClick={() => setConfirmDel(true)}><Trash2 className="size-4" /> Delete supplier</Button>}
           <Button onClick={async () => {
             try {
               const id = await save({ id: supplier?._id, name: f.name, contactPerson: f.contactPerson || undefined, phone: f.phone || undefined, email: f.email || undefined, address: f.address || undefined, note: f.note || undefined, openingDue: f.openingDue || undefined, active: f.active })

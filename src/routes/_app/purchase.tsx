@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { ArrowLeft, FileText, Paperclip, PackageCheck, Plus, Printer, Search, Trash2, Truck, Upload, Wallet } from "lucide-react"
+import { ArrowLeft, ChevronDown, FileText, Pencil, Paperclip, PackageCheck, Plus, Printer, Search, Trash2, Truck, Upload, Wallet } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
-import { ProductSearch } from "@/components/order-parts"
 import { POStatus, ProductBuilder, SupplierDialog, UploadList, poCode, type POLine } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -67,7 +66,7 @@ function Editor({ data }: { data: Data | null }) {
   const [other, setOther] = useState(po?.otherCost ?? 0)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "receive" | "pay" | "ship">(null)
+  const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship">(null)
   const [preset, setPreset] = useState<Parameters<typeof ProductBuilder>[0]["preset"]>()
 
   useEffect(() => { if (!locationId && locations.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id) }, [locations, locationId])
@@ -157,7 +156,8 @@ function Editor({ data }: { data: Data | null }) {
                   <SelectTrigger className="w-full"><SelectValue placeholder="Choose supplier" /></SelectTrigger>
                   <SelectContent>{suppliers.filter((s) => s.active || s._id === supplierId).map((s) => <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>)}</SelectContent>
                 </Select>
-                {<Perm perm="purchases.manage"><Button type="button" variant="outline" size="icon" onClick={() => setDlg("supplier")} aria-label="New supplier"><Plus className="size-4" /></Button></Perm>}
+                {<Perm perm="purchases.manage"><Button type="button" variant="outline" size="icon" onClick={() => setDlg("supplier")} aria-label="New supplier" title="Add supplier"><Plus className="size-4" /></Button></Perm>}
+                {supplierId && <Perm perm="purchases.manage"><Button type="button" variant="outline" size="icon" onClick={() => setDlg("editSupplier")} aria-label="Edit or delete supplier" title="Edit / delete supplier"><Pencil className="size-4" /></Button></Perm>}
               </div>
             </div>
             <div className="space-y-1.5">
@@ -262,16 +262,92 @@ function Editor({ data }: { data: Data | null }) {
       {/* dialogs */}
       <Dialog open={dlg === "search"} onOpenChange={(o) => setDlg(o ? "search" : null)}>
         <DialogContent className="sm:max-w-2xl">
-          <DialogHeader><DialogTitle>Add existing products</DialogTitle><DialogDescription>Click Add on each product. Set quantities in the list after.</DialogDescription></DialogHeader>
-          <div className="h-[60vh]"><ProductSearch locationId={locationId as Id<"locations">} onAdd={(c) => { addLines([{ variantId: c.variantId, sku: c.sku, name: c.name, title: c.title, orderedQty: 1, unitCost: c.purchasePrice ?? 0 }]); toast.success(`${c.name} · ${c.title} added`) }} /></div>
+          <DialogHeader><DialogTitle>Add existing products</DialogTitle><DialogDescription>Find the product, open it, and type how many pairs of each size to order.</DialogDescription></DialogHeader>
+          <div className="h-[65vh]"><SizePicker locationId={locationId ? (locationId as Id<"locations">) : undefined} onAdd={(ls) => { addLines(ls); toast.success(`${ls.reduce((t, l) => t + l.orderedQty, 0)} pcs added`) }} /></div>
         </DialogContent>
       </Dialog>
       <ProductBuilder open={dlg === "builder"} onOpenChange={(o) => setDlg(o ? "builder" : null)} preset={preset} onCreated={(ls) => addLines(ls.filter((l) => l.orderedQty > 0).length ? ls.filter((l) => l.orderedQty > 0) : ls)} />
       <UploadList open={dlg === "upload"} onOpenChange={(o) => setDlg(o ? "upload" : null)} onAdd={addLines} onCreateNew={(p) => { setPreset(p); setDlg("builder") }} />
       <SupplierDialog open={dlg === "supplier"} onOpenChange={(o) => setDlg(o ? "supplier" : null)} onSaved={(sid) => { setSupplierId(sid); touch() }} />
+      <SupplierDialog supplier={suppliers.find((x) => x._id === supplierId) ?? null} open={dlg === "editSupplier"} onOpenChange={(o) => setDlg(o ? "editSupplier" : null)}
+        onSaved={() => {}} onDeleted={(to) => { setSupplierId(to ?? ""); touch() }} />
       {po && <ShipDialog open={dlg === "ship"} onOpenChange={(o) => setDlg(o ? "ship" : null)} tracking={tracking} onConfirm={(t) => { setTracking(t); changeStatus("shipped", { tracking: t }) }} />}
       {po && <ReceiveDialog po={po} open={dlg === "receive"} onOpenChange={(o) => setDlg(o ? "receive" : null)} />}
       {po && <PayDialog poId={po._id} due={Math.max(0, po.total - po.paid)} open={dlg === "pay"} onOpenChange={(o) => setDlg(o ? "pay" : null)} />}
+    </div>
+  )
+}
+
+/** Product search grouped by product: open a product to see its sizes and type a quantity for each. */
+function SizePicker({ locationId, onAdd }: { locationId?: Id<"locations">; onAdd: (ls: POLine[]) => void }) {
+  const [q, setQ] = useState("")
+  const [debounced, setDebounced] = useState("")
+  useEffect(() => { const t = setTimeout(() => setDebounced(q), 250); return () => clearTimeout(t) }, [q])
+  const results = useQuery(api.catalog.searchVariants, { q: debounced, locationId })
+  const [openId, setOpenId] = useState<string | null>(null)
+  const [qty, setQty] = useState<Record<string, number>>({})
+  const [cost, setCost] = useState<Record<string, number>>({})
+  const groups = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; imageUrl?: string; rows: NonNullable<typeof results> }>()
+    for (const r of results ?? []) {
+      const g = m.get(r.productId) ?? { id: r.productId, name: r.productName, imageUrl: r.imageUrl, rows: [] }
+      g.rows.push(r); m.set(r.productId, g)
+    }
+    for (const g of m.values()) g.rows.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }))
+    return [...m.values()]
+  }, [results])
+  useEffect(() => { if (groups.length === 1) setOpenId(groups[0].id) }, [groups])
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product name or SKU, e.g. Veyron" autoFocus />
+      <div className="min-h-0 flex-1 overflow-auto rounded-md border bg-card">
+        {results === undefined && <div className="p-4 text-sm text-muted-foreground">Loading…</div>}
+        {results?.length === 0 && <div className="p-4 text-sm text-muted-foreground">No products found.</div>}
+        {groups.map((g) => {
+          const isOpen = openId === g.id
+          const picked = g.rows.reduce((t, r) => t + (qty[r._id] || 0), 0)
+          const stock = g.rows.reduce((t, r) => t + r.available, 0)
+          return (
+            <div key={g.id} className="border-b last:border-b-0">
+              <button type="button" className="flex w-full items-center gap-3 p-2.5 text-left hover:bg-muted/40" onClick={() => setOpenId(isOpen ? null : g.id)}>
+                {g.imageUrl ? <img src={g.imageUrl} alt="" className="size-10 rounded object-cover" /> : <div className="size-10 rounded bg-muted" />}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">{g.name}</div>
+                  <div className="text-xs text-muted-foreground">{g.rows.length} sizes · {g.rows.map((r) => r.title).join(", ")} · {stock} in stock</div>
+                </div>
+                {picked > 0 && <span className="rounded-full bg-tone-green-bg px-2 py-0.5 text-xs font-semibold text-tone-green">{picked} pcs</span>}
+                <ChevronDown className={cn("size-4 shrink-0 transition-transform", isOpen && "rotate-180")} />
+              </button>
+              {isOpen && (
+                <div className="bg-muted/20 px-2.5 pb-3">
+                  <div className="grid grid-cols-[1fr_5rem_5.5rem_6rem] items-center gap-2 px-1 py-1.5 text-[11px] text-muted-foreground">
+                    <span>Size</span><span className="text-right">In stock</span><span className="text-right">Unit cost</span><span className="text-right">Order qty</span>
+                  </div>
+                  {g.rows.map((r) => (
+                    <div key={r._id} className="grid grid-cols-[1fr_5rem_5.5rem_6rem] items-center gap-2 rounded px-1 py-1">
+                      <div className="min-w-0"><div className="text-sm font-medium">{r.title}</div><div className="truncate text-[11px] text-muted-foreground">{r.sku}</div></div>
+                      <span className={cn("text-right text-sm tabular-nums", r.available > 0 ? "" : "text-tone-red")}>{r.available}</span>
+                      <Input type="number" className="h-8 text-right" value={cost[r._id] ?? r.purchasePrice ?? 0} onChange={(e) => setCost((c) => ({ ...c, [r._id]: Number(e.target.value) || 0 }))} />
+                      <Input type="number" min={0} className="h-8 text-right" value={qty[r._id] || ""} placeholder="0" onChange={(e) => setQty((x) => ({ ...x, [r._id]: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))} />
+                    </div>
+                  ))}
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Same qty for all sizes:</span>
+                    {[1, 2, 5, 10].map((n) => (
+                      <Button key={n} size="sm" variant="outline" className="h-7 px-2" onClick={() => setQty((x) => ({ ...x, ...Object.fromEntries(g.rows.map((r) => [r._id, n])) }))}>{n}</Button>
+                    ))}
+                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setQty((x) => ({ ...x, ...Object.fromEntries(g.rows.map((r) => [r._id, 0])) }))}>Clear</Button>
+                    <Button size="sm" className="ml-auto" disabled={picked === 0} onClick={() => {
+                      onAdd(g.rows.filter((r) => (qty[r._id] || 0) > 0).map((r) => ({ variantId: r._id, sku: r.sku, name: r.productName, title: r.title, orderedQty: qty[r._id], unitCost: cost[r._id] ?? r.purchasePrice ?? 0 })))
+                      setQty((x) => ({ ...x, ...Object.fromEntries(g.rows.map((r) => [r._id, 0])) }))
+                    }}><Plus className="size-4" /> Add {picked || ""} pcs</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
