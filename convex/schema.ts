@@ -286,6 +286,7 @@ export default defineSchema({
     paymentMethod: v.optional(v.string()),
     courier: v.optional(v.string()), // pathao | manual | pickup
     consignmentId: v.optional(v.string()),
+    returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),
     courierError: v.optional(v.string()),

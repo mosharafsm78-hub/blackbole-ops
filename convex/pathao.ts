@@ -928,6 +928,89 @@ export const parcelsForOrder = action({
   },
 })
 
+/** The orders that belong together: this order, the order it exchanges, and its exchange orders. */
+export const orderFamily = internalQuery({
+  args: { id: v.id("orders") },
+  handler: async (ctx, { id }) => {
+    const o = await ctx.db.get(id)
+    if (!o) return null
+    const lbl = (x: Doc<"orders">) => x.invoiceCode ?? `BB-${x.invoiceNo}`
+    const original = o.exchangeOfId ? await ctx.db.get(o.exchangeOfId) : o
+    if (!original) return null
+    const exchanges = (await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", original.phone)).collect())
+      .filter((x) => x.exchangeOfId === original._id && !x.deletedAt)
+    const all = [original, ...exchanges]
+    return {
+      labels: [...new Set(all.map(lbl))],
+      original: { id: original._id, label: lbl(original) },
+      exchanges: exchanges.map((x) => ({ id: x._id, label: lbl(x), cid: x.consignmentId ?? null, rcid: x.returnConsignmentId ?? null, status: x.status })),
+    }
+  },
+})
+
+export const linkExchangeParcels = internalMutation({
+  args: { id: v.id("orders"), eb: v.optional(v.string()), re: v.optional(v.string()) },
+  handler: async (ctx, { id, eb, re }) => {
+    const o = await ctx.db.get(id)
+    if (!o) return
+    const patch: Record<string, unknown> = { updatedAt: Date.now() }
+    const notes: string[] = []
+    if (eb && !o.consignmentId && !(await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", eb)).first())) {
+      Object.assign(patch, { consignmentId: eb, courier: "pathao", courierLinkedBy: "auto", courierError: undefined })
+      notes.push(`exchange parcel ${eb}`)
+    }
+    if (re && o.returnConsignmentId !== re) { patch.returnConsignmentId = re; notes.push(`return parcel ${re} (old item coming back)`) }
+    if (!notes.length) return
+    await ctx.db.patch(id, patch)
+    await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: `Linked to Pathao ${notes.join(" and ")} automatically`, byName: "Pathao", at: Date.now() })
+  },
+})
+
+const parcelKind = (cid: string) => cid.startsWith("EB") ? "Exchange delivery" : cid.startsWith("RE") ? "Return to you (old item)" : cid.startsWith("DB") ? "Delivery" : "Parcel"
+
+/** Every Pathao parcel for this order and its exchange orders (Delivery DB…, Exchange EB…, Return RE…).
+ *  Also links an exchange order to its EB/RE parcels when Pathao booked the exchange under the original order number. */
+export const parcelGroup = action({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }): Promise<{ parcels: any[]; linked: boolean }> => {
+    await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
+    const fam = await ctx.runQuery(internal.pathao.orderFamily, { id: orderId })
+    if (!fam) return { parcels: [], linked: false }
+    const seen = new Map<string, any>()
+    for (const label of fam.labels) {
+      for (const archive of [0, 1]) {
+        const res = await merchantGet(ctx, `${MB}/orders/all?merchant_order_id=${encodeURIComponent(label)}&transfer_status=4&archive=${archive}&page=1&limit=20`)
+        for (const p of res.json?.data?.data ?? []) {
+          const cid = String(p.order_consignment_id ?? "")
+          if (!cid || seen.has(cid) || (p.merchant_order_id && p.merchant_order_id !== label)) continue
+          seen.set(cid, {
+            cid, kind: parcelKind(cid), mid: p.merchant_order_id ?? label, status: p.order_status ?? null,
+            cod: Number(p.order_amount) || 0, charge: Number(p.delivery_fee ?? p.order_delivery_fee ?? p.total_fee) || null,
+            billing: p.billing_status ?? null, createdAt: utc(p.order_created_at) ?? null, updatedAt: utc(p.updated_at ?? p.order_updated_at) ?? null,
+          })
+        }
+      }
+    }
+    const parcels = [...seen.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+    // Exchange booked on Pathao under the original number: give the EB / RE parcels to our exchange order
+    let linked = false
+    const used = await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) })
+    const freeEB = parcels.filter((p) => p.cid.startsWith("EB") && !used[p.cid] && p.mid === fam.original.label)
+    const RE = parcels.filter((p) => p.cid.startsWith("RE") && p.mid === fam.original.label)
+    const open = fam.exchanges.filter((x) => !x.cid)
+    if (open.length === 1 && freeEB.length <= 1 && RE.length <= 1 && (freeEB.length || (RE.length && !open[0].rcid))) {
+      await ctx.runMutation(internal.pathao.linkExchangeParcels, { id: open[0].id, eb: freeEB[0]?.cid, re: RE[0]?.cid })
+      linked = true
+    } else if (fam.exchanges.length === 1 && RE.length === 1 && !fam.exchanges[0].rcid) {
+      await ctx.runMutation(internal.pathao.linkExchangeParcels, { id: fam.exchanges[0].id, re: RE[0].cid })
+      linked = true
+    }
+    const used2 = linked ? await ctx.runQuery(internal.pathao.usedConsignments, { ids: parcels.map((p) => p.cid) }) : used
+    const reOwner = Object.fromEntries(fam.exchanges.filter((x) => x.rcid).map((x) => [x.rcid!, x.label]))
+    return { parcels: parcels.map((p) => ({ ...p, usedBy: used2[p.cid] ?? reOwner[p.cid] ?? null })), linked }
+  },
+})
+
 export const usedConsignments = internalQuery({
   args: { ids: v.array(v.string()) },
   handler: async (ctx, { ids }) => {

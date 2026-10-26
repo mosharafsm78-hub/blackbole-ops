@@ -274,6 +274,7 @@ function OrderPage() {
 
           {o.consignmentId && o.courier === "pathao" && <PathaoTracking orderId={o._id} consignmentId={o.consignmentId} />}
           {shippedNoParcel && <FindParcel orderId={o._id} phone={o.phone} />}
+          {o.courier === "pathao" && (o.consignmentId || o.isExchange || o.exchangeOfId) && <ParcelGroup orderId={o._id} auto={!!(o.isExchange || o.exchangeOfId)} />}
 
           <Card title="Timeline">
             <form
@@ -666,6 +667,48 @@ function FindParcel({ orderId, phone }: { orderId: Id<"orders">; phone: string }
         <Input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="…or paste a consignment ID (e.g. DB241026VTAQZ3)" className="h-8 bg-card" />
         <Button type="submit" size="sm" variant="outline" disabled={!manual.trim()}>Link</Button>
       </form>
+    </section>
+  )
+}
+
+
+/** All Pathao parcels for this order and its exchange: Delivery (DB…), Exchange delivery (EB…), Return to you (RE…). */
+function ParcelGroup({ orderId, auto }: { orderId: Id<"orders">; auto: boolean }) {
+  const load = useAction(api.pathao.parcelGroup)
+  const [data, setData] = useState<{ parcels: any[]; linked: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try { const r = await load({ orderId }); setData(r); if (r.linked) toast.success("Exchange parcels linked to the exchange order") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  useEffect(() => { if (auto) void run() // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, auto])
+  const tone = (k: string) => k.startsWith("Exchange") ? "bg-tone-violet-bg text-tone-violet" : k.startsWith("Return") ? "bg-tone-orange-bg text-tone-orange" : "bg-tone-blue-bg text-tone-blue"
+  return (
+    <section className="rounded-xl border bg-card p-4" data-testid="parcel-group">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">All Pathao parcels for this order</h2>
+          <p className="text-xs text-muted-foreground">Delivery, exchange delivery and the return of the old item — as Pathao shows them for this order number.</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={run} disabled={busy}><Truck className="size-4" /> {busy ? "Checking Pathao…" : data ? "Refresh" : "Show all parcels"}</Button>
+      </div>
+      {data && (data.parcels.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">Pathao has no parcels under this order number.</p> : (
+        <div className="mt-3 divide-y rounded-lg border">
+          {data.parcels.map((p) => (
+            <div key={p.cid} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
+              <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-semibold", tone(p.kind))}>{p.kind}</span>
+              <span className="font-mono font-semibold">{p.cid}</span>
+              <span className="text-xs text-muted-foreground">{p.mid}</span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">{p.status ?? "—"}</span>
+              <span className="text-xs tabular-nums">COD {taka(p.cod)}{p.charge ? ` · charge ${taka(p.charge)}` : ""}</span>
+              {p.billing && <span className="text-xs text-muted-foreground">{p.billing}</span>}
+              {p.updatedAt && <span className="text-xs text-muted-foreground">updated {dateTime(p.updatedAt)}</span>}
+              <span className="ml-auto text-xs">{p.usedBy ? <>in Ops: <b>{p.usedBy}</b></> : <span className="text-muted-foreground">not linked in Ops</span>}</span>
+            </div>
+          ))}
+        </div>
+      ))}
     </section>
   )
 }
