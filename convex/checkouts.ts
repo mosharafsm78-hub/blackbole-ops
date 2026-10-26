@@ -154,7 +154,6 @@ export const relinkOpen = internalMutation({
       }
     }
     for (const c of await ctx.db.query("checkouts").collect()) {
-      if (c.orderId) continue
       const { items, linked } = await linkItems(ctx, c.items)
       if (linked) await ctx.db.patch(c._id, { items })
     }
@@ -281,6 +280,10 @@ export const counts = query({
       followup: open.filter((c) => c.callCount > 0).length,
       followupDue: open.filter((c) => c.followUpAt && c.followUpAt <= now).length,
       recovered30d: converted.length,
+      // tab numbers (capped so the page stays light; shows 999+)
+      recovered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(1000)).length,
+      ordered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "ordered")).take(1000)).length,
+      lost: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "lost")).take(1000)).length,
       recoveredValue30d: converted.reduce((s2, c) => s2 + c.total, 0),
     }
   },

@@ -74,8 +74,10 @@ function AbandonedPage() {
             className={cn("rounded-lg px-3 py-1.5 text-sm font-medium", tab === t.k ? "bg-foreground text-background" : "hover:bg-accent")}
           >
             {t.label}
-            {t.k === "new" && counts ? <span className="ml-1.5 tabular-nums opacity-80">{counts.new}</span> : null}
-            {t.k === "followup" && counts ? <span className="ml-1.5 tabular-nums opacity-80">{counts.followup}</span> : null}
+            {counts ? <span className="ml-1.5 tabular-nums opacity-80">{(() => {
+              const n = ({ new: counts.new, followup: counts.followup, converted: counts.recovered, ordered: counts.ordered, lost: counts.lost } as Record<string, number>)[t.k] ?? 0
+              return n >= 1000 ? "999+" : n
+            })()}</span> : null}
           </button>
         ))}
       </div>
