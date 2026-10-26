@@ -188,7 +188,7 @@ export const syncNow = action({
 export const pushMany = action({
   args: { ids: v.array(v.id("orders")) },
   handler: async (ctx, { ids }): Promise<{ booked: string[]; failed: string[]; skipped: string[] }> => {
-    await ctx.runQuery(internal.pathao.checkPerm, { perm: "courier.book" })
+    const by = await ctx.runQuery(internal.pathao.checkPerm, { perm: "courier.book" })
     const booked: string[] = [], failed: string[] = [], skipped: string[] = []
     const one = async (id: Id<"orders">) => {
       const before = await ctx.runMutation(internal.orders.internalGet, { id })
@@ -201,7 +201,11 @@ export const pushMany = action({
       if (["pending", "on_hold", "cancelled", "returned", "delivered_paid", "delivered_due"].includes(o.status)) { skipped.push(`${label} (${o.status.replace(/_/g, " ")})`); return }
       await ctx.runAction(internal.pathao.bookOrder, { orderId: id })
       const after = await ctx.runMutation(internal.orders.internalGet, { id })
-      if (after?.order.consignmentId) booked.push(`${label} → ${after.order.consignmentId}`)
+      if (after?.order.consignmentId) {
+        booked.push(`${label} → ${after.order.consignmentId}`)
+        // handed to Pathao = In Transit (same as Scan), so stock and the dispatch report follow
+        if (after.order.status !== "in_transit") await ctx.runMutation(internal.orders.systemStatus, { id, to: "in_transit", note: "Pushed to Pathao", byName: typeof by === "string" ? by : undefined })
+      }
       else failed.push(`${label}: ${after?.order.courierError ?? "not booked"}`)
     }
     for (let i = 0; i < ids.length; i += 5) await Promise.all(ids.slice(i, i + 5).map(one))
