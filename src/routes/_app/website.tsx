@@ -11,6 +11,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { WebsiteGuard } from "@/components/app-shell"
 import { Loading } from "@/components/bits"
 import { PREVIEW_URL, StatusBadge } from "@/components/website-ui"
+import { WebsiteTabs } from "@/components/discount-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -59,21 +60,7 @@ function WebsitePage() {
         </div>
       </div>
 
-      <div className="mb-4 flex gap-6 border-b">
-        {(["products", "collections"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => navigate({ search: (s) => ({ ...s, tab: t }) })}
-            className={cn("-mb-px border-b-2 px-0.5 pb-2.5 text-sm font-medium transition-colors", tab === t ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}
-          >
-            {t === "products" ? "Products" : "Collections"}
-            <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-              {t === "products" ? products?.filter((p) => p.published).length ?? "–" : colls?.collections.length ?? "–"}
-            </span>
-          </button>
-        ))}
-      </div>
+      <WebsiteTabs active={tab} />
 
       {tab === "products" ? <ProductIndex rows={products} collections={colls?.collections ?? []} /> : <CollectionIndex data={colls} />}
       {adding && products && <AddProductDialog rows={products} onClose={() => setAdding(false)} />}

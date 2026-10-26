@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Link, createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ArrowDownUp, ArrowLeft, Check, ChevronDown, ExternalLink, GripVertical, Plus, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, ArrowDownUp, ArrowLeft, Check, ChevronDown, Copy, ExternalLink, GripVertical, ImagePlus, MoreHorizontal, Plus, Search, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -17,6 +17,8 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -40,7 +42,7 @@ const isShopifyOnly = (k: string) => /^(shopify|reviews|global)\./.test(k) || k 
 
 type Data = NonNullable<ReturnType<typeof useQuery<typeof api.website.product>>>
 // price = the website's selling price for this size (blank = use the Ops price); opsPrice = the price in Ops
-type Var = { id: Id<"variants">; sku: string; title: string; price: string; opsPrice: number; active: boolean; stock: number; compareAt: string; options: Record<string, string> }
+type Var = { id: Id<"variants">; sku: string; title: string; price: string; opsPrice: number; active: boolean; stock: number; compareAt: string; options: Record<string, string>; image: string | null }
 const eff = (v: Var) => (Number(v.price) > 0 ? Number(v.price) : v.opsPrice)
 type Form = {
   title: string; handle: string; html: string; type: string; vendor: string; tags: string[]
@@ -79,7 +81,7 @@ function initial(data: Data): Form {
       const o: Record<string, string> = { ...(v.web?.options ?? {}) }
       // a single option with no value yet takes the variant title (e.g. "41" → Size: 41)
       if (options.length === 1 && !o[options[0]]) o[options[0]] = v.title
-      return { id: v._id, sku: v.sku, title: v.title, price: v.web?.price ? String(v.web.price) : "", opsPrice: v.price, active: v.active, stock: v.stock, compareAt: v.web?.compareAt ? String(v.web.compareAt) : "", options: o }
+      return { id: v._id, sku: v.sku, title: v.title, price: v.web?.price ? String(v.web.price) : "", opsPrice: v.price, active: v.active, stock: v.stock, compareAt: v.web?.compareAt ? String(v.web.compareAt) : "", options: o, image: v.web?.image ?? null }
     }),
     colls: data.collections.filter((c) => c.member).map((c) => c._id as string),
   }
@@ -111,7 +113,7 @@ function ProductForm({ data }: { data: Data }) {
         id: p._id, handle: f.handle, title: f.title, html: f.html, vendor: f.vendor, type: f.type, tags: f.tags,
         seo: { title: f.seoTitle, description: f.seoDesc }, options: f.options.map((o) => o.trim()).filter(Boolean),
         images: f.images.map((i) => ({ url: i.url, alt: i.alt, w: i.w, h: i.h })), mf: f.mf, published: f.published,
-        variants: f.vars.map((v) => ({ id: v.id, price: Number(v.price) > 0 ? Number(v.price) : null, compareAt: v.compareAt.trim() ? Number(v.compareAt) || null : null, options: v.options })),
+        variants: f.vars.map((v) => ({ id: v.id, price: Number(v.price) > 0 ? Number(v.price) : null, compareAt: v.compareAt.trim() ? Number(v.compareAt) || null : null, options: v.options, image: v.image })),
         collections: f.colls as Id<"webCollections">[],
       })
       const next = { ...f, handle }
@@ -142,6 +144,7 @@ function ProductForm({ data }: { data: Data }) {
           {preOrder && <span className="rounded-full bg-tone-blue-bg px-2 py-0.5 text-[11px] font-semibold text-tone-blue">Pre-order</span>}
         </div>
         {saved.handle && <Button size="sm" variant="outline" asChild><a href={`${PREVIEW_URL}/products/${saved.handle}`} target="_blank" rel="noreferrer"><ExternalLink className="size-4" /> View</a></Button>}
+        <ProductMenu id={p._id} title={f.title} onWebsite={!!saved.handle} />
         <Button size="sm" disabled={!dirty || saving} onClick={onSave}>{saving ? "Saving" : "Save"}</Button>
       </div>
 
@@ -261,6 +264,67 @@ function PreOrderMoney({ f, bd }: { f: Form; bd: boolean }) {
   )
 }
 
+/** Photo shown when this size/colour is picked (e.g. the brown pair for "Brown / 42"). */
+function VariantPhoto({ images, value, onChange }: { images: Img[]; value: string | null; onChange: (v: string | null) => void }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="Choose photo" className="flex size-9 items-center justify-center overflow-hidden rounded-md border bg-muted/40 text-muted-foreground hover:border-foreground/30">
+          {value ? <img src={value} alt="" className="size-full object-cover" /> : <ImagePlus className="size-4" />}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 p-2">
+        <div className="mb-2 px-1 text-xs font-medium">Photo for this size</div>
+        {images.length === 0 ? <p className="px-1 py-3 text-xs text-muted-foreground">Add photos under Media first.</p> : (
+          <div className="grid grid-cols-4 gap-1.5">
+            {images.map((im) => (
+              <button key={im.url} type="button" onClick={() => onChange(im.url)} className={cn("overflow-hidden rounded-md border-2", value === im.url ? "border-primary" : "border-transparent hover:border-foreground/20")}>
+                <img src={im.url} alt={im.alt} className="aspect-square w-full object-cover" />
+              </button>
+            ))}
+          </div>
+        )}
+        {value && <Button size="sm" variant="ghost" className="mt-2 w-full" onClick={() => onChange(null)}>No photo (use the main one)</Button>}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** ⋯ menu: duplicate, remove from the website (the Ops product stays). */
+function ProductMenu({ id, title, onWebsite }: { id: Id<"products">; title: string; onWebsite: boolean }) {
+  const navigate = useNavigate()
+  const remove = useMutation(api.website.removeFromWebsite)
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild><Button size="icon" variant="outline" className="size-8" aria-label="More actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          <DropdownMenuItem onClick={() => navigate({ to: "/website-new", search: { from: id } })}><Copy className="size-4" /> Duplicate</DropdownMenuItem>
+          {onWebsite && <><DropdownMenuSeparator /><DropdownMenuItem className="text-tone-red focus:text-tone-red" onClick={() => setConfirm(true)}><Trash2 className="size-4" /> Remove from website</DropdownMenuItem></>}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Dialog open={confirm} onOpenChange={(o) => !busy && setConfirm(o)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove “{title}” from the website?</DialogTitle>
+            <DialogDescription>Its page and collection places go away. The product, sizes, stock and orders stay in Ops, and you can add it back any time.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={busy} onClick={async () => {
+              setBusy(true)
+              try { await remove({ id }); toast.success("Removed from the website"); setConfirm(false); setTimeout(() => navigate({ to: "/website", search: { tab: "products", view: "live" } }), 0) }
+              catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+            }}>Remove</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 function Note({ children }: { children: React.ReactNode }) {
   return <p className="mt-3 flex gap-2 rounded-md bg-tone-amber-bg px-2.5 py-2 text-xs text-tone-amber"><AlertTriangle className="mt-px size-3.5 shrink-0" /><span>{children}</span></p>
 }
@@ -307,6 +371,7 @@ function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k
             <thead className="text-left text-xs text-muted-foreground">
               <tr className="border-y bg-muted/30">
                 <th className="w-8" />
+                <th className="w-12 py-2 pr-2 font-medium">Photo</th>
                 {f.options.map((o, i) => <th key={i} className="py-2 pr-3 font-medium">{o || `Option ${i + 1}`}</th>)}
                 <th className="py-2 pr-3 font-medium">SKU</th>
                 <th className="py-2 pr-3 text-right font-medium">{preOrder ? "Booking" : "Price"}</th>
@@ -321,6 +386,7 @@ function Variants({ f, set, preOrder }: { f: Form; set: <K extends keyof Form>(k
                 return (
                   <tr key={v.id} {...props(i)} className={cn("border-b last:border-0", !v.active && "opacity-50", drag === i && "opacity-40", over === i && drag !== i && "bg-primary/5")}>
                     <td className="cursor-grab pl-2 text-muted-foreground/60 active:cursor-grabbing"><GripVertical className="size-4" /></td>
+                    <td className="py-1.5 pr-2"><VariantPhoto images={f.images} value={v.image} onChange={(image) => setVar(i, { image })} /></td>
                     {f.options.map((o, k) => (
                       <td key={k} className="py-1.5 pr-3"><Input className="h-8 w-24" value={v.options[o] ?? ""} onChange={(e) => setVar(i, { options: { ...v.options, [o]: e.target.value } })} /></td>
                     ))}

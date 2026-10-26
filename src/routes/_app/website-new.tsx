@@ -1,6 +1,6 @@
 // Website → Add product. Works like Shopify's "Add product": photos are uploaded (dragged in), sizes are built from
 // option values, prices/cost/SKU per size, status, collections and SEO — one Save creates everything.
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import { AlertTriangle, ArrowLeft, Plus, Trash2, Wand2, X } from "lucide-react"
@@ -19,6 +19,7 @@ import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/website-new")({
+  validateSearch: (s: Record<string, unknown>): { from?: string } => (s.from ? { from: String(s.from) } : {}),
   component: () => <WebsiteGuard><TooltipProvider delayDuration={200}><NewProduct /></TooltipProvider></WebsiteGuard>,
 })
 
@@ -55,7 +56,37 @@ function NewProduct() {
   const fileUrl = useMutation(api.website.fileUrl)
   const colls = useQuery(api.website.collections)
   const products = useQuery(api.website.products)
+  const { from } = Route.useSearch()
+  const source = useQuery(api.website.product, from ? { id: from as Id<"products"> } : "skip")
   const [f, setF] = useState<Form>(empty)
+  // Duplicate: start from another product (everything except SKUs, which are made new)
+  useEffect(() => {
+    if (!source) return
+    const p = source.product, w: any = p.web ?? {}
+    const tags: string[] = (w.tags ?? []).map(String)
+    const pre = tags.some((t) => t.toLowerCase() === "pre-order") || !!p.preOrder
+    const names: string[] = ((w.options ?? []).map((o: any) => String(o?.name ?? "")).filter(Boolean) as string[])
+    const optNames = names.length ? names : ["Size"]
+    const vs = source.variants.filter((v) => v.active)
+    const opts = optNames.map((n, i) => ({ name: n, values: [...new Set(vs.map((v) => String((v.web?.options ?? {})[n] ?? (optNames.length === 1 ? v.title : v.title.split(" / ")[i] ?? ""))).filter(Boolean))] }))
+    const rows: Record<string, Row> = {}
+    for (const v of vs) {
+      const o: Record<string, string> = {}
+      optNames.forEach((n, i) => { o[n] = String((v.web?.options ?? {})[n] ?? (optNames.length === 1 ? v.title : v.title.split(" / ")[i] ?? "")) })
+      const webPrice = typeof v.web?.price === "number" ? v.web.price : v.price
+      const full = pre ? (Number(v.web?.compareAt) > webPrice ? Number(v.web.compareAt) : v.price) : webPrice
+      rows[JSON.stringify(o)] = { key: JSON.stringify(o), title: "", options: o, sku: undefined as unknown as string, price: String(full), compareAt: !pre && v.web?.compareAt ? String(v.web.compareAt) : "", cost: "" }
+    }
+    for (const k of Object.keys(rows)) delete (rows[k] as any).sku
+    const mf = w.mf ?? {}
+    setF({
+      ...empty, title: `Copy of ${w.title || p.name}`, html: w.html ?? "", images: (w.images ?? []).map((i: any) => ({ url: i.url, alt: i.alt ?? "", w: i.w ?? null, h: i.h ?? null })),
+      type: w.type ?? "", vendor: w.vendor ?? "BlackBole", tags: tags.filter((t) => t.toLowerCase() !== "pre-order"),
+      colls: source.collections.filter((c) => c.member).map((c) => c._id as string), published: false,
+      preOrder: pre, from: mf["bb26.pre_fee"] ? "bangladesh" : "china", supplier: String(mf["custom.supplier"] ?? ""), days: String(mf["bb26.pre_days"] ?? ""),
+      opts, rows,
+    })
+  }, [source?.product._id]) // eslint-disable-line react-hooks/exhaustive-deps
   const { dirty, markSaved } = useDirty(f)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -71,7 +102,7 @@ function NewProduct() {
     const title = Object.values(o).join(" / ")
     const base = f.rows[key]
     const auto = [prefix, ...Object.entries(o).map(([n, v]) => (/^size$/i.test(n) ? v : code(v, 3)))].join("-").toUpperCase().replace(/\s+/g, "")
-    return { key, title, options: o, sku: base?.sku ?? auto, price: base?.price ?? "", compareAt: base?.compareAt ?? "", cost: base?.cost ?? "" }
+    return { key, title, options: o, sku: base?.sku || auto, price: base?.price ?? "", compareAt: base?.compareAt ?? "", cost: base?.cost ?? "" }
   })
   const setRow = (r: Row, patch: Partial<Row>) => set("rows", { ...f.rows, [r.key]: { ...r, ...patch } })
   const taken = useQuery(api.website.skusTaken, { skus: variants.map((v) => v.sku) }) ?? []

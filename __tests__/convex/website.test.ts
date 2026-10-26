@@ -133,7 +133,7 @@ describe("website add product", () => {
     })
     const p = await t.run((ctx) => ctx.db.get(id))
     expect(p).toMatchObject({ name: "Cloud Runner", preOrder: true, preOrderFrom: "china", handle: "cloud-runner", active: true })
-    expect((p!.web as any).tags).toContain("pre-order")
+    expect((p as any).web.tags).toContain("pre-order")
     const vs = await t.run((ctx) => ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", id)).collect())
     expect(vs.map((v) => [v.sku, v.price, v.purchasePrice, (v.web as any).price, (v.web as any).compareAt])).toEqual([
       ["PO-CR-40", 3200, 1400, 500, 3200], ["PO-CR-41", 3200, 1400, 500, 3200],

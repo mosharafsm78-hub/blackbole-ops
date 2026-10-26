@@ -766,6 +766,23 @@ export const deleteCollection = mutation({
   },
 })
 
+/** Takes a product off the website (Shopify "delete" for the website only): hidden, out of every collection, URL freed.
+ *  The Ops product, its sizes, stock and orders are not touched; it can be added back from "Not added yet". */
+export const removeFromWebsite = mutation({
+  args: { id: v.id("products") },
+  handler: async (ctx, { id }) => {
+    await requireWebsite(ctx)
+    const p = await ctx.db.get(id)
+    if (!p) throw new ConvexError("Product not found")
+    if (p.handle) {
+      for (const c of await ctx.db.query("webCollections").collect())
+        if (c.productHandles.includes(p.handle)) await ctx.db.patch(c._id, { productHandles: c.productHandles.filter((h) => h !== p.handle), updatedAt: Date.now() })
+    }
+    await ctx.db.patch(id, { handle: undefined, web: p.web ? { ...p.web, published: false, updatedAt: Date.now() } : undefined })
+    await queueRebuild(ctx)
+  },
+})
+
 // ---------------- new product (Website → Add product) ----------------
 /** Creates a new product the Shopify way, in one step: the product and its sizes (SKU, price, cost, weight) in Ops,
  *  plus its website page (photos, text, collections, SEO). Pre-order: the website price is the booking money
