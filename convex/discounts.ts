@@ -180,7 +180,7 @@ export const feedData = internalQuery({
   handler: async (ctx) => {
     const now = Date.now()
     const rows = await ctx.db.query("discounts").collect()
-    return { codes: rows.filter((d) => statusOf(d, now) === "active" || statusOf(d, now) === "used_up").map(toFeed), at: now }
+    return { codes: rows.filter((d) => statusOf(d, now) === "active" || statusOf(d, now) === "used_up").map(toFeed), total: rows.length, at: now }
   },
 })
 

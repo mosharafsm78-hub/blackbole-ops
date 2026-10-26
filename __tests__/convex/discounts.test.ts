@@ -52,7 +52,8 @@ describe("discounts in Ops", () => {
 
     expect((await t.fetch("/website/discounts")).status).toBe(401)
     const r = await t.fetch("/website/discounts", { headers: { "X-Feed-Key": FEED_KEY } })
-    const { codes } = await r.json()
+    const { codes, total } = await r.json()
+    expect(total).toBe(3)
     // off and scheduled codes are not served; percent goes out as a fraction
     expect(codes).toEqual([{ code: "EID10", type: "percent", value: 0.1, scope: "all", items: [], minSubtotal: 1500, onlineOnly: true, used: 0 }])
   })
