@@ -238,7 +238,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AuthLoading>
-        <Centered><p className="text-sm text-muted-foreground">Checking your session…</p></Centered>
+        <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-canvas px-6" data-testid="app-loading">
+          <img src="/blackbole-logo.png" alt="BlackBole" className="w-56 max-w-[70vw] animate-pulse dark:invert" />
+          <div className="h-1 w-40 overflow-hidden rounded-full bg-muted">
+            <div className="h-full w-1/3 animate-[bbload_1.1s_ease-in-out_infinite] rounded-full bg-foreground" />
+          </div>
+          <style>{"@keyframes bbload{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}"}</style>
+        </div>
       </AuthLoading>
       <Unauthenticated>
         <SignIn />
