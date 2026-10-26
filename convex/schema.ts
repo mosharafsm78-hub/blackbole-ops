@@ -298,6 +298,7 @@ export default defineSchema({
     courierFee: v.optional(v.number()),
     courierError: v.optional(v.string()),
     customerNote: v.optional(v.string()),
+    discountCode: v.optional(v.string()), // promo code used on the website (see convex/discounts.ts)
     callCount: v.number(),
     lastCallOutcome: v.optional(v.string()),
     printedAt: v.optional(v.number()),
@@ -562,4 +563,24 @@ export default defineSchema({
     productHandles: v.array(v.string()),
     updatedAt: v.number(),
   }).index("by_handle", ["handle"]),
+
+  // Discount codes for the website (Website → Discounts). Percent stored as a whole number (10 = 10%).
+  discounts: defineTable({
+    code: v.string(), // uppercase
+    title: v.optional(v.string()),
+    type: v.union(v.literal("percent"), v.literal("amount")),
+    value: v.number(),
+    scope: v.union(v.literal("all"), v.literal("collections"), v.literal("products")),
+    items: v.array(v.string()), // collection or product handles
+    minSubtotal: v.optional(v.number()),
+    onlineOnly: v.optional(v.boolean()),
+    startsAt: v.optional(v.number()),
+    endsAt: v.optional(v.number()),
+    usageLimit: v.optional(v.number()),
+    oncePerCustomer: v.optional(v.boolean()),
+    active: v.boolean(),
+    usedCount: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_code", ["code"]),
 })

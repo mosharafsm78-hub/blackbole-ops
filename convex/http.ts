@@ -7,6 +7,7 @@ import { handler as migrateHandler } from "./migrate"
 import { codLeadHttp } from "./checkouts"
 import { orders as marketingOrders, stock as marketingStock } from "./marketingFeed"
 import { catalogHttp as websiteCatalog } from "./website"
+import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discounts"
 
 const http = httpRouter()
 
@@ -26,5 +27,8 @@ http.route({ path: "/marketing/orders", method: "GET", handler: marketingOrders 
 http.route({ path: "/marketing/stock", method: "GET", handler: marketingStock })
 // Website build reads products + collections from here (same MARKETING_FEED_KEY)
 http.route({ path: "/website/catalog", method: "GET", handler: websiteCatalog })
+// Website discount codes (same key): live list, and the one-per-customer check
+http.route({ path: "/website/discounts", method: "GET", handler: discountFeed })
+http.route({ path: "/website/discount-check", method: "GET", handler: discountCheck })
 
 export default http

@@ -35,6 +35,8 @@ import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
 import { Route as AppWebsiteRouteImport } from './routes/_app/website'
 import { Route as AppWebsiteCollectionRouteImport } from './routes/_app/website-collection'
+import { Route as AppWebsiteDiscountRouteImport } from './routes/_app/website-discount'
+import { Route as AppWebsiteDiscountsRouteImport } from './routes/_app/website-discounts'
 import { Route as AppWebsiteNewRouteImport } from './routes/_app/website-new'
 import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
@@ -168,6 +170,16 @@ const AppWebsiteCollectionRoute = AppWebsiteCollectionRouteImport.update({
   path: '/website-collection',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteDiscountRoute = AppWebsiteDiscountRouteImport.update({
+  id: '/website-discount',
+  path: '/website-discount',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWebsiteDiscountsRoute = AppWebsiteDiscountsRouteImport.update({
+  id: '/website-discounts',
+  path: '/website-discounts',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteNewRoute = AppWebsiteNewRouteImport.update({
   id: '/website-new',
   path: '/website-new',
@@ -210,6 +222,8 @@ export interface FileRoutesByFullPath {
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
+  '/website-discount': typeof AppWebsiteDiscountRoute
+  '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -239,6 +253,8 @@ export interface FileRoutesByTo {
   '/suppliers': typeof AppSuppliersRoute
   '/website': typeof AppWebsiteRoute
   '/website-collection': typeof AppWebsiteCollectionRoute
+  '/website-discount': typeof AppWebsiteDiscountRoute
+  '/website-discounts': typeof AppWebsiteDiscountsRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -271,6 +287,8 @@ export interface FileRoutesById {
   '/_app/suppliers': typeof AppSuppliersRoute
   '/_app/website': typeof AppWebsiteRoute
   '/_app/website-collection': typeof AppWebsiteCollectionRoute
+  '/_app/website-discount': typeof AppWebsiteDiscountRoute
+  '/_app/website-discounts': typeof AppWebsiteDiscountsRoute
   '/_app/website-new': typeof AppWebsiteNewRoute
   '/_app/website-product': typeof AppWebsiteProductRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
@@ -304,6 +322,8 @@ export interface FileRouteTypes {
     | '/suppliers'
     | '/website'
     | '/website-collection'
+    | '/website-discount'
+    | '/website-discounts'
     | '/website-new'
     | '/website-product'
     | '/api/pathao-proxy'
@@ -333,6 +353,8 @@ export interface FileRouteTypes {
     | '/suppliers'
     | '/website'
     | '/website-collection'
+    | '/website-discount'
+    | '/website-discounts'
     | '/website-new'
     | '/website-product'
     | '/api/pathao-proxy'
@@ -364,6 +386,8 @@ export interface FileRouteTypes {
     | '/_app/suppliers'
     | '/_app/website'
     | '/_app/website-collection'
+    | '/_app/website-discount'
+    | '/_app/website-discounts'
     | '/_app/website-new'
     | '/_app/website-product'
     | '/api/pathao-proxy'
@@ -561,6 +585,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteCollectionRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-discount': {
+      id: '/_app/website-discount'
+      path: '/website-discount'
+      fullPath: '/website-discount'
+      preLoaderRoute: typeof AppWebsiteDiscountRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/website-discounts': {
+      id: '/_app/website-discounts'
+      path: '/website-discounts'
+      fullPath: '/website-discounts'
+      preLoaderRoute: typeof AppWebsiteDiscountsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website-new': {
       id: '/_app/website-new'
       path: '/website-new'
@@ -608,6 +646,8 @@ interface AppRouteChildren {
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppWebsiteRoute: typeof AppWebsiteRoute
   AppWebsiteCollectionRoute: typeof AppWebsiteCollectionRoute
+  AppWebsiteDiscountRoute: typeof AppWebsiteDiscountRoute
+  AppWebsiteDiscountsRoute: typeof AppWebsiteDiscountsRoute
   AppWebsiteNewRoute: typeof AppWebsiteNewRoute
   AppWebsiteProductRoute: typeof AppWebsiteProductRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -636,6 +676,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppSuppliersRoute: AppSuppliersRoute,
   AppWebsiteRoute: AppWebsiteRoute,
   AppWebsiteCollectionRoute: AppWebsiteCollectionRoute,
+  AppWebsiteDiscountRoute: AppWebsiteDiscountRoute,
+  AppWebsiteDiscountsRoute: AppWebsiteDiscountsRoute,
   AppWebsiteNewRoute: AppWebsiteNewRoute,
   AppWebsiteProductRoute: AppWebsiteProductRoute,
   AppIndexRoute: AppIndexRoute,

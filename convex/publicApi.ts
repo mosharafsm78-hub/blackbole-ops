@@ -5,6 +5,7 @@ import { v, ConvexError } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
 import { getSetting, invoiceLabel } from "./lib"
 import { insertOrder } from "./orders"
+import { recordUse, normCode } from "./discounts"
 
 export const apiKey = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<string>(ctx, "apiKey")) ?? null })
 
@@ -33,6 +34,11 @@ export const createFromApi = internalMutation({
       advance: b.paid_amount ? { amount: Number(b.paid_amount), method: String(b.payment_method ?? "Online") } : undefined,
       customerNote: b.note, ipAddress: b.ip, origin: b.origin, campaignId: b.campaign_id,
     }, "API", { allowBlocked: true })
+    // Website promo code: kept on the order (one-per-customer checks) and counted for the usage limit
+    if (b.discount_code) {
+      await ctx.db.patch(res.orderId, { discountCode: normCode(String(b.discount_code)) })
+      await recordUse(ctx, String(b.discount_code))
+    }
     return { invoice: `BB-${res.invoiceNo}`, id: res.orderId, duplicate: false }
   },
 })
