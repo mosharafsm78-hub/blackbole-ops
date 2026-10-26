@@ -14,6 +14,7 @@ import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
 import type * as dashboard from "../dashboard.js";
 import type * as discounts from "../discounts.js";
+import type * as files from "../files.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as marketingFeed from "../marketingFeed.js";
@@ -32,6 +33,7 @@ import type * as settings from "../settings.js";
 import type * as shopify from "../shopify.js";
 import type * as subscribers from "../subscribers.js";
 import type * as team from "../team.js";
+import type * as themes from "../themes.js";
 import type * as website from "../website.js";
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
@@ -46,6 +48,7 @@ declare const fullApi: ApiFromModules<{
   customers: typeof customers;
   dashboard: typeof dashboard;
   discounts: typeof discounts;
+  files: typeof files;
   http: typeof http;
   lib: typeof lib;
   marketingFeed: typeof marketingFeed;
@@ -64,6 +67,7 @@ declare const fullApi: ApiFromModules<{
   shopify: typeof shopify;
   subscribers: typeof subscribers;
   team: typeof team;
+  themes: typeof themes;
   website: typeof website;
 }>;
 

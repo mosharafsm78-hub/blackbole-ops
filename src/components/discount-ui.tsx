@@ -38,7 +38,7 @@ export function summaryLine(d: Pick<Doc<"discounts">, "type" | "value" | "scope"
 }
 
 /** Same title + tab row as the Website page, so every Website page feels like one section (like Shopify Admin). */
-export type WebsiteTab = "products" | "collections" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "settings"
+export type WebsiteTab = "products" | "collections" | "discounts" | "subscribers" | "pages" | "blog" | "navigation" | "themes" | "files" | "settings"
 export function WebsiteTabs({ active }: { active: WebsiteTab }) {
   const cls = (k: string) => cn("-mb-px whitespace-nowrap border-b-2 px-0.5 pb-2.5 text-sm font-medium transition-colors", active === k ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")
   return (
@@ -49,6 +49,8 @@ export function WebsiteTabs({ active }: { active: WebsiteTab }) {
       <Link to="/website-pages" className={cls("pages")}>Pages</Link>
       <Link to="/website-blog" className={cls("blog")}>Blog</Link>
       <Link to="/website-navigation" className={cls("navigation")}>Navigation</Link>
+      <Link to="/website-themes" className={cls("themes")}>Themes</Link>
+      <Link to="/website-files" className={cls("files")}>Files</Link>
       <Link to="/website-settings" className={cls("settings")}>Settings</Link>
       <Link to="/website-subscribers" className={cls("subscribers")}>Subscribers</Link>
     </div>

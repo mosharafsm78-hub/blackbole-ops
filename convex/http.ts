@@ -11,6 +11,7 @@ import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discount
 import { statusHttp as orderStatus } from "./orderStatus"
 import { subscribeHttp } from "./subscribers"
 import { contentHttp as websiteContent } from "./content"
+import { themeHttp as websiteTheme } from "./themes"
 
 const http = httpRouter()
 
@@ -39,5 +40,7 @@ http.route({ path: "/website/order-status", method: "GET", handler: orderStatus 
 http.route({ path: "/website/subscribe", method: "POST", handler: subscribeHttp })
 // Website pages, blog, menus, redirects and store settings (same MARKETING_FEED_KEY)
 http.route({ path: "/website/content", method: "GET", handler: websiteContent })
+// Website theme (Website → Themes): ?which=live|draft (same key)
+http.route({ path: "/website/theme", method: "GET", handler: websiteTheme })
 
 export default http

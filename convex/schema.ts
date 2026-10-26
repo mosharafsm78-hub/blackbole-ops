@@ -643,4 +643,30 @@ export default defineSchema({
     target: v.string(),
     updatedAt: v.number(),
   }).index("by_path", ["path"]),
+
+  // Website → Themes (like Shopify's Online Store → Themes). One live theme (what blackbole.com shows), one draft
+  // (shown on the preview site, edited in Customize) and up to 10 archived ones for rolling back.
+  // json = { settings, templates } — the same shape as the website's src/data/theme.json, kept as text.
+  webThemes: defineTable({
+    name: v.string(),
+    role: v.union(v.literal("live"), v.literal("draft"), v.literal("archived")),
+    json: v.string(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.string()),
+    publishedAt: v.optional(v.number()),
+    publishedBy: v.optional(v.string()),
+  }).index("by_role", ["role"]),
+
+  // Website → Files (Shopify's Content → Files): pictures and videos uploaded for the website.
+  webFiles: defineTable({
+    storageId: v.id("_storage"),
+    url: v.string(),
+    name: v.string(),
+    type: v.string(), // MIME type
+    size: v.number(), // bytes
+    w: v.optional(v.number()),
+    h: v.optional(v.number()),
+    alt: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_created", ["createdAt"]),
 })

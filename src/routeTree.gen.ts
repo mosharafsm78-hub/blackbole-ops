@@ -38,6 +38,7 @@ import { Route as AppWebsiteBlogRouteImport } from './routes/_app/website-blog'
 import { Route as AppWebsiteCollectionRouteImport } from './routes/_app/website-collection'
 import { Route as AppWebsiteDiscountRouteImport } from './routes/_app/website-discount'
 import { Route as AppWebsiteDiscountsRouteImport } from './routes/_app/website-discounts'
+import { Route as AppWebsiteFilesRouteImport } from './routes/_app/website-files'
 import { Route as AppWebsiteNavigationRouteImport } from './routes/_app/website-navigation'
 import { Route as AppWebsiteNewRouteImport } from './routes/_app/website-new'
 import { Route as AppWebsitePageRouteImport } from './routes/_app/website-page'
@@ -46,6 +47,8 @@ import { Route as AppWebsitePostRouteImport } from './routes/_app/website-post'
 import { Route as AppWebsiteProductRouteImport } from './routes/_app/website-product'
 import { Route as AppWebsiteSettingsRouteImport } from './routes/_app/website-settings'
 import { Route as AppWebsiteSubscribersRouteImport } from './routes/_app/website-subscribers'
+import { Route as AppWebsiteThemeEditorRouteImport } from './routes/_app/website-theme-editor'
+import { Route as AppWebsiteThemesRouteImport } from './routes/_app/website-themes'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
@@ -192,6 +195,11 @@ const AppWebsiteDiscountsRoute = AppWebsiteDiscountsRouteImport.update({
   path: '/website-discounts',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteFilesRoute = AppWebsiteFilesRouteImport.update({
+  id: '/website-files',
+  path: '/website-files',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteNavigationRoute = AppWebsiteNavigationRouteImport.update({
   id: '/website-navigation',
   path: '/website-navigation',
@@ -232,6 +240,16 @@ const AppWebsiteSubscribersRoute = AppWebsiteSubscribersRouteImport.update({
   path: '/website-subscribers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWebsiteThemeEditorRoute = AppWebsiteThemeEditorRouteImport.update({
+  id: '/website-theme-editor',
+  path: '/website-theme-editor',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWebsiteThemesRoute = AppWebsiteThemesRouteImport.update({
+  id: '/website-themes',
+  path: '/website-themes',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   id: '/api/pathao-proxy',
   path: '/api/pathao-proxy',
@@ -267,6 +285,7 @@ export interface FileRoutesByFullPath {
   '/website-collection': typeof AppWebsiteCollectionRoute
   '/website-discount': typeof AppWebsiteDiscountRoute
   '/website-discounts': typeof AppWebsiteDiscountsRoute
+  '/website-files': typeof AppWebsiteFilesRoute
   '/website-navigation': typeof AppWebsiteNavigationRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-page': typeof AppWebsitePageRoute
@@ -275,6 +294,8 @@ export interface FileRoutesByFullPath {
   '/website-product': typeof AppWebsiteProductRoute
   '/website-settings': typeof AppWebsiteSettingsRoute
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
+  '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
+  '/website-themes': typeof AppWebsiteThemesRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
@@ -305,6 +326,7 @@ export interface FileRoutesByTo {
   '/website-collection': typeof AppWebsiteCollectionRoute
   '/website-discount': typeof AppWebsiteDiscountRoute
   '/website-discounts': typeof AppWebsiteDiscountsRoute
+  '/website-files': typeof AppWebsiteFilesRoute
   '/website-navigation': typeof AppWebsiteNavigationRoute
   '/website-new': typeof AppWebsiteNewRoute
   '/website-page': typeof AppWebsitePageRoute
@@ -313,6 +335,8 @@ export interface FileRoutesByTo {
   '/website-product': typeof AppWebsiteProductRoute
   '/website-settings': typeof AppWebsiteSettingsRoute
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
+  '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
+  '/website-themes': typeof AppWebsiteThemesRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
@@ -346,6 +370,7 @@ export interface FileRoutesById {
   '/_app/website-collection': typeof AppWebsiteCollectionRoute
   '/_app/website-discount': typeof AppWebsiteDiscountRoute
   '/_app/website-discounts': typeof AppWebsiteDiscountsRoute
+  '/_app/website-files': typeof AppWebsiteFilesRoute
   '/_app/website-navigation': typeof AppWebsiteNavigationRoute
   '/_app/website-new': typeof AppWebsiteNewRoute
   '/_app/website-page': typeof AppWebsitePageRoute
@@ -354,6 +379,8 @@ export interface FileRoutesById {
   '/_app/website-product': typeof AppWebsiteProductRoute
   '/_app/website-settings': typeof AppWebsiteSettingsRoute
   '/_app/website-subscribers': typeof AppWebsiteSubscribersRoute
+  '/_app/website-theme-editor': typeof AppWebsiteThemeEditorRoute
+  '/_app/website-themes': typeof AppWebsiteThemesRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -388,6 +415,7 @@ export interface FileRouteTypes {
     | '/website-collection'
     | '/website-discount'
     | '/website-discounts'
+    | '/website-files'
     | '/website-navigation'
     | '/website-new'
     | '/website-page'
@@ -396,6 +424,8 @@ export interface FileRouteTypes {
     | '/website-product'
     | '/website-settings'
     | '/website-subscribers'
+    | '/website-theme-editor'
+    | '/website-themes'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -426,6 +456,7 @@ export interface FileRouteTypes {
     | '/website-collection'
     | '/website-discount'
     | '/website-discounts'
+    | '/website-files'
     | '/website-navigation'
     | '/website-new'
     | '/website-page'
@@ -434,6 +465,8 @@ export interface FileRouteTypes {
     | '/website-product'
     | '/website-settings'
     | '/website-subscribers'
+    | '/website-theme-editor'
+    | '/website-themes'
     | '/api/pathao-proxy'
     | '/'
   id:
@@ -466,6 +499,7 @@ export interface FileRouteTypes {
     | '/_app/website-collection'
     | '/_app/website-discount'
     | '/_app/website-discounts'
+    | '/_app/website-files'
     | '/_app/website-navigation'
     | '/_app/website-new'
     | '/_app/website-page'
@@ -474,6 +508,8 @@ export interface FileRouteTypes {
     | '/_app/website-product'
     | '/_app/website-settings'
     | '/_app/website-subscribers'
+    | '/_app/website-theme-editor'
+    | '/_app/website-themes'
     | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -690,6 +726,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteDiscountsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-files': {
+      id: '/_app/website-files'
+      path: '/website-files'
+      fullPath: '/website-files'
+      preLoaderRoute: typeof AppWebsiteFilesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website-navigation': {
       id: '/_app/website-navigation'
       path: '/website-navigation'
@@ -746,6 +789,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteSubscribersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/website-theme-editor': {
+      id: '/_app/website-theme-editor'
+      path: '/website-theme-editor'
+      fullPath: '/website-theme-editor'
+      preLoaderRoute: typeof AppWebsiteThemeEditorRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/website-themes': {
+      id: '/_app/website-themes'
+      path: '/website-themes'
+      fullPath: '/website-themes'
+      preLoaderRoute: typeof AppWebsiteThemesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/pathao-proxy': {
       id: '/api/pathao-proxy'
       path: '/api/pathao-proxy'
@@ -782,6 +839,7 @@ interface AppRouteChildren {
   AppWebsiteCollectionRoute: typeof AppWebsiteCollectionRoute
   AppWebsiteDiscountRoute: typeof AppWebsiteDiscountRoute
   AppWebsiteDiscountsRoute: typeof AppWebsiteDiscountsRoute
+  AppWebsiteFilesRoute: typeof AppWebsiteFilesRoute
   AppWebsiteNavigationRoute: typeof AppWebsiteNavigationRoute
   AppWebsiteNewRoute: typeof AppWebsiteNewRoute
   AppWebsitePageRoute: typeof AppWebsitePageRoute
@@ -790,6 +848,8 @@ interface AppRouteChildren {
   AppWebsiteProductRoute: typeof AppWebsiteProductRoute
   AppWebsiteSettingsRoute: typeof AppWebsiteSettingsRoute
   AppWebsiteSubscribersRoute: typeof AppWebsiteSubscribersRoute
+  AppWebsiteThemeEditorRoute: typeof AppWebsiteThemeEditorRoute
+  AppWebsiteThemesRoute: typeof AppWebsiteThemesRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -819,6 +879,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebsiteCollectionRoute: AppWebsiteCollectionRoute,
   AppWebsiteDiscountRoute: AppWebsiteDiscountRoute,
   AppWebsiteDiscountsRoute: AppWebsiteDiscountsRoute,
+  AppWebsiteFilesRoute: AppWebsiteFilesRoute,
   AppWebsiteNavigationRoute: AppWebsiteNavigationRoute,
   AppWebsiteNewRoute: AppWebsiteNewRoute,
   AppWebsitePageRoute: AppWebsitePageRoute,
@@ -827,6 +888,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebsiteProductRoute: AppWebsiteProductRoute,
   AppWebsiteSettingsRoute: AppWebsiteSettingsRoute,
   AppWebsiteSubscribersRoute: AppWebsiteSubscribersRoute,
+  AppWebsiteThemeEditorRoute: AppWebsiteThemeEditorRoute,
+  AppWebsiteThemesRoute: AppWebsiteThemesRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

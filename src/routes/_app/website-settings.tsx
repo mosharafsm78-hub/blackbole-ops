@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import { ChevronDown, Megaphone, Plus, Settings2, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -85,6 +85,8 @@ function SettingsForm({ initial }: { initial: S }) {
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
   const collOptions = (colls?.collections ?? []).map((c) => c.handle)
+  const themes = useQuery(api.themes.overview)
+  const themed = !!themes?.live // once the theme is in Ops, the theme editor owns the homepage design
 
   return (
     <div className="space-y-4">
@@ -128,8 +130,10 @@ function SettingsForm({ initial }: { initial: S }) {
         </Section>
       </div>
 
-      <Section title="Homepage" sub="The big photo text at the top, the product rows and how the homepage appears on Google.">
-        <div className="grid gap-3 sm:grid-cols-2">
+      <Section title="Homepage" sub={themed ? "How the homepage appears on Google." : "The big photo text at the top, the product rows and how the homepage appears on Google."}>
+        {themed ? (
+          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">The banner, its texts, the product rows and the store addresses are now changed in <Link to="/website-themes" className="font-medium text-foreground underline">Themes → Customize</Link>.</p>
+        ) : <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Small line above the title"><Input value={f.home.heroKicker} onChange={(e) => sub("home", "heroKicker", e.target.value)} placeholder="Autumn 2026" /></Field>
           <Field label="Big title"><Input value={f.home.heroTitle} onChange={(e) => sub("home", "heroTitle", e.target.value)} placeholder="The Veyron Collection" /></Field>
           <Field label="Button text"><Input value={f.home.heroButton} onChange={(e) => sub("home", "heroButton", e.target.value)} placeholder="Discover" /></Field>
@@ -139,7 +143,7 @@ function SettingsForm({ initial }: { initial: S }) {
           <Field label="Chattogram store address"><Input value={f.home.store1Address} onChange={(e) => sub("home", "store1Address", e.target.value)} /></Field>
           <Field label="Dhaka store address"><Input value={f.home.store2Address} onChange={(e) => sub("home", "store2Address", e.target.value)} /></Field>
           <Field label="Opening hours"><Input value={f.home.hours} onChange={(e) => sub("home", "hours", e.target.value)} placeholder="Open daily, 10 AM – 10 PM" /></Field>
-        </div>
+        </div>}
         <div className="mt-4 grid gap-3 border-t pt-4">
           <Field label="Homepage title on Google" right={<Count n={f.home.seoTitle.length} max={70} />}><Input value={f.home.seoTitle} onChange={(e) => sub("home", "seoTitle", e.target.value)} /></Field>
           <Field label="Homepage description on Google" right={<Count n={f.home.seoDescription.length} max={160} />}><Textarea rows={3} value={f.home.seoDescription} onChange={(e) => sub("home", "seoDescription", e.target.value)} /></Field>
