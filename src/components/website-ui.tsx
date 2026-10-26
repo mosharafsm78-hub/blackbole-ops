@@ -73,6 +73,21 @@ export function SaveBar({ dirty, saving, onSave, onDiscard, message = "Unsaved c
     enableBeforeUnload: () => dirty && !saving,
   })
   return (
+    <>
+    {/* second copy at the bottom of the screen, where the eye already is after editing a field */}
+    <div
+      aria-hidden={!dirty}
+      className={cn(
+        "fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-neutral-900 py-2 pl-4 pr-2 text-white shadow-2xl ring-1 ring-black/10 transition-all duration-200",
+        dirty ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-24 opacity-0",
+      )}
+    >
+      <span className="flex items-center gap-2 whitespace-nowrap text-sm font-medium"><span className="size-2 rounded-full bg-amber-400" />{message}</span>
+      <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" disabled={saving} onClick={onDiscard}>Discard</Button>
+      <Button size="sm" className="bg-white text-neutral-900 hover:bg-white/90" disabled={saving} onClick={onSave}>
+        {saving && <Loader2 className="size-4 animate-spin" />}{saving ? "Saving" : "Save"}
+      </Button>
+    </div>
     <div
       aria-hidden={!dirty}
       className={cn(
@@ -89,6 +104,7 @@ export function SaveBar({ dirty, saving, onSave, onDiscard, message = "Unsaved c
         </Button>
       </div>
     </div>
+    </>
   )
 }
 
