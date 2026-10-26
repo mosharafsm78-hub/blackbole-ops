@@ -57,7 +57,7 @@ function PageForm({ page }: { page: Doc<"webPages"> | null }) {
     try {
       const id = await save({ id: page?._id, title: f.title, handle: page ? f.handle : f.handle, body: f.body, isPublished: f.isPublished, seo: { title: f.seoTitle, description: f.seoDesc } })
       markSaved(f); setSaved(f)
-      toast.success("Saved — live on the website in about 3 minutes")
+      toast.success("Saved — live on the website in about a minute")
       if (isNew) setTimeout(() => navigate({ to: "/website-page", search: { id }, replace: true }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }

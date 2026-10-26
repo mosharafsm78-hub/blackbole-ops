@@ -82,7 +82,7 @@ function PostForm({ post, blogs, authors }: { post: Doc<"webPosts"> | null; blog
         seo: { title: f.seoTitle, description: f.seoDesc },
       })
       markSaved(f); setSaved(f)
-      toast.success("Saved — live on the website in about 3 minutes")
+      toast.success("Saved — live on the website in about a minute")
       if (isNew) setTimeout(() => navigate({ to: "/website-post", search: { id }, replace: true }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }

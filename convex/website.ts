@@ -17,7 +17,7 @@ import { hasPerm } from "./rules"
 import { finishCollections, type Rules, type SortKey } from "./websiteRules"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
-const REBUILD_DELAY = 2 * 60 * 1000
+const REBUILD_DELAY = 30 * 1000 // short pause so several quick edits go out together
 const PRODUCT_CHUNK = 15
 const COLLECTION_CHUNK = 25
 

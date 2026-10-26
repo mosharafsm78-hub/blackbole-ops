@@ -148,7 +148,7 @@ function NewProduct() {
         }),
       })
       markSaved(f)
-      toast.success(f.published ? "Product created — live on the website in about 3 minutes" : "Product created (hidden)")
+      toast.success(f.published ? "Product created — live on the website in about a minute" : "Product created (hidden)")
       setTimeout(() => navigate({ to: "/website-product", search: { id } }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }

@@ -89,12 +89,12 @@ function PublishStatus() {
   useTick(15000)
   if (!st) return null
   let tone = "bg-tone-green-bg text-tone-green", dot = "bg-tone-green", label = "Live", tip = "The website shows your latest changes."
-  if (!st.hook) { tone = "bg-tone-amber-bg text-tone-amber"; dot = "bg-tone-amber"; label = "Publishing off"; tip = "WEBSITE_DEPLOY_HOOK is not set, so saved changes don't reach the website." }
+  if (!st.hook) { tone = "bg-tone-amber-bg text-tone-amber"; dot = "bg-tone-amber"; label = "Updates off"; tip = "The website update link is missing, so saved changes don't reach the website." }
   else if (st.rebuild?.pending) {
     const left = Math.max(0, Math.ceil((st.rebuild.due - Date.now()) / 60000))
-    tone = "bg-tone-blue-bg text-tone-blue"; dot = "bg-tone-blue animate-pulse"; label = left > 0 ? `Publishing in ${left} min` : "Publishing…"
-    tip = "Changes are grouped for 2 minutes, then the website rebuilds (about 1 more minute)."
-  } else if (st.lastBuild && !st.lastBuild.ok) { tone = "bg-tone-red-bg text-tone-red"; dot = "bg-tone-red"; label = "Last publish failed"; tip = `Cloudflare answered ${st.lastBuild.status || "nothing"}. Try “Publish now”.` }
+    tone = "bg-tone-blue-bg text-tone-blue"; dot = "bg-tone-blue animate-pulse"; label = "Updating website…"
+    tip = "Your saved changes go live in about a minute."
+  } else if (st.lastBuild && !st.lastBuild.ok) { tone = "bg-tone-red-bg text-tone-red"; dot = "bg-tone-red"; label = "Update failed"; tip = `The live site is unchanged. It tries again with your next save, or use “Retry website update” in the ⋯ menu.` }
   else if (st.lastBuild && Date.now() - st.lastBuild.at < 3 * 60 * 1000) { tone = "bg-tone-blue-bg text-tone-blue"; dot = "bg-tone-blue animate-pulse"; label = "Updating website…"; tip = "The website is rebuilding with your changes. Takes about a minute." }
   else if (st.lastBuild) tip = `Last published ${ago(st.lastBuild.at)}.`
   return (
@@ -118,9 +118,9 @@ function MoreActions({ onAddExisting }: { onAddExisting: () => void }) {
       <DropdownMenu>
         <DropdownMenuTrigger asChild><Button size="icon" variant="outline" className="size-8" aria-label="More actions"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
-          <DropdownMenuItem onClick={async () => {
-            try { const r = await rebuild({}); toast.success(r.hook ? "Publishing now — live in about a minute" : "Publishing is off (no deploy hook)") } catch (e) { toast.error(errMsg(e)) }
-          }}><RefreshCw className="size-4" /> Publish now</DropdownMenuItem>
+          {st?.lastBuild && !st.lastBuild.ok && <DropdownMenuItem onClick={async () => {
+            try { await rebuild({}); toast.success("Trying the website update again") } catch (e) { toast.error(errMsg(e)) }
+          }}><RefreshCw className="size-4" /> Retry website update</DropdownMenuItem>}
           <DropdownMenuItem onClick={onAddExisting}><Plus className="size-4" /> Put an existing Ops product on the website</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setConfirm(true)}><Download className="size-4" /> Import from current website</DropdownMenuItem>
           {st?.lastImport && <><DropdownMenuSeparator /><DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Last import {dateTime(st.lastImport.at)}</DropdownMenuLabel></>}

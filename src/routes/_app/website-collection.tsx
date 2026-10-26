@@ -68,7 +68,7 @@ function CollectionForm({ data }: { data: Data }) {
         rules: auto ? { match: f.rules!.match, conditions: f.rules!.conditions.map((x) => ({ field: x.field, op: x.op, values: x.values, ...(x.all ? { all: true } : {}) })) } as any : null, sort: f.sort,
       })
       markSaved(f); setSaved(f)
-      toast.success("Collection saved — live on the website in about 3 minutes")
+      toast.success("Collection saved — live on the website in about a minute")
       if (isNew) setTimeout(() => navigate({ to: "/website-collection", search: { id }, replace: true }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }

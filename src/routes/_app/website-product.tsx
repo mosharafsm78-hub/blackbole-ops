@@ -118,7 +118,7 @@ function ProductForm({ data }: { data: Data }) {
       })
       const next = { ...f, handle }
       setF(next); setSaved(next); markSaved(next)
-      toast.success(f.published ? "Saved — live on the website in about 3 minutes" : "Saved")
+      toast.success(f.published ? "Saved — live on the website in about a minute" : "Saved")
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
 

@@ -81,7 +81,7 @@ function SettingsForm({ initial }: { initial: S }) {
     try {
       await save({ settings: f })
       markSaved(f); setBase(f)
-      toast.success("Settings saved — live on the website in about 3 minutes")
+      toast.success("Settings saved — live on the website in about a minute")
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
   const collOptions = (colls?.collections ?? []).map((c) => c.handle)

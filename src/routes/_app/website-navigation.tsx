@@ -53,7 +53,7 @@ function Navigation() {
             <EmptyImport icon={<ListTree className="size-5" />} what="menus" title="No menus in Ops yet"
               text="The website still uses the menus copied from Shopify. Copy them here once to edit them." />
           ) : (
-            <Section title="Menus" sub="Click a menu to change its links. Changes go live in about 3 minutes." flush>
+            <Section title="Menus" sub="Click a menu to change its links. Changes go live in about a minute." flush>
               <MenuRows list={used} onOpen={setOpen} />
               {other.length > 0 && (
                 <div className="border-t">
@@ -107,7 +107,7 @@ function MenuEditor({ menu, label, onClose }: { menu: Menu; label?: string; onCl
     try {
       await save({ id: menu._id, title: f.title, handle: menu.handle, items: f.items })
       markSaved(f); setSaved(f)
-      toast.success("Menu saved — live on the website in about 3 minutes")
+      toast.success("Menu saved — live on the website in about a minute")
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
   return (
