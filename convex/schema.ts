@@ -472,6 +472,17 @@ export default defineSchema({
     at: v.number(),
   }).index("by_thread", ["threadId", "at"]),
 
+  // Action Center's audit trail: a real log of what was actually done on a finding — not just the static
+  // description. findingId is the stable id dashboard.ts assigns each finding (e.g. "sku-returns").
+  findingLogs: defineTable({
+    findingId: v.string(),
+    text: v.string(),
+    status: v.union(v.literal("open"), v.literal("in_progress"), v.literal("resolved")),
+    byName: v.string(),
+    at: v.number(),
+  })
+    .index("by_finding", ["findingId", "at"]),
+
   // WhatsApp send queue: AI drafts a personalized message, a staff member taps "Open WhatsApp" (opens the real
   // app/web with the text pre-filled) and presses send themselves — no automation ever touches the WhatsApp
   // account, so the team's existing number stays 100% safe. Fed today by the win-back playbook; any future

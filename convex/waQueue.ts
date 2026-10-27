@@ -8,6 +8,7 @@
 // finding can enqueue into this same table with its own `source` so the team works from one shared queue.
 import { v } from "convex/values"
 import { internalAction, internalQuery, query } from "./_generated/server"
+
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
@@ -69,15 +70,34 @@ export const pending = query({
   },
 })
 
+/** Sent log for the inbox UI — same shared view, so the team can see who already got reached and by whom. */
+export const sent = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "orders.view")
+    const rows = await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "sent")).order("desc").take(200)
+    return rows
+      .map((r) => ({ _id: r._id, name: r.name, phone: r.phone, text: r.text, source: r.source, sentAt: r.sentAt ?? r.createdAt, sentBy: r.sentBy }))
+      .sort((a, b) => b.sentAt - a.sentAt)
+  },
+})
+
+async function computeStats(ctx: any) {
+  const pendingRows = await ctx.db.query("waQueue").withIndex("by_status", (q: any) => q.eq("status", "pending")).collect()
+  const sentRows = await ctx.db.query("waQueue").withIndex("by_status", (q: any) => q.eq("status", "sent")).collect()
+  return { pendingTotal: pendingRows.length, sentTotal: sentRows.length }
+}
+
 export const stats = query({
   args: {},
   handler: async (ctx) => {
     await requirePerm(ctx, "orders.view")
-    const pendingRows = await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).collect()
-    const sentRows = await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "sent")).collect()
-    return { pendingTotal: pendingRows.length, sentTotal: sentRows.length }
+    return computeStats(ctx)
   },
 })
+
+/** Same numbers, for other server-side code (e.g. the Action Center) — no settings-manage/staff gate, just internal. */
+export const liveStats = internalQuery({ args: {}, handler: async (ctx) => computeStats(ctx) })
 
 export const markSent = mutation({
   args: { id: v.id("waQueue") },

@@ -396,18 +396,22 @@ async function buildInsights(ctx: any) {
   if (customers.length >= 30 && repeatRate < 0.15 && single.length > 0) {
     const singleTotal = single.reduce((t, c) => t + c.value, 0)
     const impact = Math.round(singleTotal * 0.15)
-    const wb = await ctx.runQuery(internal.winback.liveStats, {}).catch(() => null)
+    const [wb, wa] = await Promise.all([
+      ctx.runQuery(internal.winback.liveStats, {}).catch(() => null),
+      ctx.runQuery(internal.waQueue.liveStats, {}).catch(() => null),
+    ])
     const live = wb?.enabled
+    const waLine = wa ? ` WhatsApp queue: ${wa.sentTotal} sent by the team, ${wa.pendingTotal} waiting.` : ""
     findings.push({
       id: "repeat-rate",
       problem: "You're selling once and losing the customer",
       finding: `Only ${Math.round(repeatRate * 100)}% of ${customers.length} customers in the last ${INSIGHT_WINDOW_DAYS} days bought a second time. ${single.length} one-time buyers spent ${taka(Math.round(singleTotal))} total and then went quiet.`,
-      solution: `Auto-send an SMS 10–20 days after delivery with a small win-back discount for a second order. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
+      solution: `Auto-send an SMS 10–20 days after delivery with a small win-back discount for a second order, plus a WhatsApp message the team taps to send. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
       impact,
       status: "automatic" as const,
-      aiDid: live
+      aiDid: (live
         ? `Sending the win-back SMS automatically, no one touches it. So far: ${wb!.sentTotal} sent, ${wb!.redeemed} redeemed the discount.`
-        : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`,
+        : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`) + waLine,
       detail: [] as string[],
     })
   }

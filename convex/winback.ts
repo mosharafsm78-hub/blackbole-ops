@@ -17,7 +17,7 @@ const CODE = "COMEBACK150"
 const BATCH = 60
 
 export type WinbackConf = { enabled: boolean; code: string; minDays: number; maxDays: number; template: string }
-export const DEFAULT_TEMPLATE = "Hi {name}! It's been a while since your BlackBole order — come back and get ৳150 off with code {code}. Shop: blackbole.com"
+export const DEFAULT_TEMPLATE = "Hi {name}! You were one of our favourite customers at BlackBole and we'd love to have you back 💙 Here's {code} for ৳150 off your next order (on ৳1,500+). Shop: blackbole.com · Need help? Call us: 01805070650"
 export const DEFAULT_CONF: WinbackConf = { enabled: true, code: CODE, minDays: 10, maxDays: 20, template: DEFAULT_TEMPLATE }
 
 const conf = async (ctx: any): Promise<WinbackConf> => ({ ...DEFAULT_CONF, ...((await getSetting<WinbackConf>(ctx, "winback")) ?? {}) })
