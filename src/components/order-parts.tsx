@@ -358,6 +358,9 @@ export function CallDialog({
 export const NEEDS_REASON: OrderStatus[] = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"]
 export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
 export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Advance payment pending", "Address unclear", "Other"]
+// Standardized so these roll up into real numbers later (e.g. Action Center breaking down returns by cause) —
+// a typed-out reason can never be counted, a picked one always can.
+export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Other"]
 
 export function StatusDialog({
   ids, options, open, onOpenChange, initial, onDone, label, from, confirmOnly,
@@ -379,7 +382,7 @@ export function StatusDialog({
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
   useEffect(() => { if (open) { setTo(initial ?? options[0]); setReason("") } }, [open, initial, options])
-  const presets = to === "cancelled" ? CANCEL_REASONS : to === "on_hold" ? HOLD_REASONS : []
+  const presets = to === "cancelled" ? CANCEL_REASONS : to === "on_hold" ? HOLD_REASONS : (to === "returned" || to === "pending_returned" || to === "damaged") ? RETURN_REASONS : []
   const needReason = !!to && NEEDS_REASON.includes(to)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
