@@ -258,6 +258,7 @@ export default defineSchema({
     customerType: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     winBackAt: v.optional(v.number()), // when the automatic win-back SMS was sent (never resend)
+    waQueuedAt: v.optional(v.number()), // when a WhatsApp win-back message was queued for a human to send (never re-queue)
     createdAt: v.number(),
   })
     .index("by_phone", ["phone"])
@@ -470,6 +471,24 @@ export default defineSchema({
     error: v.optional(v.string()),
     at: v.number(),
   }).index("by_thread", ["threadId", "at"]),
+
+  // WhatsApp send queue: AI drafts a personalized message, a staff member taps "Open WhatsApp" (opens the real
+  // app/web with the text pre-filled) and presses send themselves — no automation ever touches the WhatsApp
+  // account, so the team's existing number stays 100% safe. Fed today by the win-back playbook; any future
+  // Action Center finding can enqueue into this same table with its own `source`.
+  waQueue: defineTable({
+    customerId: v.id("customers"),
+    phone: v.string(), // normalized 01XXXXXXXXX
+    name: v.string(),
+    text: v.string(),
+    source: v.string(), // "winback" for now
+    status: v.union(v.literal("pending"), v.literal("sent"), v.literal("skipped")),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+    sentBy: v.optional(v.string()),
+  })
+    .index("by_status", ["status", "createdAt"])
+    .index("by_customer", ["customerId"]),
 
   smsLogs: defineTable({
     phone: v.string(),

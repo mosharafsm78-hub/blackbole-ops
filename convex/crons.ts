@@ -14,6 +14,8 @@ crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tic
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
 // win-back SMS: one-time buyers who never came back get an automatic discount SMS (does nothing before its start date or while switched off)
 crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
+// WhatsApp send queue: drafts a win-back message for a human to tap-send (never sends anything itself)
+crons.interval("whatsapp queue fill", { hours: 1 }, internal.waQueue.run, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
