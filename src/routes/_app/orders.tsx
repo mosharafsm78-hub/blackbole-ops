@@ -471,6 +471,13 @@ function OrdersPage() {
                         <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Feedback call pending</div>
                       )
                     )}
+                    {RETURN_LIKE.includes(o.status as OrderStatus) && (
+                      o.reason ? (
+                        <div className="mt-1 whitespace-nowrap border-t pt-1 text-tone-green">✓ Return call: {o.reason}</div>
+                      ) : (
+                        <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Return call pending</div>
+                      )
+                    )}
                     {(o as any).csatFollowUpAt && (
                       <div className={cn("whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
                         Feedback follow-up {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
