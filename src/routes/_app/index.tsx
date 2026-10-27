@@ -3,7 +3,7 @@ import { Link, createFileRoute } from "@tanstack/react-router"
 import { useAction, useQuery } from "convex/react"
 import { useEffect } from "react"
 import { Area, AreaChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Target } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
@@ -85,6 +85,8 @@ function Dashboard() {
           </div>
         </div>
       </div>
+
+      <BusinessInsights />
 
       {/* today's work */}
       <section>
@@ -280,6 +282,48 @@ function Gauge({ label, value, sub, good }: { label: string; value: number | nul
 function Delta({ v }: { v: number }) {
   const Icon = v > 0 ? ArrowUpRight : v < 0 ? ArrowDownRight : Minus
   return <span className={cn("mt-0.5 inline-flex items-center gap-0.5 text-xs font-semibold", v > 0 ? "text-tone-green" : v < 0 ? "text-tone-red" : "text-muted-foreground")}><Icon className="size-3.5" />{Math.abs(v)}% vs yesterday</span>
+}
+
+/** A tiny, specific corner: the biggest money-losing problem (or growth lever) the data points to, and exactly what to do about it. */
+function BusinessInsights() {
+  const data = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
+  const [open, setOpen] = useState(false)
+  if (!data || data.findings.length === 0) return null
+  const [top, ...rest] = data.findings
+  return (
+    <section className="rounded-xl border border-tone-violet/30 bg-gradient-to-br from-tone-violet-bg to-card p-4" data-testid="business-insights">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-tone-violet/15 text-tone-violet"><Target className="size-4" /></span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">{top.problem}</h2>
+            <span className="shrink-0 rounded-full bg-tone-violet/10 px-2 py-0.5 text-[11px] font-semibold text-tone-violet">Biggest lever · last {data.windowDays}d</span>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">{top.finding}</p>
+          <p className="mt-2 rounded-lg bg-card/70 px-3 py-2 text-sm"><span className="font-semibold text-tone-violet">Do this: </span>{top.solution}</p>
+          {rest.length > 0 && (
+            <>
+              <button type="button" onClick={() => setOpen((o) => !o)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+                <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
+                {open ? "Hide" : `${rest.length} more thing${rest.length > 1 ? "s" : ""} worth fixing`}
+              </button>
+              {open && (
+                <div className="mt-2 space-y-2 border-t pt-2">
+                  {rest.map((f: any) => (
+                    <div key={f.id} className="text-sm">
+                      <div className="font-semibold">{f.problem}</div>
+                      <p className="text-muted-foreground">{f.finding}</p>
+                      <p className="mt-1 rounded-lg bg-card/70 px-3 py-2"><span className="font-semibold text-tone-violet">Do this: </span>{f.solution}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
 }
 
 /** Month by month — the business over time. */

@@ -271,3 +271,130 @@ async function buildMonthlyFast(ctx: any, months: number): Promise<any[]> {
   }
   return [...out.values()].reverse().map((m) => ({ ...m, sales: Math.round(m.sales * 100) / 100, deliveredValue: Math.round(m.deliveredValue * 100) / 100, deliveryRate: m.delivered + m.returned ? Math.round((m.delivered / (m.delivered + m.returned)) * 100) : null }))
 }
+
+// ---------- business insights: a few specific, numbers-backed problems + fixes, ranked by money impact ----------
+const taka = (n: number) => `৳${Math.round(n).toLocaleString("en-IN")}`
+const INSIGHT_WINDOW_DAYS = 90
+const MIN_SOURCE_RESOLVED = 15
+const MIN_SKU_QTY = 15
+
+export const insightsData = internalQuery({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const orders = await ctx.db
+      .query("orders")
+      .withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to))
+      .collect()
+      .then((rows) => rows.filter((o) => !o.deletedAt))
+
+    const bySource = new Map<string, { count: number; value: number; delivered: number; returned: number }>()
+    const bySku = new Map<string, { name: string; qty: number; returnedQty: number; returnedValue: number }>()
+    const byCustomer = new Map<string, { count: number; value: number }>()
+
+    for (const o of orders) {
+      if (o.status === "cancelled") continue
+      const delivered = DELIVERED.includes(o.status)
+      const returned = RETURNED.includes(o.status)
+
+      const src = bySource.get(o.source) ?? { count: 0, value: 0, delivered: 0, returned: 0 }
+      src.count++; src.value += o.total
+      if (delivered) src.delivered++
+      if (returned) src.returned++
+      bySource.set(o.source, src)
+
+      const cust = byCustomer.get(o.customerId) ?? { count: 0, value: 0 }
+      cust.count++; cust.value += o.total
+      byCustomer.set(o.customerId, cust)
+
+      for (const i of o.items) {
+        const sk = bySku.get(i.sku) ?? { name: `${i.name}${i.attrs ? ` - ${i.attrs}` : ""}`, qty: 0, returnedQty: 0, returnedValue: 0 }
+        sk.qty += i.qty
+        if (returned) { sk.returnedQty += i.qty; sk.returnedValue += i.price * i.qty - i.discount }
+        bySku.set(i.sku, sk)
+      }
+    }
+    return {
+      bySource: [...bySource.entries()],
+      bySku: [...bySku.entries()],
+      customers: [...byCustomer.values()],
+    }
+  },
+})
+
+export const insights = action({
+  args: {},
+  handler: async (ctx): Promise<any> => cached(ctx, "insights", 30 * 60000, () => buildInsights(ctx)),
+})
+
+async function buildInsights(ctx: any) {
+  const to = Date.now()
+  const from = to - INSIGHT_WINDOW_DAYS * DAY
+  const d = await ctx.runQuery(internal.dashboard.insightsData, { from, to })
+  if (!d) return { findings: [], windowDays: INSIGHT_WINDOW_DAYS }
+
+  const findings: { id: string; problem: string; finding: string; solution: string; impact: number }[] = []
+
+  // A. The order source with the worst return rate, if it's well clear of the rest of the business.
+  const sources: [string, { count: number; value: number; delivered: number; returned: number }][] = d.bySource
+  const totalResolved = sources.reduce((t, [, s]) => t + s.delivered + s.returned, 0)
+  const totalReturned = sources.reduce((t, [, s]) => t + s.returned, 0)
+  const overallRate = totalResolved ? totalReturned / totalResolved : 0
+  let worstSrc: { source: string; rate: number; resolved: number; returned: number; avgValue: number } | null = null
+  for (const [source, s] of sources) {
+    const resolved = s.delivered + s.returned
+    if (resolved < MIN_SOURCE_RESOLVED) continue
+    const rate = s.returned / resolved
+    if (rate > overallRate + 0.08 && (!worstSrc || rate > worstSrc.rate)) worstSrc = { source, rate, resolved, returned: s.returned, avgValue: s.value / s.count }
+  }
+  if (worstSrc) {
+    const impact = Math.round(worstSrc.returned * worstSrc.avgValue)
+    findings.push({
+      id: "source-returns",
+      problem: `"${worstSrc.source}" orders fail far more than the rest of the business`,
+      finding: `Last ${INSIGHT_WINDOW_DAYS} days: ${Math.round(worstSrc.rate * 100)}% of resolved "${worstSrc.source}" orders came back (${worstSrc.returned} of ${worstSrc.resolved}), vs ${Math.round(overallRate * 100)}% across every other source — about ${taka(impact)} tied up in failed COD and courier fees.`,
+      solution: `Give "${worstSrc.source}" orders a stricter confirmation call (verify address + ask for a small advance on repeat-return customers) before they go to packing — don't treat it the same as your cleaner sources.`,
+      impact,
+    })
+  }
+
+  // B. The single product driving an outsized share of returns.
+  const skus: [string, { name: string; qty: number; returnedQty: number; returnedValue: number }][] = d.bySku
+  let worstSku: { sku: string; name: string; qty: number; returnedQty: number; returnedValue: number; rate: number } | null = null
+  for (const [sku, k] of skus) {
+    if (k.qty < MIN_SKU_QTY) continue
+    const rate = k.returnedQty / k.qty
+    if (rate > 0.25 && (!worstSku || rate > worstSku.rate)) worstSku = { sku, ...k, rate }
+  }
+  if (worstSku) {
+    const impact = Math.round(worstSku.returnedValue)
+    findings.push({
+      id: "sku-returns",
+      problem: "One product is quietly eating your margin",
+      finding: `${worstSku.name} (${worstSku.sku}) was returned ${Math.round(worstSku.rate * 100)}% of the time over ${INSIGHT_WINDOW_DAYS} days (${worstSku.returnedQty} of ${worstSku.qty} units) — about ${taka(impact)} in stock, packing and courier cost.`,
+      solution: `Pull the last 10 return reasons for this SKU. If it's sizing, add a fit note to the product page; if it's quality, pause ads on it until the supplier fixes the batch — right now you're paying to acquire customers who return it.`,
+      impact,
+    })
+  }
+
+  // C. Hardly anyone buys a second time — a growth lever, not just an ops problem.
+  const customers = d.customers as { count: number; value: number }[]
+  const repeat = customers.filter((c) => c.count >= 2)
+  const single = customers.filter((c) => c.count === 1)
+  const repeatRate = customers.length ? repeat.length / customers.length : 0
+  if (customers.length >= 30 && repeatRate < 0.15 && single.length > 0) {
+    const singleTotal = single.reduce((t, c) => t + c.value, 0)
+    const impact = Math.round(singleTotal * 0.15)
+    findings.push({
+      id: "repeat-rate",
+      problem: "You're selling once and losing the customer",
+      finding: `Only ${Math.round(repeatRate * 100)}% of ${customers.length} customers in the last ${INSIGHT_WINDOW_DAYS} days bought a second time. ${single.length} one-time buyers spent ${taka(Math.round(singleTotal))} total and then went quiet.`,
+      solution: `Auto-send a WhatsApp/SMS 10–15 days after delivery with a small win-back discount for a second order. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
+      impact,
+    })
+  }
+
+  findings.sort((a, b) => b.impact - a.impact)
+  return { findings, windowDays: INSIGHT_WINDOW_DAYS }
+}
