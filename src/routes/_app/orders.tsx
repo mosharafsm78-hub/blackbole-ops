@@ -454,7 +454,7 @@ function OrdersPage() {
                       </div>
                     )}
                   </td>
-                  <td className="p-3"><RowStatus id={o._id} status={o.status as OrderStatus} perms={me.perms} label={o.invoiceCode ?? invoice(o.invoiceNo)} /></td>
+                  <td className="p-3"><StatusPill status={o.status as OrderStatus} /></td>
                 </tr>
               ))}
             </tbody>
