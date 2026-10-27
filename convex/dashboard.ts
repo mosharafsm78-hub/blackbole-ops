@@ -3,6 +3,7 @@ import { action, internalQuery } from "./_generated/server"
 import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { currentStaff } from "./lib"
+import { isRealReason } from "./rules"
 import { bdDay, statsFromDays } from "./stats"
 
 const DAY = 86400000
@@ -313,7 +314,8 @@ export const insightsData = internalQuery({
         sk.qty += i.qty
         if (returned) {
           sk.returnedQty += i.qty; sk.returnedValue += i.price * i.qty - i.discount
-          if (o.reason?.trim()) sk.reasons.push({ at: o.createdAt, text: o.reason.trim() })
+          // only a real, human-logged reason counts here — a Pathao/Nuport sync placeholder is not data
+          if (isRealReason(o.reason)) sk.reasons.push({ at: o.createdAt, text: o.reasonNote ? `${o.reason} — "${o.reasonNote}"` : o.reason!.trim() })
         }
         bySku.set(i.sku, sk)
       }

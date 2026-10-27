@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -478,22 +478,24 @@ export function ReasonDialog({
 }) {
   const setReason = useMutation(api.orders.setReason)
   const presets = status === "cancelled" ? CANCEL_REASONS : status === "on_hold" ? HOLD_REASONS : RETURN_REASONS
-  // a raw courier/migration string (e.g. "Pathao: paid_return") never pre-fills the category — start fresh instead
+  // a raw courier/migration string (e.g. "Pathao: paid_return", "Same as Nuport (...)") never pre-fills
+  // anything — not the category, not the note — it's system junk, not something a human wrote
   const looksLikePreset = !!current && presets.includes(current)
+  const looksReal = isRealReason(current)
   const [reason, setLocalReason] = useState(looksLikePreset ? current! : "")
-  const [note, setNote] = useState(currentNote ?? (!looksLikePreset ? current ?? "" : ""))
+  const [note, setNote] = useState(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     if (!open) return
     setLocalReason(looksLikePreset ? current! : "")
-    setNote(currentNote ?? (!looksLikePreset ? current ?? "" : ""))
+    setNote(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, current, currentNote])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{current ? "Edit" : "Add"} reason</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{looksReal ? "Edit" : "Add"} reason</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Category <span className="font-normal text-tone-red">(required)</span></Label>

@@ -246,6 +246,15 @@ export const CSAT_OUTCOMES = [
 /** Outcomes that need another feedback-call attempt — mirrors FOLLOW_UP_OUTCOMES for the pre-delivery call. */
 export const CSAT_FOLLOWUP_OUTCOMES = ["Could not reach"]
 
+/** A `reason` value written by an automatic sync (a Pathao status string, a Nuport migration placeholder) is
+ *  not a real, customer-given reason — it's just what the system happened to be told at the time. Treat it as
+ *  if no reason were recorded so the UI keeps asking a human to actually call and log one, instead of quietly
+ *  showing junk text as if the work were done. */
+const SYSTEM_REASON_RE = /^(Same as Nuport|Pathao:)/i
+export function isRealReason(reason?: string | null): boolean {
+  return !!reason && !SYSTEM_REASON_RE.test(reason)
+}
+
 export const CUSTOMER_TAGS = ["NEW", "REGULAR", "VIP", "RISKY"]
 
 // Bangladesh phone → 01XXXXXXXXX

@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, Clock, Lock, Download, Printer, RefreshCw, 
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { EXCHANGE_SUBS, ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
+import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
@@ -472,7 +472,7 @@ function OrdersPage() {
                       )
                     )}
                     {RETURN_LIKE.includes(o.status as OrderStatus) && (
-                      o.reason ? (
+                      isRealReason(o.reason) ? (
                         <div className="mt-1 whitespace-nowrap border-t pt-1 text-tone-green">✓ Return call: {o.reason}</div>
                       ) : (
                         <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Return call pending</div>
@@ -488,7 +488,7 @@ function OrdersPage() {
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
-                      {RETURN_LIKE.includes(o.status as OrderStatus) && !o.reason && (
+                      {RETURN_LIKE.includes(o.status as OrderStatus) && !isRealReason(o.reason) && (
                         <span className="whitespace-nowrap rounded bg-tone-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">⚠ No reason logged</span>
                       )}
                     </div>

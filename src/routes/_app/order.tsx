@@ -5,7 +5,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, 
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
+import { isRealReason, ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
@@ -184,7 +184,7 @@ function OrderPage() {
             {o.source}{o.externalName ? ` ${o.externalName}` : ""} · {dateTime(o.createdAt)} · by {o.createdByName}
           </span>
         </div>
-        {o.reason ? (
+        {isRealReason(o.reason) ? (
           <div className="mx-5 mt-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">
             <div className="flex items-center justify-between gap-2">
               <span>Reason: {o.reason}</span>
@@ -193,8 +193,8 @@ function OrderPage() {
             {o.reasonNote && <p className="mt-1 text-xs text-tone-amber/80">"{o.reasonNote}"</p>}
           </div>
         ) : reasonStatus ? (
-          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground">
-            <span>No reason recorded</span>
+          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md border border-dashed border-tone-red/40 bg-tone-red/5 px-3 py-1.5 text-sm text-tone-red">
+            <span>Customer care team: please call the customer and record the real return reason here.</span>
             <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold text-foreground underline underline-offset-2 hover:opacity-80">Add reason</button>
           </div>
         ) : null}

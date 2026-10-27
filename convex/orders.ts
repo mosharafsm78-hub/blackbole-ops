@@ -12,7 +12,7 @@ import {
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
-  EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, moveKey, normalizePhone, orderTotals,
+  EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
 } from "./rules"
@@ -300,7 +300,7 @@ export const urgency = query({
         ),
       )
     ).flat().filter((o) => !o.deletedAt)
-    const reasonsPending = returnLike.filter((o) => !o.reason).length
+    const reasonsPending = returnLike.filter((o) => !isRealReason(o.reason)).length
 
     return { pendingOrders, feedbackPending, feedbackFollowUp, reasonsPending }
   },
@@ -381,7 +381,7 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   // feedback call due today (Dhaka time) or overdue — mirrors the "followUp" flag above
   if (f.flag === "csatFollowUp" && !(o.csatFollowUpAt && o.csatFollowUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
   // returned / damaged / pending-returned with no reason logged — the fulfillment-quality data point is missing
-  if (f.flag === "needsReason" && !(isFlagged(o.status as OrderStatus) && !o.reason)) return false
+  if (f.flag === "needsReason" && !(isFlagged(o.status as OrderStatus) && !isRealReason(o.reason))) return false
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
 }
@@ -591,7 +591,7 @@ export const get = query({
 })
 
 // ---------- status changes ----------
-export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean } = {}) {
+export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean; systemReason?: boolean } = {}) {
   const from = order.status as OrderStatus
   if (from === to) return
   if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
@@ -606,7 +606,10 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   await updateCustomerStats(ctx, order, from, to)
   const now = Date.now()
   const patch: Partial<Doc<"orders">> = { status: to, statusChangedAt: now, updatedAt: now }
-  if (reason) { patch.reason = reason; patch.lastNote = `${STATUS_LABEL[to]}: ${reason}`; patch.lastNoteBy = byName }
+  // A system-sync note (Pathao status text, Nuport migration text) still goes in the order log below, but it
+  // is never a real customer-given reason — never let it land in `reason`/`lastNote`, which the UI reads as
+  // "someone found out and recorded why."
+  if (reason && !opts.systemReason) { patch.reason = reason; patch.lastNote = `${STATUS_LABEL[to]}: ${reason}`; patch.lastNoteBy = byName }
   if (to === "approved" && !order.approvedAt) patch.approvedAt = now
   if (to === "in_transit" && !order.shippedAt) patch.shippedAt = now
   if (isDelivered(to) && !order.deliveredAt) {
@@ -722,7 +725,7 @@ export const systemStatus = internalMutation({
   handler: async (ctx, { id, to, note, byName }) => {
     const order = await ctx.db.get(id)
     if (!order || order.deletedAt || order.status === to || !canTransition(order.status as OrderStatus, to)) return false
-    await applyStatus(ctx, order, to, byName ?? "Pathao sync", note)
+    await applyStatus(ctx, order, to, byName ?? "Pathao sync", note, { systemReason: true })
     return true
   },
 })
@@ -1283,7 +1286,7 @@ export const nuportApply = internalMutation({
       }
       if (o.status !== r.to) {
         try {
-          await applyStatus(ctx, (await ctx.db.get(o._id))!, r.to, "Nuport sync", `Same as Nuport (${r.nuport})`, { force: true, quiet: true })
+          await applyStatus(ctx, (await ctx.db.get(o._id))!, r.to, "Nuport sync", `Same as Nuport (${r.nuport})`, { force: true, quiet: true, systemReason: true })
           changed++
         } catch (e) { errors.push(`${invoiceLabel(o)}: ${e instanceof Error ? e.message : String(e)}`) }
       }
