@@ -15,6 +15,9 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 // prerender is expanded to multiple static pages — `?inline` would duplicate
 // the CSS into every HTML file).
 import '../styles.css'
+// Side-effect only: auto-recovers the app from a stuck splash screen when a lazy chunk fails to load
+// (stale deploy / transient CDN 503). See the file for why.
+import '@/lib/chunk-reload'
 import siteMetadata from '../metadata.json'
 import AppConvexProvider from '@/components/convex-client-provider'
 
