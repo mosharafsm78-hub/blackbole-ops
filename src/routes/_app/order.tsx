@@ -9,7 +9,7 @@ import { ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderSt
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
-  CallDialog, CartEditor, EXCHANGE_REASONS, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
+  CallDialog, CartEditor, CsatDialog, EXCHANGE_REASONS, PathaoAddress, ProductSearch, ReasonDialog, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -116,6 +116,8 @@ function OrderPage() {
   const [payOpen, setPayOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [exchangeOpen, setExchangeOpen] = useState(false)
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [csatOpen, setCsatOpen] = useState(false)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState<"all" | "call" | "note" | "log">("all")
   const [booking, setBooking] = useState(false)
@@ -137,6 +139,8 @@ function OrderPage() {
   const area = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
   const shippedNoParcel = o.courier !== "pickup" && !o.consignmentId && ["in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned"].includes(status)
   const canExchange = ["delivered_due", "delivered_paid", "pending_returned", "returned", "damaged"].includes(status) && can("orders.create")
+  const reasonStatus = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"].includes(status) && can("orders.edit")
+  const canCsat = (status === "delivered_due" || status === "delivered_paid") && can("orders.view")
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -155,6 +159,9 @@ function OrderPage() {
           </div>
           <div className="ml-auto flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}><PhoneCall className="size-4" /> Log call</Button>
+            {canCsat && (
+              <Button variant="outline" size="sm" onClick={() => setCsatOpen(true)}><PhoneCall className="size-4" /> {o.csat ? "Feedback logged" : "Feedback call"}</Button>
+            )}
             {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
               : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
             <Perm perm="orders.print">
@@ -177,7 +184,23 @@ function OrderPage() {
             {o.source}{o.externalName ? ` ${o.externalName}` : ""} · {dateTime(o.createdAt)} · by {o.createdByName}
           </span>
         </div>
-        {o.reason && <div className="mx-5 mt-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">Reason: {o.reason}</div>}
+        {o.reason ? (
+          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">
+            <span>Reason: {o.reason}</span>
+            {reasonStatus && <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">Edit</button>}
+          </div>
+        ) : reasonStatus ? (
+          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground">
+            <span>No reason recorded</span>
+            <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold text-foreground underline underline-offset-2 hover:opacity-80">Add reason</button>
+          </div>
+        ) : null}
+        {o.csat && (
+          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-blue-bg px-3 py-1.5 text-sm text-tone-blue">
+            <span>Feedback: {o.csat.outcome}{o.csat.note ? ` — ${o.csat.note}` : ""}</span>
+            {canCsat && <button type="button" onClick={() => setCsatOpen(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">Edit</button>}
+          </div>
+        )}
 
         <Progress status={status} />
 
@@ -441,6 +464,8 @@ function OrderPage() {
       <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
       {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
+      <ReasonDialog orderId={o._id} status={status} current={o.reason} open={reasonOpen} onOpenChange={setReasonOpen} />
+      <CsatDialog orderId={o._id} current={o.csat} open={csatOpen} onOpenChange={setCsatOpen} />
     </div>
   )
 }

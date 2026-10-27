@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -456,6 +456,98 @@ export function StatusDialog({
           >
             {busy ? "Moving…" : "Confirm"}
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- Set / correct reason (after the fact, no status change) ----------------
+export function ReasonDialog({
+  orderId, status, current, open, onOpenChange,
+}: {
+  orderId: Id<"orders">
+  status: OrderStatus
+  current?: string
+  open: boolean
+  onOpenChange: (o: boolean) => void
+}) {
+  const setReason = useMutation(api.orders.setReason)
+  const [reason, setLocalReason] = useState(current ?? "")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (open) setLocalReason(current ?? "") }, [open, current])
+  const presets = status === "cancelled" ? CANCEL_REASONS : status === "on_hold" ? HOLD_REASONS : RETURN_REASONS
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>{current ? "Edit" : "Add"} reason</DialogTitle></DialogHeader>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => (
+              <button key={p} type="button" onClick={() => setLocalReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
+            ))}
+          </div>
+          <Input value={reason} onChange={(e) => setLocalReason(e.target.value)} placeholder="Why?" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={busy || !reason.trim()} onClick={async () => {
+            setBusy(true)
+            try { await setReason({ id: orderId, reason: reason.trim() }); toast.success("Reason saved"); onOpenChange(false) }
+            catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save reason</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------- Post-delivery feedback call ----------------
+export function CsatDialog({
+  orderId, current, open, onOpenChange,
+}: {
+  orderId: Id<"orders">
+  current?: { outcome: string; note?: string; byName: string; at: number }
+  open: boolean
+  onOpenChange: (o: boolean) => void
+}) {
+  const logCsat = useMutation(api.orders.logCsat)
+  const [outcome, setOutcome] = useState(current?.outcome ?? CSAT_OUTCOMES[0])
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (open) { setOutcome(current?.outcome ?? CSAT_OUTCOMES[0]); setNote("") } }, [open, current])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Delivery feedback call</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          {current && (
+            <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
+              Last logged: <span className="font-medium text-foreground">{current.outcome}</span>{current.note ? ` — ${current.note}` : ""} · by {current.byName}
+            </p>
+          )}
+          <div className="space-y-2">
+            <Label>How did it go?</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {CSAT_OUTCOMES.map((o) => (
+                <button key={o} type="button" onClick={() => setOutcome(o)} className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>{o}</button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>What did they say? <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Quality, fit, delivery speed, anything worth keeping…" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { await logCsat({ id: orderId, outcome, note: note.trim() || undefined }); toast.success("Feedback logged"); onOpenChange(false) }
+            catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save feedback</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

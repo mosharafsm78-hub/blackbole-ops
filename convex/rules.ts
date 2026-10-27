@@ -237,6 +237,12 @@ export const MESSAGE_CHANNELS = ["WhatsApp", "Messenger", "Instagram"]
 /** Outcomes that need another call — the dialog asks when to follow up. */
 export const FOLLOW_UP_OUTCOMES = ["Will confirm later", "Busy / call later", "No answer", "Switched off"]
 
+/** Post-delivery feedback call: how did the experience actually go — separate from the pre-delivery
+ *  confirmation call, so it can be counted on its own (real CSAT data, not folded into call outcomes). */
+export const CSAT_OUTCOMES = [
+  "Happy — no issues", "Happy — minor issue", "Unhappy — product issue", "Unhappy — delivery issue", "Unhappy — other", "Could not reach", "Declined to answer",
+]
+
 export const CUSTOMER_TAGS = ["NEW", "REGULAR", "VIP", "RISKY"]
 
 // Bangladesh phone → 01XXXXXXXXX

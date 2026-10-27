@@ -296,6 +296,7 @@ export default defineSchema({
     consignmentId: v.optional(v.string()),
     exchangeCheckedAt: v.optional(v.number()),
     autoCall: v.optional(v.any()), // last automatic confirmation call: { result: confirmed | cancel | agent | no_answer, at, attempts } // last automatic look on Pathao for this exchange's parcels
+    csat: v.optional(v.any()), // last post-delivery feedback call: { outcome, note?, byName, at } — separate from callCount/lastCallOutcome, which drive the pre-delivery confirmation-call cron
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),

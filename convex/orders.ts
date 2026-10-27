@@ -815,6 +815,35 @@ export const logCall = mutation({
   },
 })
 
+/** Set or correct the reason on an order after the fact — e.g. a migrated order whose reason is just a
+ *  placeholder, or a return logged without one. Doesn't touch status, just the record. */
+export const setReason = mutation({
+  args: { id: v.id("orders"), reason: v.string() },
+  handler: async (ctx, { id, reason }) => {
+    const me = await requirePerm(ctx, "orders.edit")
+    const order = await ctx.db.get(id)
+    if (!order) throw new ConvexError("Order not found")
+    const clean = reason.trim()
+    if (!clean) throw new ConvexError("Enter a reason")
+    await ctx.db.patch(id, { reason: clean, lastNote: `${STATUS_LABEL[order.status as OrderStatus]}: ${clean}`, lastNoteBy: me.staff.name, updatedAt: Date.now() })
+    await logOrder(ctx, id, `Reason set: ${clean}`, me.staff.name)
+  },
+})
+
+/** Post-delivery feedback call — how did it actually go. Its own field (`csat`) and its own log type so it
+ *  never touches callCount/lastCallOutcome, which the pre-delivery confirmation-call cron reads. */
+export const logCsat = mutation({
+  args: { id: v.id("orders"), outcome: v.string(), note: v.optional(v.string()) },
+  handler: async (ctx, { id, outcome, note }) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const order = await ctx.db.get(id)
+    if (!order) throw new ConvexError("Order not found")
+    const csat = { outcome, note: note?.trim() || undefined, byName: me.staff.name, at: Date.now() }
+    await ctx.db.patch(id, { csat, updatedAt: Date.now() })
+    await logOrder(ctx, id, `Feedback call: ${outcome}${csat.note ? ` — ${csat.note}` : ""}`, me.staff.name, "call", outcome)
+  },
+})
+
 export const addPayment = mutation({
   args: { id: v.id("orders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()) },
   handler: async (ctx, a) => {
