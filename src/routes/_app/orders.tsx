@@ -454,7 +454,10 @@ function OrdersPage() {
                       </div>
                     )}
                   </td>
-                  <td className="p-3"><StatusPill status={o.status as OrderStatus} /></td>
+                  <td className="p-3">
+                    <StatusPill status={o.status as OrderStatus} />
+                    {o.statusChangedAt && <div className="mt-1 text-[11px] text-muted-foreground" title={`In this status since ${dateTime(o.statusChangedAt)}`}>for {since(o.statusChangedAt)}</div>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -476,6 +479,15 @@ function OrdersPage() {
       />
     </div>
   )
+}
+
+/** "35 min", "5 h", "3 days" — how long the order has sat in its current status. */
+function since(t: number) {
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000))
+  if (m < 60) return `${m} min`
+  const h = Math.round(m / 60)
+  if (h < 48) return `${h} h`
+  return `${Math.round(h / 24)} days`
 }
 
 /** Status pill with a menu of the moves this user may make, plus "Add note". Moves that need a reason open the note dialog. */
