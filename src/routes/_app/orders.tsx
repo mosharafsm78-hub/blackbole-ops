@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ChevronDown, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
+import { AlertTriangle, ChevronDown, Clock, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -455,8 +455,10 @@ function OrdersPage() {
                     )}
                   </td>
                   <td className="p-3">
-                    <StatusPill status={o.status as OrderStatus} />
-                    {o.statusChangedAt && <div className="mt-1 text-[11px] text-muted-foreground" title={`In this status since ${dateTime(o.statusChangedAt)}`}>for {since(o.statusChangedAt)}</div>}
+                    <div className="flex flex-col items-start gap-1">
+                      <StatusPill status={o.status as OrderStatus} />
+                      {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -481,13 +483,18 @@ function OrdersPage() {
   )
 }
 
-/** "35 min", "5 h", "3 days" — how long the order has sat in its current status. */
-function since(t: number) {
-  const m = Math.max(0, Math.round((Date.now() - t) / 60000))
-  if (m < 60) return `${m} min`
-  const h = Math.round(m / 60)
-  if (h < 48) return `${h} h`
-  return `${Math.round(h / 24)} days`
+/** How long the order has sat in its current status. Waiting statuses turn amber after 2 h and red after 12 h. */
+function StatusAge({ status, at }: { status: OrderStatus; at: number }) {
+  const mins = Math.max(0, Math.round((Date.now() - at) / 60000))
+  const h = mins / 60
+  const text = mins < 60 ? `${mins}m` : h < 48 ? `${Math.round(h)}h` : `${Math.round(h / 24)}d`
+  const waiting = ["pending", "on_hold", "approved", "processing", "ready_to_ship"].includes(status)
+  const tone = !waiting ? "bg-muted text-muted-foreground" : h >= 12 ? "bg-tone-red-bg text-tone-red" : h >= 2 ? "bg-tone-amber-bg text-tone-amber" : "bg-tone-green-bg text-tone-green"
+  return (
+    <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums", tone)} title={`In ${STATUS_LABEL[status]} since ${dateTime(at)}`}>
+      <Clock className="size-3" />{text}
+    </span>
+  )
 }
 
 /** Status pill with a menu of the moves this user may make, plus "Add note". Moves that need a reason open the note dialog. */
