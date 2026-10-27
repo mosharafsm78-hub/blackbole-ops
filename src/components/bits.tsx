@@ -21,6 +21,18 @@ export function TagPill({ tag }: { tag: string }) {
   return <Pill tone={TAG_TONE[tag] ?? "gray"}>{tag}</Pill>
 }
 
+/** Which team owns acting on a dashboard number or finding — so a team leader glancing at the page knows whose
+ *  job it is without reading every line. Kept to the four real teams the business runs. */
+export const TEAM_STYLE: Record<string, string> = {
+  "Customer Care": "bg-tone-blue/15 text-tone-blue",
+  "Fulfillment": "bg-tone-violet/15 text-tone-violet",
+  "Development": "bg-tone-gray/15 text-tone-gray",
+  "Marketing": "bg-tone-pink/15 text-tone-pink",
+}
+export function TeamTag({ team }: { team: string }) {
+  return <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", TEAM_STYLE[team] ?? "bg-muted text-muted-foreground")}>{team}</span>
+}
+
 export function PageHeader({ title, sub, children }: { title: string; sub?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">

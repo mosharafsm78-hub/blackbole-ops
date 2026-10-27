@@ -6,7 +6,7 @@ import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, Target, Un
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
-import { Loading, StatusPill } from "@/components/bits"
+import { Loading, StatusPill, TeamTag } from "@/components/bits"
 import { startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -26,14 +26,15 @@ const RANGES = [
 ]
 
 const QUEUE = [
-  { tab: "pending", label: "Pending", sub: "call & confirm", cls: "bg-tone-amber-bg text-tone-amber" },
-  { tab: "on_hold", label: "On hold", sub: "waiting on customer", cls: "bg-tone-orange-bg text-tone-orange" },
-  { tab: "approved", label: "Approved", sub: "to print & pack", cls: "bg-tone-blue-bg text-tone-blue" },
-  { tab: "processing", label: "Processing", sub: "packing now", cls: "bg-tone-violet-bg text-tone-violet" },
-  { tab: "pre_order", label: "Pre-Order", sub: "waiting for product", cls: "bg-tone-pink-bg text-tone-pink" },
-  { tab: "ready_to_ship", label: "Ready to ship", sub: "waiting for pickup", cls: "bg-tone-indigo-bg text-tone-indigo" },
-  { tab: "in_transit", label: "With courier", sub: "on the way", cls: "bg-tone-cyan-bg text-tone-cyan" },
+  { tab: "pending", label: "Pending", sub: "call & confirm", cls: "bg-tone-amber-bg text-tone-amber", team: "Customer Care" },
+  { tab: "on_hold", label: "On hold", sub: "waiting on customer", cls: "bg-tone-orange-bg text-tone-orange", team: "Customer Care" },
+  { tab: "approved", label: "Approved", sub: "to print & pack", cls: "bg-tone-blue-bg text-tone-blue", team: "Fulfillment" },
+  { tab: "processing", label: "Processing", sub: "packing now", cls: "bg-tone-violet-bg text-tone-violet", team: "Fulfillment" },
+  { tab: "pre_order", label: "Pre-Order", sub: "waiting for product", cls: "bg-tone-pink-bg text-tone-pink", team: "Fulfillment" },
+  { tab: "ready_to_ship", label: "Ready to ship", sub: "waiting for pickup", cls: "bg-tone-indigo-bg text-tone-indigo", team: "Fulfillment" },
+  { tab: "in_transit", label: "With courier", sub: "on the way", cls: "bg-tone-cyan-bg text-tone-cyan", team: "Fulfillment" },
 ]
+
 
 const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : 0)
 const change = (now: number, prev: number) => (prev ? Math.round(((now - prev) / prev) * 100) : now ? 100 : 0)
@@ -94,7 +95,10 @@ function Dashboard() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           {QUEUE.map((q) => (
             <Link key={q.tab} to="/orders" search={{ tab: q.tab }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", q.cls)}>
-              <div className="text-sm font-semibold">{q.label}</div>
+              <div className="flex items-center justify-between gap-1">
+                <div className="text-sm font-semibold">{q.label}</div>
+                <TeamTag team={q.team} />
+              </div>
               <div className="mt-1 text-3xl font-bold tabular-nums">{counts?.[q.tab] ?? "·"}</div>
               <div className="mt-0.5 text-xs opacity-80">{q.sub} →</div>
             </Link>
@@ -123,22 +127,22 @@ function Dashboard() {
               {!urgency ? <Loading /> : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Link to="/orders" search={{ tab: "pending" }} className="group rounded-xl bg-tone-amber-bg p-4 text-tone-amber transition hover:-translate-y-0.5 hover:shadow-md">
-                    <Target className="size-4 opacity-70" />
+                    <div className="flex items-center justify-between"><Target className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.pendingOrders}</div>
                     <div className="mt-0.5 text-xs opacity-80">Pending orders →</div>
                   </Link>
                   <Link to="/orders" search={{ tab: "all", flag: "needsFeedback" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.feedbackPending > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
-                    <PhoneCall className="size-4 opacity-70" />
+                    <div className="flex items-center justify-between"><PhoneCall className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.feedbackPending}</div>
                     <div className="mt-0.5 text-xs opacity-80">Feedback calls pending →</div>
                   </Link>
                   <Link to="/orders" search={{ tab: "all", flag: "csatFollowUp" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.feedbackFollowUp > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
-                    <PhoneCall className="size-4 opacity-70" />
+                    <div className="flex items-center justify-between"><PhoneCall className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.feedbackFollowUp}</div>
                     <div className="mt-0.5 text-xs opacity-80">Feedback follow-ups due →</div>
                   </Link>
                   <Link to="/orders" search={{ tab: "all", flag: "needsReason" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.reasonsPending > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
-                    <Undo2 className="size-4 opacity-70" />
+                    <div className="flex items-center justify-between"><Undo2 className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.reasonsPending}</div>
                     <div className="mt-0.5 text-xs opacity-80">Return reasons pending →</div>
                   </Link>

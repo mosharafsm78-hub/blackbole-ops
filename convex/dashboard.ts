@@ -337,7 +337,7 @@ async function buildInsights(ctx: any) {
   const d = await ctx.runQuery(internal.dashboard.insightsData, { from, to })
   if (!d) return { findings: [], windowDays: INSIGHT_WINDOW_DAYS }
 
-  const findings: { id: string; problem: string; finding: string; solution: string; impact: number; status: "automatic" | "human" | "setup"; aiDid: string; detail: string[] }[] = []
+  const findings: { id: string; problem: string; finding: string; solution: string; impact: number; status: "automatic" | "human" | "setup"; aiDid: string; detail: string[]; team: string[] }[] = []
 
   // A. The order source with the worst return rate, if it's well clear of the rest of the business.
   const sources: [string, { count: number; value: number; delivered: number; returned: number }][] = d.bySource
@@ -362,6 +362,7 @@ async function buildInsights(ctx: any) {
       status: "human" as const,
       aiDid: `Found the exact source and the gap (${Math.round(worstSrc.rate * 100)}% vs ${Math.round(overallRate * 100)}%). No automatic fix exists yet — auto-flagging these orders for a stricter call would need to be built.`,
       detail: [] as string[],
+      team: ["Customer Care"],
     })
   }
 
@@ -385,6 +386,7 @@ async function buildInsights(ctx: any) {
       status: "human" as const,
       aiDid: topReasons.length ? `Pulled the ${topReasons.length} most recent return reasons for this SKU (below). The decision — fix the listing or pull the product — needs a person.` : "Found the SKU and the money at stake. No return reasons were logged on these orders, so the cause still needs a human look.",
       detail: topReasons,
+      team: ["Marketing", "Development"],
     })
   }
 
@@ -413,6 +415,7 @@ async function buildInsights(ctx: any) {
         ? `Sending the win-back SMS automatically, no one touches it. So far: ${wb!.sentTotal} sent, ${wb!.redeemed} redeemed the discount.`
         : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`) + waLine,
       detail: [] as string[],
+      team: ["Marketing"],
     })
   }
 

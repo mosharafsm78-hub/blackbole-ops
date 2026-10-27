@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { Guard } from "@/components/app-shell"
-import { Loading, PageHeader } from "@/components/bits"
+import { Loading, PageHeader, TeamTag } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { taka, dateTime, errMsg } from "@/lib/format"
@@ -58,6 +58,7 @@ function ActionCenter() {
                         {LOG_STATUS[ls.status].label} by {ls.byName}
                       </span>
                     )}
+                    {(f.team as string[] | undefined)?.map((t) => <TeamTag key={t} team={t} />)}
                   </div>
                   <span className="text-xs text-muted-foreground">~{taka(f.impact)} impact</span>
                 </div>
