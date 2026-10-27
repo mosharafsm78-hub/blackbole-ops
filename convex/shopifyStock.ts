@@ -36,7 +36,20 @@ export const save = mutation({
     await requirePerm(ctx, "settings.manage")
     const shop = a.shop.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "")
     if (a.on && (!shop || !a.clientId.trim())) throw new ConvexError("Enter the shop domain and client ID first")
+    const before = await getSetting<Conf>(ctx, "shopifyApi")
     await setSetting(ctx, "shopifyApi", { shop, clientId: a.clientId.trim(), on: a.on })
+    if (a.on && !before?.on) {
+      // Switching on: update the website right away for everything received in the last 14 days
+      // (other products update the next time their stock changes in Ops — no big one-shot change).
+      const since = Date.now() - 14 * 86400000
+      const ids = new Set<string>()
+      for (const r of await ctx.db.query("receipts").withIndex("by_at", (q) => q.gte("at", since)).collect()) for (const i of r.items) ids.add(i.variantId)
+      for (const id of ids) {
+        if (!(await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", id as Id<"variants">)).first()))
+          await ctx.db.insert("shopifyDirty", { variantId: id as Id<"variants">, at: Date.now() })
+      }
+      if (ids.size) await ctx.scheduler.runAfter(3000, internal.shopifyStock.flush, {})
+    }
     if (a.secret?.trim()) { await setSetting(ctx, "shopifyApiSecret", a.secret.trim()); await setSetting(ctx, "shopifyApiToken", null) }
     for (const m of a.map) await ctx.db.patch(m.id, { shopifyLocationId: m.shopifyLocationId || undefined })
   },

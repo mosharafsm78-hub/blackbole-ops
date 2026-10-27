@@ -172,7 +172,7 @@ function ShopifyStockSync() {
         )}
       </div>
       <label className="mt-4 flex items-center gap-2 text-sm">
-        <Switch checked={on} onCheckedChange={async (v) => { if (v && !pv) { toast.error("Click Preview first to see what will change on the website"); return } if (v && !window.confirm(`Switch on? ${pv?.changes.length ?? 0} products will change on the website now.`)) return; setOn(v); try { await doSave(v); if (v) { const r = await pushAll(); toast.success(`Live sync on — Shopify updated for ${r.pushed} products`) } else toast.success("Stock sync switched off") } catch (e) { setOn(!v); toast.error(errMsg(e)) } }} />
+        <Switch checked={on} onCheckedChange={async (v) => { setOn(v); try { await doSave(v); toast.success(v ? "Live sync on — stock received in the last 14 days is being sent now; other products update when their stock next changes in Ops" : "Stock sync switched off") } catch (e) { setOn(!v); toast.error(errMsg(e)) } }} />
         Keep Shopify stock the same as Ops (live)
       </label>
       <div className="mt-2"><Button size="sm" disabled={busy} onClick={async () => { try { await doSave(); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) } }}>Save</Button></div>
