@@ -23,8 +23,10 @@ function WhatsAppQueue() {
   const markSent = useMutation(api.waQueue.markSent)
   const skip = useMutation(api.waQueue.skip)
 
+  // Opens one small, reusable WhatsApp window (same name every time) instead of a new tab per message — stays
+  // logged in, stays positioned, feels like a docked WhatsApp panel next to Ops. You still tap Send yourself.
   const openAndSend = async (id: Id<"waQueue">, link: string) => {
-    window.open(link, "_blank", "noopener,noreferrer")
+    window.open(link, "blackbole_whatsapp", "width=420,height=680")
     try {
       await markSent({ id })
     } catch (e) {
