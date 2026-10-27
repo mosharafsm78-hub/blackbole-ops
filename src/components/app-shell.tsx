@@ -158,7 +158,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>
   const inWebsite = path === "/website" || path.startsWith("/website-")
   const carts = useQuery(api.checkouts.counts)
-  const badge = (to: string) => (to === "/abandoned" && carts ? carts.new + carts.followupDue : 0)
+  const orderCounts = useQuery(api.orders.counts)
+  const badge = (to: string) => (to === "/abandoned" && carts ? carts.new + carts.followupDue : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : 0)
   return (
     <nav className="space-y-0.5">
       {NAV.map((n, i) => {
@@ -188,7 +189,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           >
             <span className={cn("flex size-7 items-center justify-center rounded-md", n.color)}><Icon className="size-4" /></span>
             {n.label}
-            {badge(n.to) > 0 && <span className="ml-auto rounded-full bg-tone-red px-1.5 text-[11px] font-semibold tabular-nums text-white">{badge(n.to)}</span>}
+            {badge(n.to) > 0 && <span className={cn("ml-auto rounded-full px-1.5 text-[11px] font-semibold tabular-nums text-white", n.to === "/orders" ? "bg-tone-amber" : "bg-tone-red")} title={n.to === "/orders" ? "Pending orders" : undefined}>{badge(n.to)}</span>}
           </Link>
         ), expanded ? <WebsiteSubNav key="website-sub" active={websiteNavKey(path, search)} onNavigate={onNavigate} /> : null]
       })}
