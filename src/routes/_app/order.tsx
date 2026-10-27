@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link, createFileRoute } from "@tanstack/react-router"
+import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
 import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
 import { toast } from "sonner"
@@ -103,6 +103,7 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
 
 function OrderPage() {
   const { id } = Route.useSearch()
+  const router = useRouter()
   const can = useCan()
   const data = useQuery(api.orders.get, id ? { id: id as Id<"orders"> } : "skip")
   const addNote = useMutation(api.orders.addNote)
@@ -141,7 +142,7 @@ function OrderPage() {
       {/* ===== Header ===== */}
       <section className="rounded-xl border bg-card">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 pt-4">
-          <Link to="/orders" search={{ tab: "all" }} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeft className="size-4" />Orders</Link>
+          <button type="button" onClick={() => router.history.back()} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ChevronLeft className="size-4" />Orders</button>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon-sm" disabled={!data.newerId} asChild={!!data.newerId} aria-label="Newer order" title="Newer order">
               {data.newerId ? <Link to="/order" search={{ id: data.newerId }}><ChevronLeft className="size-4" /></Link> : <span><ChevronLeft className="size-4" /></span>}
