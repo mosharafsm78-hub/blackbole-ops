@@ -14,6 +14,7 @@ import { contentHttp as websiteContent } from "./content"
 import { themeHttp as websiteTheme } from "./themes"
 import { reviewsHttp as websiteReviews } from "./reviews"
 import { resultHttp as autoCallResult } from "./autoCalls"
+import { webhookVerify as waVerify, webhookReceive as waReceive } from "./whatsapp"
 
 const http = httpRouter()
 
@@ -22,6 +23,9 @@ auth.addHttpRoutes(http)
 http.route({ path: "/shopify/orders", method: "POST", handler: shopifyWebhook })
 http.route({ path: "/pathao/webhook", method: "POST", handler: pathaoWebhook })
 http.route({ path: "/auto-call/result", method: "POST", handler: autoCallResult })
+// WhatsApp Business Platform (Meta Cloud API): webhook verification (GET) + incoming messages (POST)
+http.route({ path: "/whatsapp/webhook", method: "GET", handler: waVerify })
+http.route({ path: "/whatsapp/webhook", method: "POST", handler: waReceive })
 http.route({ path: "/api/orders", method: "POST", handler: apiOrders })
 http.route({ path: "/api/orders", method: "GET", handler: apiOrders })
 http.route({ path: "/migrate", method: "POST", handler: migrateHandler })

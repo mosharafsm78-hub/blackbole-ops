@@ -449,6 +449,28 @@ export default defineSchema({
     at: v.number(),
   }).index("by_at", ["at"]),
 
+  waThreads: defineTable({
+    phone: v.string(), // normalized, like customers.phone (01XXXXXXXXX)
+    customerId: v.optional(v.id("customers")),
+    name: v.string(),
+    lastText: v.string(),
+    lastAt: v.number(),
+    lastDirection: v.union(v.literal("in"), v.literal("out")),
+    unread: v.boolean(),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_lastAt", ["lastAt"]),
+
+  waMessages: defineTable({
+    threadId: v.id("waThreads"),
+    direction: v.union(v.literal("in"), v.literal("out")),
+    text: v.string(),
+    by: v.optional(v.string()), // staff name, or "AI win-back"
+    status: v.optional(v.string()), // queued | sent | failed | received
+    error: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_thread", ["threadId", "at"]),
+
   smsLogs: defineTable({
     phone: v.string(),
     text: v.string(),

@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -37,6 +37,7 @@ const NAV = [
   { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },
   { to: "/scan", label: "Scan", icon: ScanLine, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Orders" },
   { to: "/customers", label: "Customers", icon: Users, perm: "orders.view", color: "bg-tone-pink-bg text-tone-pink", group: "Orders" },
+  { to: "/whatsapp", label: "WhatsApp", icon: MessageCircle, perm: "orders.view", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
   { to: "/products", label: "Products", icon: Package, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
   { to: "/inventory", label: "Inventory", icon: Boxes, perm: "orders.view", color: "bg-tone-teal-bg text-tone-teal", group: "Stock" },
   { to: "/website", label: "Website", icon: Globe, perm: "website.manage", alt: "settings.manage", color: "bg-tone-blue-bg text-tone-blue", group: "Stock" },

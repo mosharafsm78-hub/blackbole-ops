@@ -54,6 +54,7 @@ import { Route as AppWebsiteSettingsRouteImport } from './routes/_app/website-se
 import { Route as AppWebsiteSubscribersRouteImport } from './routes/_app/website-subscribers'
 import { Route as AppWebsiteThemeEditorRouteImport } from './routes/_app/website-theme-editor'
 import { Route as AppWebsiteThemesRouteImport } from './routes/_app/website-themes'
+import { Route as AppWhatsappRouteImport } from './routes/_app/whatsapp'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 
 const AppRoute = AppRouteImport.update({
@@ -280,6 +281,11 @@ const AppWebsiteThemesRoute = AppWebsiteThemesRouteImport.update({
   path: '/website-themes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWhatsappRoute = AppWhatsappRouteImport.update({
+  id: '/whatsapp',
+  path: '/whatsapp',
+  getParentRoute: () => AppRoute,
+} as any)
 const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   id: '/api/pathao-proxy',
   path: '/api/pathao-proxy',
@@ -331,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
   '/website-themes': typeof AppWebsiteThemesRoute
+  '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
 }
 export interface FileRoutesByTo {
@@ -377,6 +384,7 @@ export interface FileRoutesByTo {
   '/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/website-theme-editor': typeof AppWebsiteThemeEditorRoute
   '/website-themes': typeof AppWebsiteThemesRoute
+  '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
 }
@@ -426,6 +434,7 @@ export interface FileRoutesById {
   '/_app/website-subscribers': typeof AppWebsiteSubscribersRoute
   '/_app/website-theme-editor': typeof AppWebsiteThemeEditorRoute
   '/_app/website-themes': typeof AppWebsiteThemesRoute
+  '/_app/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
 }
@@ -476,6 +485,7 @@ export interface FileRouteTypes {
     | '/website-subscribers'
     | '/website-theme-editor'
     | '/website-themes'
+    | '/whatsapp'
     | '/api/pathao-proxy'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -522,6 +532,7 @@ export interface FileRouteTypes {
     | '/website-subscribers'
     | '/website-theme-editor'
     | '/website-themes'
+    | '/whatsapp'
     | '/api/pathao-proxy'
     | '/'
   id:
@@ -570,6 +581,7 @@ export interface FileRouteTypes {
     | '/_app/website-subscribers'
     | '/_app/website-theme-editor'
     | '/_app/website-themes'
+    | '/_app/whatsapp'
     | '/api/pathao-proxy'
     | '/_app/'
   fileRoutesById: FileRoutesById
@@ -898,6 +910,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWebsiteThemesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/whatsapp': {
+      id: '/_app/whatsapp'
+      path: '/whatsapp'
+      fullPath: '/whatsapp'
+      preLoaderRoute: typeof AppWhatsappRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/api/pathao-proxy': {
       id: '/api/pathao-proxy'
       path: '/api/pathao-proxy'
@@ -950,6 +969,7 @@ interface AppRouteChildren {
   AppWebsiteSubscribersRoute: typeof AppWebsiteSubscribersRoute
   AppWebsiteThemeEditorRoute: typeof AppWebsiteThemeEditorRoute
   AppWebsiteThemesRoute: typeof AppWebsiteThemesRoute
+  AppWhatsappRoute: typeof AppWhatsappRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -995,6 +1015,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppWebsiteSubscribersRoute: AppWebsiteSubscribersRoute,
   AppWebsiteThemeEditorRoute: AppWebsiteThemeEditorRoute,
   AppWebsiteThemesRoute: AppWebsiteThemesRoute,
+  AppWhatsappRoute: AppWhatsappRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
