@@ -1,0 +1,16 @@
+services:
+  asterisk:
+    image: andrius/asterisk:20
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      - ./asterisk:/etc/asterisk/custom:ro
+      - ./sounds:/var/lib/asterisk/sounds/bb:ro
+    entrypoint: ["/bin/sh", "-c", "for f in /etc/asterisk/custom/*.conf; do envsubst < $$f > /etc/asterisk/$$(basename $$f); done; exec asterisk -f"]
+  app:
+    build: ./app
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    depends_on: [asterisk]
