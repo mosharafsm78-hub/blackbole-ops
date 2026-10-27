@@ -95,8 +95,8 @@ function Dashboard() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           {QUEUE.map((q) => (
             <Link key={q.tab} to="/orders" search={{ tab: q.tab }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", q.cls)}>
-              <div className="flex items-center justify-between gap-1">
-                <div className="text-sm font-semibold">{q.label}</div>
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="truncate text-sm font-semibold">{q.label}</div>
                 <TeamTag team={q.team} />
               </div>
               <div className="mt-1 text-3xl font-bold tabular-nums">{counts?.[q.tab] ?? "·"}</div>

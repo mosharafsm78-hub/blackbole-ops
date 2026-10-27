@@ -263,9 +263,15 @@ export const counts = query({
   },
 })
 
+/** How far back the urgency panel reaches for feedback-calls/return-reasons — calling a customer about an
+ *  order from months ago isn't realistic, so old unresolved ones just age out of this count instead of
+ *  piling up forever. (Older orders are still there and still visible via the Orders list filters.) */
+const URGENCY_WINDOW_DAYS = 45
+
 /** Dashboard urgency numbers — the whole point is that a supervisor feels pressure from a number, not a mood.
  *  Pending orders reuses the same counter as the queue cards above; the other three scan the relevant status
- *  buckets directly since they depend on fields (csat, reason) the precomputed counters don't track. */
+ *  buckets directly (bounded to the last URGENCY_WINDOW_DAYS by createdAt, via the by_status index) since they
+ *  depend on fields (csat, reason) the precomputed counters don't track. */
 export const urgency = query({
   args: {},
   handler: async (ctx) => {
@@ -274,19 +280,24 @@ export const urgency = query({
     const rows = await ctx.db.query("counters").collect()
     const get = (st: string) => rows.find((r) => r.name === `st:${st}`)?.value ?? 0
     const pendingOrders = get("pending")
+    const now = Date.now()
+    const since = now - URGENCY_WINDOW_DAYS * 86400000
 
     const delivered = (
       await Promise.all(
-        (["delivered_due", "delivered_paid"] as const).map((st) => ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(5000)),
+        (["delivered_due", "delivered_paid"] as const).map((st) =>
+          ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st).gte("createdAt", since)).take(5000),
+        ),
       )
     ).flat().filter((o) => !o.deletedAt)
     const feedbackPending = delivered.filter((o) => !o.csat).length
-    const now = Date.now()
     const feedbackFollowUp = delivered.filter((o) => o.csatFollowUpAt && o.csatFollowUpAt <= now).length
 
     const returnLike = (
       await Promise.all(
-        (["pending_returned", "returned", "damaged"] as const).map((st) => ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(5000)),
+        (["pending_returned", "returned", "damaged"] as const).map((st) =>
+          ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st).gte("createdAt", since)).take(5000),
+        ),
       )
     ).flat().filter((o) => !o.deletedAt)
     const reasonsPending = returnLike.filter((o) => !o.reason).length

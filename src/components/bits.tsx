@@ -22,15 +22,21 @@ export function TagPill({ tag }: { tag: string }) {
 }
 
 /** Which team owns acting on a dashboard number or finding — so a team leader glancing at the page knows whose
- *  job it is without reading every line. Kept to the four real teams the business runs. */
+ *  job it is without reading every line. Kept to the four real teams the business runs. Shown as a short code
+ *  (full name on hover) so it never wraps or crowds out the tile it sits on. */
 export const TEAM_STYLE: Record<string, string> = {
   "Customer Care": "bg-tone-blue/15 text-tone-blue",
   "Fulfillment": "bg-tone-violet/15 text-tone-violet",
   "Development": "bg-tone-gray/15 text-tone-gray",
   "Marketing": "bg-tone-pink/15 text-tone-pink",
 }
+const TEAM_CODE: Record<string, string> = { "Customer Care": "CC", "Fulfillment": "FUL", "Development": "DEV", "Marketing": "MKT" }
 export function TeamTag({ team }: { team: string }) {
-  return <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", TEAM_STYLE[team] ?? "bg-muted text-muted-foreground")}>{team}</span>
+  return (
+    <span title={team} className={cn("shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide", TEAM_STYLE[team] ?? "bg-muted text-muted-foreground")}>
+      {TEAM_CODE[team] ?? team}
+    </span>
+  )
 }
 
 export function PageHeader({ title, sub, children }: { title: string; sub?: React.ReactNode; children?: React.ReactNode }) {
