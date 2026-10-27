@@ -96,6 +96,16 @@ export const stats = query({
   },
 })
 
+/** Real individual sends, for the Action Center's "what AI actually did" feed. */
+export const activity = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "dashboard.view")
+    const rows = await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "sent")).order("desc").take(15)
+    return rows.map((r) => ({ _id: r._id, name: r.name, phone: r.phone, sentAt: r.sentAt ?? r.createdAt, sentBy: r.sentBy }))
+  },
+})
+
 /** Same numbers, for other server-side code (e.g. the Action Center) — no settings-manage/staff gate, just internal. */
 export const liveStats = internalQuery({ args: {}, handler: async (ctx) => computeStats(ctx) })
 

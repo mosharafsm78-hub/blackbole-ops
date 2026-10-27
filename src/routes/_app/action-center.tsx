@@ -78,6 +78,8 @@ function ActionCenter() {
                   </div>
                 )}
 
+                {f.id === "repeat-rate" && <WinbackActivity />}
+
                 <p className="mt-3 text-sm"><span className="font-semibold">{f.status === "automatic" ? "What it does: " : "Do this: "}</span>{f.solution}</p>
 
                 <FindingLog findingId={f.id} />
@@ -85,6 +87,37 @@ function ActionCenter() {
             )
           })}
         </div>
+      )}
+    </div>
+  )
+}
+
+/** The real, individual automatic actions win-back has taken — not a summary, the actual list: who got
+ *  messaged, on which channel, and when. This is "what AI actually did," not a description of what it will do. */
+function WinbackActivity() {
+  const sms = useQuery(api.winback.activity)
+  const wa = useQuery(api.waQueue.activity)
+  const merged = useMemo(() => {
+    const a = (sms ?? []).map((r) => ({ id: `s-${r._id}`, name: r.name, phone: r.phone, at: r.at, channel: "SMS", ok: r.status === "sent" }))
+    const b = (wa ?? []).map((r) => ({ id: `w-${r._id}`, name: r.name, phone: r.phone, at: r.sentAt, channel: "WhatsApp", ok: true }))
+    return [...a, ...b].sort((x, y) => y.at - x.at).slice(0, 12)
+  }, [sms, wa])
+
+  if (sms === undefined || wa === undefined) return null
+  return (
+    <div className="mt-3 rounded-lg border px-3.5 py-2.5">
+      <div className="text-xs font-bold text-foreground/70">Recent automatic actions — what AI actually did</div>
+      {merged.length === 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">Nothing has fired yet — this will fill in as soon as the first message goes out.</p>
+      ) : (
+        <ul className="mt-1.5 space-y-1 text-xs">
+          {merged.map((m) => (
+            <li key={m.id} className="flex items-center justify-between gap-2">
+              <span>{m.ok ? "✓" : "✗"} {m.channel} to <span className="font-medium">{m.name}</span> <span className="text-muted-foreground">({m.phone})</span></span>
+              <span className="shrink-0 text-muted-foreground">{dateTime(m.at)}</span>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   )

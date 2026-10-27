@@ -86,6 +86,21 @@ export const run = internalAction({
 
 export const getConf = internalQuery({ args: {}, handler: async (ctx) => conf(ctx) })
 
+/** Real individual sends, for the Action Center's "what AI actually did" feed — any signed-in staff with
+ *  dashboard access, not just settings.manage. This is the proof, not a summary of it. */
+export const activity = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "dashboard.view")
+    const rows = await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(300)
+    const mine = rows.filter((r) => r.channel === "winback").slice(0, 15)
+    return Promise.all(mine.map(async (r) => ({
+      _id: r._id, phone: r.phone, status: r.status, at: r.at, error: r.error,
+      name: r.customerId ? ((await ctx.db.get(r.customerId))?.name ?? r.phone) : r.phone,
+    })))
+  },
+})
+
 /** Light stats for other pages (e.g. the Action Center) — no settings-manage permission needed, just signed in. */
 export const liveStats = internalQuery({
   args: {},
