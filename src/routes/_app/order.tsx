@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, Printer, Shuffle, Truck } from "lucide-react"
+import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, Printer, Repeat, Shuffle, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
@@ -9,7 +9,7 @@ import { ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderSt
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
-  CallDialog, CartEditor, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
+  CallDialog, CartEditor, EXCHANGE_REASONS, PathaoAddress, ProductSearch, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -115,6 +115,7 @@ function OrderPage() {
   const [callOpen, setCallOpen] = useState(false)
   const [payOpen, setPayOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [exchangeOpen, setExchangeOpen] = useState(false)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState<"all" | "call" | "note" | "log">("all")
   const [booking, setBooking] = useState(false)
@@ -135,6 +136,7 @@ function OrderPage() {
   const itemDiscount = o.items.reduce((s, i) => s + i.discount, 0)
   const area = [o.areaName, o.zoneName, o.cityName].filter(Boolean).join(", ")
   const shippedNoParcel = o.courier !== "pickup" && !o.consignmentId && ["in_transit", "delivered_due", "delivered_paid", "pending_returned", "returned"].includes(status)
+  const canExchange = ["delivered_due", "delivered_paid", "pending_returned", "returned", "damaged"].includes(status) && can("orders.create")
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -158,6 +160,9 @@ function OrderPage() {
             <Perm perm="orders.print">
               <Button variant="outline" size="sm" onClick={() => window.open(`/print?ids=${o._id}`, "_blank")}><Printer className="size-4" /> Invoice</Button>
             </Perm>
+            {canExchange && (
+              <Button variant="outline" size="sm" onClick={() => setExchangeOpen(true)}><Repeat className="size-4" /> Request exchange</Button>
+            )}
             <Button size="sm" disabled={next.length === 0} onClick={() => { setInitialStatus(undefined); setStatusOpen(true) }}>
               <Shuffle className="size-4" /> Change status
             </Button>
@@ -435,6 +440,7 @@ function OrderPage() {
       />
       <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
+      {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
     </div>
   )
 }
@@ -596,6 +602,70 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
   )
 }
 
+
+/** One-click exchange: pick the reason + replacement item(s) against the already-delivered order, and it creates
+ *  the linked exchange order in one shot (same backend action that used to have no button wired to it). */
+function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => void }) {
+  const router = useRouter()
+  const createExchange = useMutation(api.orders.createExchange)
+  const [reason, setReason] = useState("")
+  const [note, setNote] = useState("")
+  const [fee, setFee] = useState(0)
+  const [cart, setCart] = useState<CartLine[]>([])
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    if (!reason.trim()) { toast.error("Pick (or type) a reason"); return }
+    if (cart.length === 0) { toast.error("Add the replacement item"); return }
+    setBusy(true)
+    try {
+      const res = await createExchange({
+        id: order._id,
+        items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty, price: c.price, discount: c.discount })),
+        deliveryFee: fee,
+        note: [reason.trim(), note.trim()].filter(Boolean).join(" — "),
+      })
+      toast.success(`Exchange order ${invoice(res.invoiceNo)} created and linked`)
+      onClose()
+      void router.navigate({ to: "/order", search: { id: res.orderId } })
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader><DialogTitle>Request exchange for {order.invoiceCode ?? invoice(order.invoiceNo)}</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Reason <span className="font-normal text-tone-red">(required)</span></Label>
+            <div className="flex flex-wrap gap-1.5">
+              {EXCHANGE_REASONS.map((p) => (
+                <button key={p} type="button" onClick={() => setReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
+              ))}
+            </div>
+            <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why?" />
+          </div>
+          <div className="space-y-1.5"><Label>Note to fulfillment (optional)</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. customer wants size 42 instead of 43" /></div>
+          <div className="space-y-2">
+            <Label>Replacement item{cart.length !== 1 ? "s" : ""}</Label>
+            <CartEditor cart={cart} onChange={setCart} />
+            <div className="h-64"><ProductSearch locationId={order.locationId} onAdd={(l) => setCart((c) => addToCart(c, l))} /></div>
+          </div>
+          <div className="space-y-1.5 sm:w-48"><Label>Delivery fee</Label><Input type="number" value={fee} onChange={(e) => setFee(Number(e.target.value) || 0)} /></div>
+          <p className="text-xs text-muted-foreground">Creates a linked exchange order and routes it like every other exchange — the courier gets told to collect the old item when it's booked.</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy} onClick={() => void submit()}>Create exchange order</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 function CustomerRatio({ s }: { s: { orders: number; delivered: number; returned: number; cancelled: number; open: number; successRate: number | null } }) {
   const boxes: [string, number, string][] = [

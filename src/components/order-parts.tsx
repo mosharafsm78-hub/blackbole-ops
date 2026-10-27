@@ -361,6 +361,7 @@ export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Advan
 // Standardized so these roll up into real numbers later (e.g. Action Center breaking down returns by cause) —
 // a typed-out reason can never be counted, a picked one always can.
 export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Other"]
+export const EXCHANGE_REASONS = ["Wrong size delivered", "Wrong item delivered", "Doesn't fit", "Defective / damaged", "Customer wants a different colour/style", "Other"]
 
 export function StatusDialog({
   ids, options, open, onOpenChange, initial, onDone, label, from, confirmOnly,
