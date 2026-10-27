@@ -257,6 +257,7 @@ export default defineSchema({
     smsCount: v.optional(v.number()),
     customerType: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
+    winBackAt: v.optional(v.number()), // when the automatic win-back SMS was sent (never resend)
     createdAt: v.number(),
   })
     .index("by_phone", ["phone"])
