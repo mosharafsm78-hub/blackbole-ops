@@ -300,25 +300,26 @@ function BusinessInsights() {
             <span className="shrink-0 rounded-full bg-tone-violet/10 px-2 py-0.5 text-[11px] font-semibold text-tone-violet">Biggest lever · last {data.windowDays}d</span>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{top.finding}</p>
-          <p className="mt-2 rounded-lg bg-card/70 px-3 py-2 text-sm"><span className="font-semibold text-tone-violet">Do this: </span>{top.solution}</p>
-          {rest.length > 0 && (
-            <>
-              <button type="button" onClick={() => setOpen((o) => !o)} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+          <p className="mt-2 rounded-lg bg-card/70 px-3 py-2 text-sm"><span className="font-semibold text-tone-violet">{top.status === "automatic" ? "What it does: " : "Do this: "}</span>{top.solution}</p>
+          <div className="mt-2 flex items-center gap-3 text-xs font-medium">
+            {rest.length > 0 && (
+              <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
                 <ChevronDown className={cn("size-3.5 transition", open && "rotate-180")} />
                 {open ? "Hide" : `${rest.length} more thing${rest.length > 1 ? "s" : ""} worth fixing`}
               </button>
-              {open && (
-                <div className="mt-2 space-y-2 border-t pt-2">
-                  {rest.map((f: any) => (
-                    <div key={f.id} className="text-sm">
-                      <div className="font-semibold">{f.problem}</div>
-                      <p className="text-muted-foreground">{f.finding}</p>
-                      <p className="mt-1 rounded-lg bg-card/70 px-3 py-2"><span className="font-semibold text-tone-violet">Do this: </span>{f.solution}</p>
-                    </div>
-                  ))}
+            )}
+            <Link to="/action-center" className="text-tone-violet hover:underline">Open Action Center →</Link>
+          </div>
+          {open && rest.length > 0 && (
+            <div className="mt-2 space-y-2 border-t pt-2">
+              {rest.map((f: any) => (
+                <div key={f.id} className="text-sm">
+                  <div className="font-semibold">{f.problem}</div>
+                  <p className="text-muted-foreground">{f.finding}</p>
+                  <p className="mt-1 rounded-lg bg-card/70 px-3 py-2"><span className="font-semibold text-tone-violet">{f.status === "automatic" ? "What it does: " : "Do this: "}</span>{f.solution}</p>
                 </div>
-              )}
-            </>
+              ))}
+            </div>
           )}
         </div>
       </div>

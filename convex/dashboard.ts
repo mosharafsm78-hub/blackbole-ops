@@ -290,7 +290,7 @@ export const insightsData = internalQuery({
       .then((rows) => rows.filter((o) => !o.deletedAt))
 
     const bySource = new Map<string, { count: number; value: number; delivered: number; returned: number }>()
-    const bySku = new Map<string, { name: string; qty: number; returnedQty: number; returnedValue: number }>()
+    const bySku = new Map<string, { name: string; qty: number; returnedQty: number; returnedValue: number; reasons: { at: number; text: string }[] }>()
     const byCustomer = new Map<string, { count: number; value: number }>()
 
     for (const o of orders) {
@@ -309,9 +309,12 @@ export const insightsData = internalQuery({
       byCustomer.set(o.customerId, cust)
 
       for (const i of o.items) {
-        const sk = bySku.get(i.sku) ?? { name: `${i.name}${i.attrs ? ` - ${i.attrs}` : ""}`, qty: 0, returnedQty: 0, returnedValue: 0 }
+        const sk = bySku.get(i.sku) ?? { name: `${i.name}${i.attrs ? ` - ${i.attrs}` : ""}`, qty: 0, returnedQty: 0, returnedValue: 0, reasons: [] as { at: number; text: string }[] }
         sk.qty += i.qty
-        if (returned) { sk.returnedQty += i.qty; sk.returnedValue += i.price * i.qty - i.discount }
+        if (returned) {
+          sk.returnedQty += i.qty; sk.returnedValue += i.price * i.qty - i.discount
+          if (o.reason?.trim()) sk.reasons.push({ at: o.createdAt, text: o.reason.trim() })
+        }
         bySku.set(i.sku, sk)
       }
     }
@@ -334,7 +337,7 @@ async function buildInsights(ctx: any) {
   const d = await ctx.runQuery(internal.dashboard.insightsData, { from, to })
   if (!d) return { findings: [], windowDays: INSIGHT_WINDOW_DAYS }
 
-  const findings: { id: string; problem: string; finding: string; solution: string; impact: number }[] = []
+  const findings: { id: string; problem: string; finding: string; solution: string; impact: number; status: "automatic" | "human" | "setup"; aiDid: string; detail: string[] }[] = []
 
   // A. The order source with the worst return rate, if it's well clear of the rest of the business.
   const sources: [string, { count: number; value: number; delivered: number; returned: number }][] = d.bySource
@@ -356,12 +359,15 @@ async function buildInsights(ctx: any) {
       finding: `Last ${INSIGHT_WINDOW_DAYS} days: ${Math.round(worstSrc.rate * 100)}% of resolved "${worstSrc.source}" orders came back (${worstSrc.returned} of ${worstSrc.resolved}), vs ${Math.round(overallRate * 100)}% across every other source — about ${taka(impact)} tied up in failed COD and courier fees.`,
       solution: `Give "${worstSrc.source}" orders a stricter confirmation call (verify address + ask for a small advance on repeat-return customers) before they go to packing — don't treat it the same as your cleaner sources.`,
       impact,
+      status: "human" as const,
+      aiDid: `Found the exact source and the gap (${Math.round(worstSrc.rate * 100)}% vs ${Math.round(overallRate * 100)}%). No automatic fix exists yet — auto-flagging these orders for a stricter call would need to be built.`,
+      detail: [] as string[],
     })
   }
 
   // B. The single product driving an outsized share of returns.
-  const skus: [string, { name: string; qty: number; returnedQty: number; returnedValue: number }][] = d.bySku
-  let worstSku: { sku: string; name: string; qty: number; returnedQty: number; returnedValue: number; rate: number } | null = null
+  const skus: [string, { name: string; qty: number; returnedQty: number; returnedValue: number; reasons: { at: number; text: string }[] }][] = d.bySku
+  let worstSku: { sku: string; name: string; qty: number; returnedQty: number; returnedValue: number; reasons: { at: number; text: string }[]; rate: number } | null = null
   for (const [sku, k] of skus) {
     if (k.qty < MIN_SKU_QTY) continue
     const rate = k.returnedQty / k.qty
@@ -369,12 +375,16 @@ async function buildInsights(ctx: any) {
   }
   if (worstSku) {
     const impact = Math.round(worstSku.returnedValue)
+    const topReasons = worstSku.reasons.sort((a, b) => b.at - a.at).slice(0, 10).map((r) => r.text)
     findings.push({
       id: "sku-returns",
       problem: "One product is quietly eating your margin",
       finding: `${worstSku.name} (${worstSku.sku}) was returned ${Math.round(worstSku.rate * 100)}% of the time over ${INSIGHT_WINDOW_DAYS} days (${worstSku.returnedQty} of ${worstSku.qty} units) — about ${taka(impact)} in stock, packing and courier cost.`,
-      solution: `Pull the last 10 return reasons for this SKU. If it's sizing, add a fit note to the product page; if it's quality, pause ads on it until the supplier fixes the batch — right now you're paying to acquire customers who return it.`,
+      solution: `${topReasons.length ? "Read the return reasons below first. " : ""}If it's sizing, add a fit note to the product page; if it's quality, pause ads on it until the supplier fixes the batch — right now you're paying to acquire customers who return it.`,
       impact,
+      status: "human" as const,
+      aiDid: topReasons.length ? `Pulled the ${topReasons.length} most recent return reasons for this SKU (below). The decision — fix the listing or pull the product — needs a person.` : "Found the SKU and the money at stake. No return reasons were logged on these orders, so the cause still needs a human look.",
+      detail: topReasons,
     })
   }
 
@@ -386,12 +396,19 @@ async function buildInsights(ctx: any) {
   if (customers.length >= 30 && repeatRate < 0.15 && single.length > 0) {
     const singleTotal = single.reduce((t, c) => t + c.value, 0)
     const impact = Math.round(singleTotal * 0.15)
+    const wb = await ctx.runQuery(internal.winback.liveStats, {}).catch(() => null)
+    const live = wb?.enabled
     findings.push({
       id: "repeat-rate",
       problem: "You're selling once and losing the customer",
       finding: `Only ${Math.round(repeatRate * 100)}% of ${customers.length} customers in the last ${INSIGHT_WINDOW_DAYS} days bought a second time. ${single.length} one-time buyers spent ${taka(Math.round(singleTotal))} total and then went quiet.`,
-      solution: `Auto-send a WhatsApp/SMS 10–15 days after delivery with a small win-back discount for a second order. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
+      solution: `Auto-send an SMS 10–20 days after delivery with a small win-back discount for a second order. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
       impact,
+      status: "automatic" as const,
+      aiDid: live
+        ? `Sending the win-back SMS automatically, no one touches it. So far: ${wb!.sentTotal} sent, ${wb!.redeemed} redeemed the discount.`
+        : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`,
+      detail: [] as string[],
     })
   }
 

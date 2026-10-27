@@ -86,6 +86,18 @@ export const run = internalAction({
 
 export const getConf = internalQuery({ args: {}, handler: async (ctx) => conf(ctx) })
 
+/** Light stats for other pages (e.g. the Action Center) — no settings-manage permission needed, just signed in. */
+export const liveStats = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const c = await conf(ctx)
+    const discount = await ctx.db.query("discounts").withIndex("by_code", (q) => q.eq("code", c.code)).first()
+    const scan = await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(600)
+    const sentTotal = scan.filter((r) => r.channel === "winback" && r.status === "sent").length
+    return { enabled: c.enabled, startAt: START_AT, sentTotal, redeemed: discount?.usedCount ?? 0 }
+  },
+})
+
 /** Settings → Win-back: current setup, the discount's redemptions, and the last 30 messages sent. */
 export const settings = query({
   args: {},

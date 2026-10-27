@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -32,6 +32,7 @@ export function useCan() {
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view", color: "bg-tone-blue-bg text-tone-blue", group: "" },
+  { to: "/action-center", label: "Action Center", icon: Target, perm: "dashboard.view", color: "bg-tone-violet-bg text-tone-violet", group: "" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
   { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },
