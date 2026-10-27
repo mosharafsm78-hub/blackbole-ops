@@ -292,7 +292,8 @@ export default defineSchema({
     paymentMethod: v.optional(v.string()),
     courier: v.optional(v.string()), // pathao | manual | pickup
     consignmentId: v.optional(v.string()),
-    exchangeCheckedAt: v.optional(v.number()), // last automatic look on Pathao for this exchange's parcels
+    exchangeCheckedAt: v.optional(v.number()),
+    autoCall: v.optional(v.any()), // last automatic confirmation call: { result: confirmed | cancel | agent | no_answer, at, attempts } // last automatic look on Pathao for this exchange's parcels
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),
@@ -467,6 +468,22 @@ export default defineSchema({
 
   // Key/value settings. Secret values are only read server-side.
   settings: defineTable({ key: v.string(), value: v.any() }).index("by_key", ["key"]),
+  // Automatic order confirmation calls (press 1 confirm / 2 cancel / 3 talk to us)
+  autoCalls: defineTable({
+    orderId: v.id("orders"),
+    phone: v.string(),
+    status: v.string(), // queued | calling | done
+    attempt: v.number(),
+    nextAt: v.number(),
+    result: v.optional(v.string()), // confirmed | cancel | agent | no_answer | busy | failed | skipped
+    digit: v.optional(v.string()),
+    callRef: v.optional(v.string()), // the call server's own id
+    durationSec: v.optional(v.number()),
+    cost: v.optional(v.number()),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_status_next", ["status", "nextAt"]).index("by_order", ["orderId"]).index("by_created", ["createdAt"]),
   // deleted records kept here (nothing is lost; can be restored by hand)
   archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
   // products whose Shopify stock must be refreshed (live stock sync)

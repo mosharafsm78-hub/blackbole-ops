@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { AutoCallSettings } from "@/components/auto-call-settings"
 
 export const Route = createFileRoute("/_app/settings")({
   component: () => (
@@ -47,6 +48,7 @@ function SettingsPage() {
           <TabsTrigger value="shopify">Shopify</TabsTrigger>
           <TabsTrigger value="pathao">Pathao</TabsTrigger>
           <TabsTrigger value="sms">SMS & Email</TabsTrigger>
+          <TabsTrigger value="autocall">Auto calls</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
           <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
@@ -55,6 +57,7 @@ function SettingsPage() {
         <TabsContent value="shopify"><ShopifyTab /></TabsContent>
         <TabsContent value="pathao"><PathaoTab /></TabsContent>
         <TabsContent value="sms"><SmsTab /></TabsContent>
+        <TabsContent value="autocall"><AutoCallSettings /></TabsContent>
         <TabsContent value="warehouses"><WarehousesTab /></TabsContent>
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="roles"><RolesTab /></TabsContent>}

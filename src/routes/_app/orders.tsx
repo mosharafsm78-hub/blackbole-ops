@@ -45,7 +45,7 @@ const SUB_LABEL: Record<string, string> = {
   pending_returned: "Pending Returned", returned: "Returned", damaged: "Damaged",
 }
 const FLAGS: Record<string, string> = {
-  nocall: "Not called yet", unprinted: "Invoice not printed", duplicate: "Same phone, other open orders", courierError: "Courier booking failed",
+  nocall: "Not called yet", wantsCancel: "Pressed 2 on auto call (wants to cancel)", unprinted: "Invoice not printed", duplicate: "Same phone, other open orders", courierError: "Courier booking failed",
   followUp: "Follow-up due (call again)",
 }
 
@@ -447,6 +447,14 @@ function OrdersPage() {
                   </td>
                   <td className="p-3 text-xs">
                     <div className="tabular-nums">{o.callCount}</div>
+                    {(o as any).autoCall?.result && (() => {
+                      const r = (o as any).autoCall.result as string
+                      const m: Record<string, [string, string]> = {
+                        confirmed: ["🤖 Confirmed by call", "text-tone-green"], cancel: ["🤖 Pressed 2 · wants to cancel", "text-tone-red"],
+                        agent: ["🤖 Pressed 3 · call them", "text-tone-amber"], no_answer: ["🤖 Auto call: no answer", "text-muted-foreground"],
+                      }
+                      return m[r] ? <div className={cn("whitespace-nowrap font-medium", m[r][1])}>{m[r][0]}</div> : null
+                    })()}
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}
                     {o.followUpAt && (
                       <div className={cn("whitespace-nowrap font-medium", o.followUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>

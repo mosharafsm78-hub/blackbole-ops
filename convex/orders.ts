@@ -332,6 +332,7 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   // due today (Dhaka time) or overdue
   if (f.flag === "followUp" && !(o.followUpAt && o.followUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
   if (f.flag === "exchange" && !o.isExchange) return false
+  if (f.flag === "wantsCancel" && !(o.autoCall?.result === "cancel" && o.status === "pending")) return false
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
 }

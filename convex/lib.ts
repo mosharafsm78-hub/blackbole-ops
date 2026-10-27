@@ -182,6 +182,8 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   if (sms?.enabled && (sms.statuses ?? []).includes(status)) {
     await ctx.scheduler.runAfter(0, internal.outbound.sendOrderSms, { orderId, status })
   }
+  // Automatic confirmation call for a new Pending order (checks its own on/off switch)
+  if (status === "pending") await ctx.scheduler.runAfter(0, internal.autoCalls.queue, { orderId })
   // Same message by email when the customer gave an email address (checked in the action)
   const email = await getSetting<any>(ctx, "email")
   if (email?.enabled && (sms?.statuses ?? []).includes(status)) {
