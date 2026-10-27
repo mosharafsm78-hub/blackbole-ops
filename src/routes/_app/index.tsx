@@ -2,8 +2,7 @@ import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useAction, useQuery } from "convex/react"
 import { useEffect } from "react"
-import { Area, AreaChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, Target } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, Target, Undo2 } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
@@ -45,6 +44,7 @@ function Dashboard() {
   const { from, to } = useMemo(() => ({ from: startOfDayBD() - (days - 1) * 86400000, to: startOfDayBD() + 86400000 - 1 }), [days])
   const data = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
   const counts = useQuery(api.orders.counts)
+  const urgency = useQuery(api.orders.urgency)
   // Hidden admin check (?check=1): old count vs daily scoreboard for 7/30/90/365 days
   const compare = useAction(api.dashboard.compareStats)
   const [check, setCheck] = useState<any>(null)
@@ -113,46 +113,37 @@ function Dashboard() {
           </section>
 
           <div className="grid gap-4 lg:grid-cols-3">
-            {/* trend */}
+            {/* Urgency — what customer care and their supervisor should feel pressure about, right now */}
             <section className="rounded-xl border bg-card p-4 lg:col-span-2">
               <div className="mb-1 flex items-baseline justify-between">
-                <h2 className="text-sm font-semibold">Orders per day</h2>
-                <span className="text-xs text-muted-foreground">{n.totalOrders} orders · {taka(n.totalSales)}</span>
+                <h2 className="text-sm font-semibold">Needs attention now</h2>
+                <span className="text-xs text-muted-foreground">Updates live</span>
               </div>
-              <p className="mb-3 text-xs text-muted-foreground">How many orders came in each day (cancelled not counted). The number on each point is that day’s orders; hover to see its sales.</p>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={n.daily.map((d: any) => ({ ...d, label: new Date(`${d.day}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) }))} margin={{ left: -18, right: 12, top: 22 }}>
-                    <defs>
-                      <linearGradient id="ordersFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--tone-blue))" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="hsl(var(--tone-blue))" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" interval="preserveStartEnd" minTickGap={24} />
-                    <YAxis yAxisId="orders" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis yAxisId="sales" hide />
-                    <Tooltip
-                      contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 10, fontSize: 12 }}
-                      formatter={(val: any, name: any) => (name === "orders" ? [`${val} orders`, "Orders"] : [taka(Number(val)), "Sales"])}
-                      labelFormatter={(l: any) => l}
-                    />
-                    <Area yAxisId="orders" type="monotone" dataKey="orders" stroke="hsl(var(--tone-blue))" strokeWidth={2.5} fill="url(#ordersFill)" dot={n.daily.length <= 45 ? { r: 3, fill: "hsl(var(--tone-blue))" } : false} activeDot={{ r: 5 }}>
-                      <LabelList
-                        dataKey="orders" position="top" offset={8} fontSize={n.daily.length > 31 ? 9 : 11} fontWeight={600} fill="hsl(var(--foreground))"
-                        // every day up to a month; for longer ranges every 2nd/3rd day so numbers don't overlap
-                        content={(p: any) => {
-                          const step = n.daily.length > 62 ? 3 : n.daily.length > 31 ? 2 : 1
-                          if (p.index % step !== 0 && p.index !== n.daily.length - 1) return null
-                          return <text x={p.x} y={p.y - 8} textAnchor="middle" fontSize={n.daily.length > 31 ? 9 : 11} fontWeight={600} fill="hsl(var(--foreground))">{p.value}</text>
-                        }}
-                      />
-                    </Area>
-                    <Area yAxisId="sales" type="monotone" dataKey="sales" stroke="none" fill="none" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              <p className="mb-3 text-xs text-muted-foreground">Every one of these is a customer waiting on us. Click through to work the list.</p>
+              {!urgency ? <Loading /> : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Link to="/orders" search={{ tab: "pending" }} className="group rounded-xl bg-tone-amber-bg p-4 text-tone-amber transition hover:-translate-y-0.5 hover:shadow-md">
+                    <Target className="size-4 opacity-70" />
+                    <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.pendingOrders}</div>
+                    <div className="mt-0.5 text-xs opacity-80">Pending orders →</div>
+                  </Link>
+                  <Link to="/orders" search={{ tab: "all", flag: "needsFeedback" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.feedbackPending > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
+                    <PhoneCall className="size-4 opacity-70" />
+                    <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.feedbackPending}</div>
+                    <div className="mt-0.5 text-xs opacity-80">Feedback calls pending →</div>
+                  </Link>
+                  <Link to="/orders" search={{ tab: "all", flag: "csatFollowUp" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.feedbackFollowUp > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
+                    <PhoneCall className="size-4 opacity-70" />
+                    <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.feedbackFollowUp}</div>
+                    <div className="mt-0.5 text-xs opacity-80">Feedback follow-ups due →</div>
+                  </Link>
+                  <Link to="/orders" search={{ tab: "all", flag: "needsReason" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.reasonsPending > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
+                    <Undo2 className="size-4 opacity-70" />
+                    <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.reasonsPending}</div>
+                    <div className="mt-0.5 text-xs opacity-80">Return reasons pending →</div>
+                  </Link>
+                </div>
+              )}
             </section>
 
             {/* Today */}

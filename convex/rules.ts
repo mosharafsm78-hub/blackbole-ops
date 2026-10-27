@@ -243,6 +243,9 @@ export const CSAT_OUTCOMES = [
   "Happy — no issues", "Happy — minor issue", "Unhappy — product issue", "Unhappy — delivery issue", "Unhappy — other", "Could not reach", "Declined to answer",
 ]
 
+/** Outcomes that need another feedback-call attempt — mirrors FOLLOW_UP_OUTCOMES for the pre-delivery call. */
+export const CSAT_FOLLOWUP_OUTCOMES = ["Could not reach"]
+
 export const CUSTOMER_TAGS = ["NEW", "REGULAR", "VIP", "RISKY"]
 
 // Bangladesh phone → 01XXXXXXXXX

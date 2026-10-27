@@ -47,7 +47,10 @@ const SUB_LABEL: Record<string, string> = {
 const FLAGS: Record<string, string> = {
   nocall: "Not called yet", wantsCancel: "Pressed 2 on auto call (wants to cancel)", unprinted: "Invoice not printed", duplicate: "Same phone, other open orders", courierError: "Courier booking failed",
   followUp: "Follow-up due (call again)",
+  needsFeedback: "Delivered, feedback call not done", csatFollowUp: "Feedback follow-up due", needsReason: "Returned/damaged, no reason logged",
 }
+const DELIVERED: OrderStatus[] = ["delivered_due", "delivered_paid"]
+const RETURN_LIKE: OrderStatus[] = ["pending_returned", "returned", "damaged"]
 
 function rangeFrom(r?: string) {
   if (r === "today") return startOfDayBD()
@@ -461,11 +464,26 @@ function OrdersPage() {
                         Call again {new Date(o.followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                       </div>
                     )}
+                    {DELIVERED.includes(o.status as OrderStatus) && (
+                      (o as any).csat ? (
+                        <div className="mt-1 whitespace-nowrap border-t pt-1 text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
+                      ) : (
+                        <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Feedback call pending</div>
+                      )
+                    )}
+                    {(o as any).csatFollowUpAt && (
+                      <div className={cn("whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
+                        Feedback follow-up {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                      </div>
+                    )}
                   </td>
                   <td className="p-3">
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
+                      {RETURN_LIKE.includes(o.status as OrderStatus) && !o.reason && (
+                        <span className="whitespace-nowrap rounded bg-tone-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">⚠ No reason logged</span>
+                      )}
                     </div>
                   </td>
                 </tr>

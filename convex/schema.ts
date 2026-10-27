@@ -297,6 +297,7 @@ export default defineSchema({
     exchangeCheckedAt: v.optional(v.number()),
     autoCall: v.optional(v.any()), // last automatic confirmation call: { result: confirmed | cancel | agent | no_answer, at, attempts } // last automatic look on Pathao for this exchange's parcels
     csat: v.optional(v.any()), // last post-delivery feedback call: { outcome, note?, byName, at } — separate from callCount/lastCallOutcome, which drive the pre-delivery confirmation-call cron
+    csatFollowUpAt: v.optional(v.number()), // feedback call needs a retry (customer didn't pick up etc), mirrors followUpAt
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),
@@ -311,7 +312,10 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     statusChangedAt: v.number(),
-    reason: v.optional(v.string()),
+    reason: v.optional(v.string()), // short category — a preset like "Wrong size sent", never raw courier/migration text
+    reasonNote: v.optional(v.string()), // the customer's own words (Bangla or English) — real unstructured data for later analysis, separate from the category above
+    reasonBy: v.optional(v.string()),
+    reasonAt: v.optional(v.number()),
     // ---- Nuport parity ----
     invoiceCode: v.optional(v.string()), // legacy codes like SO-0005
     deliveryPartnerId: v.optional(v.id("deliveryPartners")),

@@ -263,6 +263,38 @@ export const counts = query({
   },
 })
 
+/** Dashboard urgency numbers — the whole point is that a supervisor feels pressure from a number, not a mood.
+ *  Pending orders reuses the same counter as the queue cards above; the other three scan the relevant status
+ *  buckets directly since they depend on fields (csat, reason) the precomputed counters don't track. */
+export const urgency = query({
+  args: {},
+  handler: async (ctx) => {
+    const s = await requirePerm(ctx, "dashboard.view")
+    void s
+    const rows = await ctx.db.query("counters").collect()
+    const get = (st: string) => rows.find((r) => r.name === `st:${st}`)?.value ?? 0
+    const pendingOrders = get("pending")
+
+    const delivered = (
+      await Promise.all(
+        (["delivered_due", "delivered_paid"] as const).map((st) => ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(5000)),
+      )
+    ).flat().filter((o) => !o.deletedAt)
+    const feedbackPending = delivered.filter((o) => !o.csat).length
+    const now = Date.now()
+    const feedbackFollowUp = delivered.filter((o) => o.csatFollowUpAt && o.csatFollowUpAt <= now).length
+
+    const returnLike = (
+      await Promise.all(
+        (["pending_returned", "returned", "damaged"] as const).map((st) => ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).take(5000)),
+      )
+    ).flat().filter((o) => !o.deletedAt)
+    const reasonsPending = returnLike.filter((o) => !o.reason).length
+
+    return { pendingOrders, feedbackPending, feedbackFollowUp, reasonsPending }
+  },
+})
+
 const filterArgs = v.object({
   tab: v.string(),
   sources: v.optional(v.array(v.string())),
@@ -333,6 +365,12 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   if (f.flag === "followUp" && !(o.followUpAt && o.followUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
   if (f.flag === "exchange" && !o.isExchange) return false
   if (f.flag === "wantsCancel" && !(o.autoCall?.result === "cancel" && o.status === "pending")) return false
+  // delivered, but nobody has done the post-delivery feedback call yet
+  if (f.flag === "needsFeedback" && !(isDelivered(o.status as OrderStatus) && !o.csat)) return false
+  // feedback call due today (Dhaka time) or overdue — mirrors the "followUp" flag above
+  if (f.flag === "csatFollowUp" && !(o.csatFollowUpAt && o.csatFollowUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
+  // returned / damaged / pending-returned with no reason logged — the fulfillment-quality data point is missing
+  if (f.flag === "needsReason" && !(isFlagged(o.status as OrderStatus) && !o.reason)) return false
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
 }
@@ -817,29 +855,42 @@ export const logCall = mutation({
 
 /** Set or correct the reason on an order after the fact — e.g. a migrated order whose reason is just a
  *  placeholder, or a return logged without one. Doesn't touch status, just the record. */
+/** reason = short category (a preset, or free text typed as "Other") — never raw courier/migration text.
+ *  note = the customer's own words, Bangla or English, exactly as they said it — real data for later analysis
+ *  (return-reason patterns, fulfillment mistakes, AI processing), kept separate from the category on purpose. */
 export const setReason = mutation({
-  args: { id: v.id("orders"), reason: v.string() },
-  handler: async (ctx, { id, reason }) => {
+  args: { id: v.id("orders"), reason: v.string(), note: v.optional(v.string()) },
+  handler: async (ctx, { id, reason, note }) => {
     const me = await requirePerm(ctx, "orders.edit")
     const order = await ctx.db.get(id)
     if (!order) throw new ConvexError("Order not found")
     const clean = reason.trim()
     if (!clean) throw new ConvexError("Enter a reason")
-    await ctx.db.patch(id, { reason: clean, lastNote: `${STATUS_LABEL[order.status as OrderStatus]}: ${clean}`, lastNoteBy: me.staff.name, updatedAt: Date.now() })
-    await logOrder(ctx, id, `Reason set: ${clean}`, me.staff.name)
+    const cleanNote = note?.trim() || undefined
+    await ctx.db.patch(id, {
+      reason: clean,
+      reasonNote: cleanNote,
+      reasonBy: me.staff.name,
+      reasonAt: Date.now(),
+      lastNote: `${STATUS_LABEL[order.status as OrderStatus]}: ${clean}`,
+      lastNoteBy: me.staff.name,
+      updatedAt: Date.now(),
+    })
+    await logOrder(ctx, id, `Reason set: ${clean}${cleanNote ? ` — "${cleanNote}"` : ""}`, me.staff.name)
   },
 })
 
 /** Post-delivery feedback call — how did it actually go. Its own field (`csat`) and its own log type so it
  *  never touches callCount/lastCallOutcome, which the pre-delivery confirmation-call cron reads. */
 export const logCsat = mutation({
-  args: { id: v.id("orders"), outcome: v.string(), note: v.optional(v.string()) },
-  handler: async (ctx, { id, outcome, note }) => {
+  args: { id: v.id("orders"), outcome: v.string(), note: v.optional(v.string()), followUpAt: v.optional(v.number()) },
+  handler: async (ctx, { id, outcome, note, followUpAt }) => {
     const me = await requirePerm(ctx, "orders.view")
     const order = await ctx.db.get(id)
     if (!order) throw new ConvexError("Order not found")
     const csat = { outcome, note: note?.trim() || undefined, byName: me.staff.name, at: Date.now() }
-    await ctx.db.patch(id, { csat, updatedAt: Date.now() })
+    // a new log without a follow-up time clears any old one — same pattern as the confirmation-call follow-up
+    await ctx.db.patch(id, { csat, csatFollowUpAt: followUpAt, updatedAt: Date.now() })
     await logOrder(ctx, id, `Feedback call: ${outcome}${csat.note ? ` — ${csat.note}` : ""}`, me.staff.name, "call", outcome)
   },
 })

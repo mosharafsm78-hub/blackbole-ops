@@ -185,9 +185,12 @@ function OrderPage() {
           </span>
         </div>
         {o.reason ? (
-          <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">
-            <span>Reason: {o.reason}</span>
-            {reasonStatus && <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">Edit</button>}
+          <div className="mx-5 mt-2 rounded-md bg-tone-amber-bg px-3 py-1.5 text-sm text-tone-amber">
+            <div className="flex items-center justify-between gap-2">
+              <span>Reason: {o.reason}</span>
+              {reasonStatus && <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">Edit</button>}
+            </div>
+            {o.reasonNote && <p className="mt-1 text-xs text-tone-amber/80">"{o.reasonNote}"</p>}
           </div>
         ) : reasonStatus ? (
           <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-1.5 text-sm text-muted-foreground">
@@ -464,7 +467,7 @@ function OrderPage() {
       <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
       {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
-      <ReasonDialog orderId={o._id} status={status} current={o.reason} open={reasonOpen} onOpenChange={setReasonOpen} />
+      <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} open={reasonOpen} onOpenChange={setReasonOpen} />
       <CsatDialog orderId={o._id} current={o.csat} open={csatOpen} onOpenChange={setCsatOpen} />
     </div>
   )

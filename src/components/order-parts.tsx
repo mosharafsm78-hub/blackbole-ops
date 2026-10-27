@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -463,38 +463,57 @@ export function StatusDialog({
 }
 
 // ---------------- Set / correct reason (after the fact, no status change) ----------------
+// Two separate fields on purpose: `reason` is a short, countable category (so it can be rolled up into real
+// numbers later); `note` is the customer's own words — Bangla or English, exactly as they said it — real raw
+// data for AI to read and act on, never overwritten by a courier/migration placeholder like "Pathao: paid_return".
 export function ReasonDialog({
-  orderId, status, current, open, onOpenChange,
+  orderId, status, current, currentNote, open, onOpenChange,
 }: {
   orderId: Id<"orders">
   status: OrderStatus
   current?: string
+  currentNote?: string
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
   const setReason = useMutation(api.orders.setReason)
-  const [reason, setLocalReason] = useState(current ?? "")
-  const [busy, setBusy] = useState(false)
-  useEffect(() => { if (open) setLocalReason(current ?? "") }, [open, current])
   const presets = status === "cancelled" ? CANCEL_REASONS : status === "on_hold" ? HOLD_REASONS : RETURN_REASONS
+  // a raw courier/migration string (e.g. "Pathao: paid_return") never pre-fills the category — start fresh instead
+  const looksLikePreset = !!current && presets.includes(current)
+  const [reason, setLocalReason] = useState(looksLikePreset ? current! : "")
+  const [note, setNote] = useState(currentNote ?? (!looksLikePreset ? current ?? "" : ""))
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    setLocalReason(looksLikePreset ? current! : "")
+    setNote(currentNote ?? (!looksLikePreset ? current ?? "" : ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, current, currentNote])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader><DialogTitle>{current ? "Edit" : "Add"} reason</DialogTitle></DialogHeader>
-        <div className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {presets.map((p) => (
-              <button key={p} type="button" onClick={() => setLocalReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
-            ))}
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Category <span className="font-normal text-tone-red">(required)</span></Label>
+            <div className="flex flex-wrap gap-1.5">
+              {presets.map((p) => (
+                <button key={p} type="button" onClick={() => setLocalReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
+              ))}
+            </div>
+            <Input value={reason} onChange={(e) => setLocalReason(e.target.value)} placeholder="Pick one above, or type your own" />
           </div>
-          <Input value={reason} onChange={(e) => setLocalReason(e.target.value)} placeholder="Why?" />
+          <div className="space-y-1.5">
+            <Label>What did the customer actually say? <span className="font-normal text-muted-foreground">(optional, Bangla or English)</span></Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Customer's own words, as exactly as you can — this is the real data." rows={3} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={busy || !reason.trim()} onClick={async () => {
             setBusy(true)
-            try { await setReason({ id: orderId, reason: reason.trim() }); toast.success("Reason saved"); onOpenChange(false) }
+            try { await setReason({ id: orderId, reason: reason.trim(), note: note.trim() || undefined }); toast.success("Reason saved"); onOpenChange(false) }
             catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Save reason</Button>
         </DialogFooter>
@@ -516,7 +535,18 @@ export function CsatDialog({
   const [outcome, setOutcome] = useState(current?.outcome ?? CSAT_OUTCOMES[0])
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
-  useEffect(() => { if (open) { setOutcome(current?.outcome ?? CSAT_OUTCOMES[0]); setNote("") } }, [open, current])
+  const needsFollowUp = CSAT_FOLLOWUP_OUTCOMES.includes(outcome)
+  const [followUp, setFollowUp] = useState("") // yyyy-mm-ddThh:mm (local)
+  const toLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  const quick = (label: string, at: () => Date) => ({ label, value: toLocal(at()) })
+  const at = (days: number, hour: number) => () => { const d = new Date(); d.setDate(d.getDate() + days); d.setHours(hour, 0, 0, 0); return d }
+  const QUICK = [
+    quick("In 2 hours", () => new Date(Date.now() + 2 * 3600000)),
+    quick("This evening", at(0, 19)),
+    quick("Tomorrow", at(1, 11)),
+    quick("In 2 days", at(2, 11)),
+  ]
+  useEffect(() => { if (open) { setOutcome(current?.outcome ?? CSAT_OUTCOMES[0]); setNote(""); setFollowUp("") } }, [open, current])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -532,20 +562,45 @@ export function CsatDialog({
             <Label>How did it go?</Label>
             <div className="flex flex-wrap gap-1.5">
               {CSAT_OUTCOMES.map((o) => (
-                <button key={o} type="button" onClick={() => setOutcome(o)} className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>{o}</button>
+                <button
+                  key={o} type="button" onClick={() => { setOutcome(o); if (CSAT_FOLLOWUP_OUTCOMES.includes(o) && !followUp) setFollowUp(toLocal(at(0, 19)())) }}
+                  className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}
+                >
+                  {o}
+                </button>
               ))}
             </div>
           </div>
+          {needsFollowUp && (
+            <div className="space-y-1.5 rounded-lg border border-tone-amber/40 bg-tone-amber/5 p-3" data-testid="csat-follow-up">
+              <Label>Call again on</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK.map((q) => (
+                  <button key={q.label} type="button" onClick={() => setFollowUp(q.value)}
+                    className={cn("rounded-md border px-2.5 py-1 text-xs", followUp === q.value ? "border-foreground bg-foreground text-background" : "bg-background hover:bg-accent")}>
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+              <input type="datetime-local" value={followUp} onChange={(e) => setFollowUp(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" />
+              <p className="text-xs text-muted-foreground">The order shows up as a feedback follow-up due when it's time to call again.</p>
+            </div>
+          )}
           <div className="space-y-1.5">
-            <Label>What did they say? <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Quality, fit, delivery speed, anything worth keeping…" />
+            <Label>What did they say? <span className="font-normal text-muted-foreground">(optional, Bangla or English)</span></Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Quality, fit, delivery speed, anything worth keeping — their own words if you can." />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button disabled={busy} onClick={async () => {
             setBusy(true)
-            try { await logCsat({ id: orderId, outcome, note: note.trim() || undefined }); toast.success("Feedback logged"); onOpenChange(false) }
+            try {
+              const followUpAt = needsFollowUp && followUp ? new Date(followUp).getTime() : undefined
+              await logCsat({ id: orderId, outcome, note: note.trim() || undefined, followUpAt })
+              toast.success(followUpAt ? `Feedback logged — follow up ${new Date(followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Feedback logged")
+              onOpenChange(false)
+            }
             catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Save feedback</Button>
         </DialogFooter>
