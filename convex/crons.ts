@@ -34,6 +34,10 @@ crons.daily("birthday wishes", { hourUTC: 4, minuteUTC: 0 }, internal.birthdays.
 // (from day 1, on top of the immediate email when it's first raised), and the operations head separately gets
 // pinged about anything past the 2-day SLA. Repeats every day it stays open. 9:00 Asia/Dhaka (UTC+6) = 03:00 UTC.
 crons.daily("accountability daily digest", { hourUTC: 3, minuteUTC: 0 }, internal.accountability.checkOverdue, {})
+// Business health: not just customer-care call logs — a weekly look at sales trend and return ratio, the way
+// an operations head would read the whole business, raising a flag against the owning department (Marketing
+// for sales, Fulfillment for returns) even when no one logged a call. Monday 9:00 Asia/Dhaka (UTC+6) = 03:05 UTC.
+crons.weekly("accountability business health", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 5 }, internal.accountability.businessHealthCheck, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})

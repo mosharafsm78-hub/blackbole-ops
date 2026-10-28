@@ -9,6 +9,7 @@ import { mutation, internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
 import { ACCOUNTABILITY_ROUTING } from "./rules"
+import { bdDay, statsFromDays } from "./stats"
 import type { Doc } from "./_generated/dataModel"
 
 const DAY = 86400000
@@ -236,6 +237,100 @@ export const checkOverdue = internalAction({
         text: `Hi ${opsHead.name.split(" ")[0]},\n\nThese have been open 2+ days with no answer:\n\n${lines}\n\nWorth a direct chase.\n\n— BlackBole Ops`,
       })
       for (const r of overdue) await ctx.runMutation(internal.accountability.markEscalated, { id: r._id })
+    }
+  },
+})
+
+// ---------------------------------------------------------------------------------------------------------------
+// Business-health flags: not every accountability item should wait for a customer-care call. A weekly check
+// (see crons.ts) looks at the whole business — sales trend, return ratio — the way an operations head would,
+// and raises a flag against the department that actually owns that outcome even when no one logged a call.
+// Thresholds are deliberately blunt for now (no historical baseline to calibrate against yet); the point is
+// catching the two things that most directly cost BlackBole money — fewer sales, more returns — not every
+// metric that could move.
+// ---------------------------------------------------------------------------------------------------------------
+
+const SALES_DROP_PCT = -15 // week-over-week % change that counts as "sales dropping"
+const RETURN_RATIO_HIGH = 0.15 // 15%+ of resolved orders returned/damaged in a week counts as "high" on its own
+const RETURN_RATIO_JUMP = 0.05 // or a 5-percentage-point jump over the previous week, even if not yet at 15%
+
+export const openByTeam = internalQuery({
+  args: { team: v.string() },
+  handler: async (ctx, { team }) => {
+    return await ctx.db.query("opsFlags").withIndex("by_team_status", (q) => q.eq("team", team).eq("status", "open")).collect()
+  },
+})
+
+/** Same as raiseFreeform, but for the system itself to open a flag — no signed-in staff member to attribute it
+ *  to, so it's logged as BlackBole Ops (automatic) and skips the team.manage permission check accordingly. */
+export const raiseSystem = internalMutation({
+  args: { team: v.string(), reason: v.string(), note: v.optional(v.string()) },
+  handler: async (ctx, { team, reason, note }) => {
+    const owners = await ownersConf(ctx)
+    const owner = owners.byTeam[team]
+    const id = await ctx.db.insert("opsFlags", { reason, team, note, status: "open", raisedByName: "BlackBole Ops (automatic)", raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    await notify(ctx, `${owner?.name ?? team}: business metric needs an answer`, reason, undefined, "accountability")
+    if (owner?.email) {
+      await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+        to: owner.email,
+        subject: `Accountability: a business metric needs your answer`,
+        text: `Hi ${owner.name.split(" ")[0]},\n\nBlackBole Ops spotted this automatically and routed it to you as ${team}:\n\n"${reason}"${note ? `\n\n${note}` : ""}\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
+      })
+    }
+    return id
+  },
+})
+
+/** Runs weekly (see crons.ts). Compares this week to last week using the same scoreboard the dashboard reads
+ *  from (cheap — no re-scanning every order). Raises at most one open flag per metric per team at a time: if
+ *  last week's flag on the same thing is still open, it isn't piled on again — the daily digest already keeps
+ *  reminding the owner. */
+export const businessHealthCheck = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const WEEK = 7 * DAY
+    const [thisRows, prevRows] = await Promise.all([
+      ctx.runQuery(internal.stats.days, { fromDay: bdDay(now - WEEK), toDay: bdDay(now) }),
+      ctx.runQuery(internal.stats.days, { fromDay: bdDay(now - 2 * WEEK), toDay: bdDay(now - WEEK) }),
+    ])
+    const t = statsFromDays(thisRows, now - WEEK, now)
+    const p = statsFromDays(prevRows, now - 2 * WEEK, now - WEEK)
+
+    const alreadyOpen = async (team: string, tag: string) => {
+      const rows = await ctx.runQuery(internal.accountability.openByTeam, { team })
+      return rows.some((r: any) => (r.reason as string).startsWith(tag))
+    }
+
+    // Sales dropping week over week
+    if (p.totalSales > 0) {
+      const pct = Math.round(((t.totalSales - p.totalSales) / p.totalSales) * 100)
+      if (pct <= SALES_DROP_PCT) {
+        const tag = "[Business health] Sales down"
+        if (!(await alreadyOpen("Marketing", tag))) {
+          await ctx.runMutation(internal.accountability.raiseSystem, {
+            team: "Marketing",
+            reason: `${tag} ${Math.abs(pct)}% this week`,
+            note: `৳${Math.round(t.totalSales).toLocaleString()} this week vs ৳${Math.round(p.totalSales).toLocaleString()} last week (${t.totalOrders} vs ${p.totalOrders} orders). What's driving it, and what's the plan to turn it back up?`,
+          })
+        }
+      }
+    }
+
+    // Return ratio climbing, or just high
+    const tResolved = t.delivered + t.returned
+    const pResolved = p.delivered + p.returned
+    const tRatio = tResolved > 0 ? t.returned / tResolved : null
+    const pRatio = pResolved > 0 ? p.returned / pResolved : null
+    if (tRatio !== null && (tRatio >= RETURN_RATIO_HIGH || (pRatio !== null && tRatio - pRatio >= RETURN_RATIO_JUMP))) {
+      const tag = "[Business health] Return ratio high"
+      if (!(await alreadyOpen("Fulfillment", tag))) {
+        await ctx.runMutation(internal.accountability.raiseSystem, {
+          team: "Fulfillment",
+          reason: `${tag} — ${Math.round(tRatio * 100)}% this week`,
+          note: `${t.returned} returned/damaged out of ${tResolved} resolved orders this week${pRatio !== null ? ` (was ${Math.round(pRatio * 100)}% last week)` : ""}. Find the main driver — if it turns out to really be a listing/description mismatch rather than a fulfillment error, re-route it to Marketing instead of answering it here.`,
+        })
+      }
     }
   },
 })
