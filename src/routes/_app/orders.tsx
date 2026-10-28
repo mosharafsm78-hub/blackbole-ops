@@ -448,7 +448,7 @@ function OrdersPage() {
                       <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Not sent to Pathao</span>
                     )}
                   </td>
-                  <td className="p-3 text-xs">
+                  <td className="p-3 text-xs align-middle">
                     <div className="tabular-nums">{o.callCount}</div>
                     {(o as any).autoCall?.result && (() => {
                       const r = (o as any).autoCall.result as string
@@ -484,7 +484,7 @@ function OrdersPage() {
                       </div>
                     )}
                   </td>
-                  <td className="p-3">
+                  <td className="p-3 align-middle">
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
