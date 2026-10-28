@@ -394,7 +394,12 @@ function OrdersPage() {
                       // happened to say at the time. Showing it here wrapped this cell across 3-4 lines and blew up
                       // the whole row's height. Treat a sync-authored note as no note, same as everywhere else.
                       const isSystemNote = o.lastNoteBy === "Pathao sync" || o.lastNoteBy === "Nuport sync"
-                      const note = o.lastNote && !isSystemNote ? o.lastNote : isRealReason(o.reason) && NEEDS_REASON.includes(o.status as OrderStatus) ? o.reason : null
+                      // For a returned/damaged order, setReason writes the same text into both `reason` AND
+                      // `lastNote` — the CX Follow-up column already shows it (that's its whole job), so showing
+                      // it here too is the exact duplication that column was built to get rid of. Only cancelled/
+                      // on-hold notes (which no other column covers) still belong here.
+                      const dupedByFollowUpColumn = RETURN_LIKE.includes(o.status as OrderStatus)
+                      const note = dupedByFollowUpColumn ? null : o.lastNote && !isSystemNote ? o.lastNote : isRealReason(o.reason) && NEEDS_REASON.includes(o.status as OrderStatus) ? o.reason : null
                       return note ? (
                         <div className="mt-1 max-w-52 rounded bg-tone-amber-bg px-1.5 py-0.5 text-[11px] text-foreground" data-testid="row-note">
                           📝 {note}{o.lastNoteBy && !isSystemNote ? <span className="text-muted-foreground"> — {o.lastNoteBy}</span> : null}
