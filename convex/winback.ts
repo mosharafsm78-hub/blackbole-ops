@@ -183,14 +183,16 @@ export const saveSettings = mutation({
     for (const t of templates) if (!t.includes("{code}")) throw new ConvexError("Every message variant must include {code} so the customer sees the discount code")
     if (a.minDays < 3 || a.minDays > 60) throw new ConvexError("Use a 'send after' window between 3 and 60 days")
     if (a.maxDays <= a.minDays || a.maxDays > 90) throw new ConvexError("The 'until' day must be after 'after' and at most 90")
-    // Merge onto the saved doc so the rotation counters (smsSendIndex/waSendIndex) survive an edit here.
-    const saved = (await getSetting<any>(ctx, "winback")) ?? {}
-    await setSetting(ctx, "winback", { ...saved, enabled: a.enabled, code, minDays: Math.round(a.minDays), maxDays: Math.round(a.maxDays), templates })
-    if (a.enabled) await ctx.runMutation(internal.winback.ensureDiscount, { code })
-    // Rewrite any WhatsApp messages already sitting in the queue so they pick up the new wording/rotation right
-    // away. Without this, a backlog queued before this edit — or before variants existed at all — stays frozen
-    // with whatever single text it got at enqueue time, even though the pattern it was drawn from just changed.
+    // TEMP DEBUG — wraps everything after validation so the real exception (whichever line throws it)
+    // surfaces as a ConvexError instead of Convex's generic redacted "Server Error" toast.
     try {
+      // Merge onto the saved doc so the rotation counters (smsSendIndex/waSendIndex) survive an edit here.
+      const saved = (await getSetting<any>(ctx, "winback")) ?? {}
+      await setSetting(ctx, "winback", { ...saved, enabled: a.enabled, code, minDays: Math.round(a.minDays), maxDays: Math.round(a.maxDays), templates })
+      if (a.enabled) await ctx.runMutation(internal.winback.ensureDiscount, { code })
+      // Rewrite any WhatsApp messages already sitting in the queue so they pick up the new wording/rotation right
+      // away. Without this, a backlog queued before this edit — or before variants existed at all — stays frozen
+      // with whatever single text it got at enqueue time, even though the pattern it was drawn from just changed.
       const pendingWinback = (await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).collect())
         .filter((r) => r.source === "winback")
         .sort((x, y) => x.createdAt - y.createdAt)
@@ -199,8 +201,7 @@ export const saveSettings = mutation({
         await ctx.db.patch(pendingWinback[i]._id, { text })
       }
     } catch (e: any) {
-      // TEMP DEBUG — surfaces the real exception instead of Convex's generic "Server Error" toast.
-      throw new ConvexError(`DEBUG refresh failed: ${e?.message ?? String(e)}`)
+      throw new ConvexError(`DEBUG save failed: ${e?.message ?? String(e)}`)
     }
   },
 })
