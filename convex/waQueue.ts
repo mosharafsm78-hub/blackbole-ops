@@ -12,6 +12,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
+import { pickTemplate } from "./winback"
 
 const DAY = 86400000
 const BATCH = 100
@@ -53,10 +54,13 @@ export const run = internalAction({
     if (!c.enabled) return
     const now = Date.now()
     const list = await ctx.runQuery(internal.waQueue.winbackCandidates, { from: now - c.maxDays * DAY, to: now - c.minDays * DAY })
+    let idx = c.waSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(c.template, { name: cust.name.split(" ")[0] || "there", code: c.code })
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code: c.code })
       await ctx.runMutation(internal.waQueue.enqueueOne, { customerId: cust._id, phone: cust.phone, name: cust.name, text, source: "winback" })
+      idx++
     }
+    if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "wa", count: list.length })
   },
 })
 

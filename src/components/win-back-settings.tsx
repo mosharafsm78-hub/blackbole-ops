@@ -53,10 +53,20 @@ export function WinBackSettings() {
           <div className="space-y-1.5"><Label>Send after (days)</Label><Input type="number" value={f.minDays} onChange={(e) => set("minDays", Number(e.target.value) || 0)} /></div>
           <div className="space-y-1.5"><Label>…until (days)</Label><Input type="number" value={f.maxDays} onChange={(e) => set("maxDays", Number(e.target.value) || 0)} /></div>
         </div>
-        <div className="mt-3 max-w-2xl space-y-1.5">
-          <Label>Message</Label>
-          <Textarea value={f.template} onChange={(e) => set("template", e.target.value)} rows={3} />
-          <p className="text-xs text-muted-foreground">Use <span className="font-mono">{"{name}"}</span> and <span className="font-mono">{"{code}"}</span>. The code is ৳150 off orders over ৳1,500, one use per customer — created automatically the first time this runs.</p>
+        <div className="mt-3 max-w-2xl space-y-2">
+          <Label>Message — rotates through these every 5 sends</Label>
+          <p className="text-xs text-muted-foreground">Sending the exact same text to dozens of customers in a row looks robotic. Add a few variants and the system cycles through them 5 at a time (SMS and WhatsApp rotate independently), so each batch reads a little different.</p>
+          {(f.templates as string[]).map((t, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <Textarea value={t} onChange={(e) => set("templates", (f.templates as string[]).map((x, j) => j === i ? e.target.value : x))} rows={3} className="flex-1" />
+              {f.templates.length > 1 && (
+                <Button type="button" variant="outline" size="sm" className="mt-0.5 text-tone-red hover:text-tone-red"
+                  onClick={() => set("templates", (f.templates as string[]).filter((_, j) => j !== i))}>Remove</Button>
+              )}
+            </div>
+          ))}
+          <Button type="button" variant="outline" size="sm" onClick={() => set("templates", [...(f.templates as string[]), ""])}>+ Add a variation</Button>
+          <p className="text-xs text-muted-foreground">Every variant needs <span className="font-mono">{"{code}"}</span>; <span className="font-mono">{"{name}"}</span> is optional. The code is ৳150 off orders over ৳1,500, one use per customer — created automatically the first time this runs.</p>
         </div>
         <Button className="mt-3" onClick={doSave}>Save</Button>
       </section>
