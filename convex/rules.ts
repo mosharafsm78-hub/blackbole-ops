@@ -246,13 +246,17 @@ export const CSAT_OUTCOMES = [
 /** Outcomes that need another feedback-call attempt — mirrors FOLLOW_UP_OUTCOMES for the pre-delivery call. */
 export const CSAT_FOLLOWUP_OUTCOMES = ["Could not reach"]
 
-/** Post-return feedback call: confirming with the customer why the order actually came back, in their own
- *  words — separate from `reason`, which is just the category logged when the return was first raised and
- *  may have been set by whoever first saw the parcel coming back, not from talking to the customer. Reuses
- *  "Could not reach" as its own follow-up trigger, same as the delivery call. */
-export const RETURN_CSAT_OUTCOMES = [
-  "Confirmed — reason matches", "Changed mind — wants to keep it", "Unhappy — product issue", "Unhappy — service issue", "Could not reach", "Declined to answer",
-]
+// Standardized so these roll up into real numbers later (e.g. Action Center breaking down returns by cause) —
+// a typed-out reason can never be counted, a picked one always can. Shared by the "Edit reason" category chips
+// and the Return feedback call outcomes below, so a customer's actual return reason is the same vocabulary
+// whether it was picked when the return was first raised or confirmed later on a call.
+export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Other"]
+
+/** Post-return feedback call: confirming with the customer the actual reason the order came back — same
+ *  category list as the return reason itself (RETURN_REASONS), not a separate made-up set of outcomes, plus
+ *  the two call-status options every feedback call needs. "Could not reach" is its own follow-up trigger,
+ *  same as the delivery call. */
+export const RETURN_CSAT_OUTCOMES = [...RETURN_REASONS, "Could not reach", "Declined to answer"]
 
 /** A `reason` value written by an automatic sync (a Pathao status string, a Nuport migration placeholder) is
  *  not a real, customer-given reason — it's just what the system happened to be told at the time. Treat it as

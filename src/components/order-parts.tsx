@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, RETURN_CSAT_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, RETURN_CSAT_OUTCOMES, RETURN_REASONS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -358,9 +358,6 @@ export function CallDialog({
 export const NEEDS_REASON: OrderStatus[] = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"]
 export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
 export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Advance payment pending", "Address unclear", "Other"]
-// Standardized so these roll up into real numbers later (e.g. Action Center breaking down returns by cause) —
-// a typed-out reason can never be counted, a picked one always can.
-export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Other"]
 export const EXCHANGE_REASONS = ["Wrong size delivered", "Wrong item delivered", "Doesn't fit", "Defective / damaged", "Customer wants a different colour/style", "Other"]
 
 export function StatusDialog({
