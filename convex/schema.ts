@@ -302,6 +302,8 @@ export default defineSchema({
     returnCsatFollowUpAt: v.optional(v.number()), // return feedback call needs a retry, mirrors csatFollowUpAt
     recovery: v.optional(v.any()), // last recovery call after an at-fault return: { outcome, note?, byName, at } — did we win the customer back with a fresh order
     recoveryFollowUpAt: v.optional(v.number()), // recovery call needs a retry, mirrors csatFollowUpAt
+    recoveredOrderId: v.optional(v.id("orders")), // set on the ORIGINAL (returned) order once a recovery call wins a fresh order — points to that new order
+    recoveryOfId: v.optional(v.id("orders")), // set on the NEW order created from a recovery call — points back to the original returned order it replaces. A normal order (not an exchange): the old item is already back in hand, not something courier collects, so it ships as a fresh sale, not an exchange parcel.
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),

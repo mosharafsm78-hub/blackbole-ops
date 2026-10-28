@@ -500,8 +500,13 @@ function OrdersPage() {
                       // An at-fault return (our mistake) pushes toward recovery instead of just showing the reason —
                       // that's the thing actually worth chasing, since the return call itself is already done.
                       if (atFault) {
+                        const recoveredOrderId = (o as any).recoveredOrderId as Id<"orders"> | undefined
                         return recovery?.outcome === "Recovered — placed a new order" ? (
-                          <div className="text-tone-green">✓ Recovered</div>
+                          recoveredOrderId ? (
+                            <Link to="/order" search={{ id: recoveredOrderId }} className="text-tone-green underline underline-offset-2 hover:opacity-80">✓ Recovered — new order →</Link>
+                          ) : (
+                            <div className="text-tone-green">✓ Recovered</div>
+                          )
                         ) : (
                           <div className="whitespace-nowrap font-medium text-tone-red">⚠ Recovery pending</div>
                         )

@@ -5,7 +5,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, 
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { isNegativeOutcome, isRealReason, ORDER_SOURCES, PAYMENT_METHODS, RETURN_AT_FAULT_REASONS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
+import { CSAT_FOLLOWUP_OUTCOMES, RECOVERY_OUTCOMES, isNegativeOutcome, isRealReason, ORDER_SOURCES, PAYMENT_METHODS, RETURN_AT_FAULT_REASONS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
@@ -176,6 +176,11 @@ function OrderPage() {
                 <PhoneCall className="size-4" /> {(o as any).recovery ? "Recovery logged" : "Recovery call"}
               </Button>
             )}
+            {(o as any).recoveredOrderId && (
+              <Button variant="outline" size="sm" className="border-tone-green/40 text-tone-green" asChild>
+                <Link to="/order" search={{ id: (o as any).recoveredOrderId }}><Link2 className="size-4" /> View recovery order</Link>
+              </Button>
+            )}
             {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
               : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
             <Perm perm="orders.print">
@@ -216,6 +221,16 @@ function OrderPage() {
           <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-blue-bg px-3 py-1.5 text-sm text-tone-blue">
             <span>Feedback: {o.csat.outcome}{o.csat.note ? ` — ${o.csat.note}` : ""}</span>
             {canCsat && <button type="button" onClick={() => setCsatOpen(true)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">Edit</button>}
+          </div>
+        )}
+        {data.recoveryOf && (
+          <div className="mx-5 mt-2 rounded-md bg-tone-violet-bg px-3 py-1.5 text-sm text-tone-violet">
+            Recovery order — replaces <Link to="/order" search={{ id: data.recoveryOf._id }} className="font-semibold underline underline-offset-2">{data.recoveryOf.label}</Link>
+          </div>
+        )}
+        {data.recoveredOrder && (
+          <div className="mx-5 mt-2 rounded-md bg-tone-green-bg px-3 py-1.5 text-sm text-tone-green">
+            Recovered — <Link to="/order" search={{ id: data.recoveredOrder._id }} className="font-semibold underline underline-offset-2">{data.recoveredOrder.label}</Link> was created for this customer
           </div>
         )}
 
@@ -486,7 +501,7 @@ function OrderPage() {
       <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} loggedBy={o.reasonBy} loggedAt={o.reasonAt} isSuperAdmin={can("*")} open={reasonOpen} onOpenChange={setReasonOpen} />
       <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} kind="delivery" />
       <CsatDialog orderId={o._id} current={(o as any).returnCsat} isSuperAdmin={can("*")} open={returnCsatOpen} onOpenChange={setReturnCsatOpen} kind="return" />
-      <CsatDialog orderId={o._id} current={(o as any).recovery} isSuperAdmin={can("*")} open={recoveryOpen} onOpenChange={setRecoveryOpen} kind="recovery" />
+      {recoveryOpen && <RecoveryDialog order={o} current={(o as any).recovery} isSuperAdmin={can("*")} canCreate={can("orders.create")} onClose={() => setRecoveryOpen(false)} />}
     </div>
   )
 }
@@ -707,6 +722,120 @@ function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={busy} onClick={() => void submit()}>Create exchange order</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** After an at-fault return, did we win the customer back? If the outcome is "Recovered — placed a new
+ *  order", this builds that replacement order right here — pick the item(s) they're reordering (can be a
+ *  different product/size than what came back), it ships as a normal fresh sale (own Pathao booking; the
+ *  old item's already back in hand, there's nothing for courier to collect) and gets linked both ways. Any
+ *  other outcome just logs the call, same as the delivery/return feedback calls. */
+function RecoveryDialog({ order, current, isSuperAdmin, canCreate, onClose }: {
+  order: Doc<"orders">
+  current?: { outcome: string; note?: string; byName: string; at: number }
+  isSuperAdmin: boolean
+  canCreate: boolean
+  onClose: () => void
+}) {
+  const router = useRouter()
+  const logRecovery = useMutation(api.orders.logRecovery)
+  const createRecoveryOrder = useMutation(api.orders.createRecoveryOrder)
+  const locked = !!current && !CSAT_FOLLOWUP_OUTCOMES.includes(current.outcome) && !isSuperAdmin
+  const [outcome, setOutcome] = useState(current?.outcome ?? RECOVERY_OUTCOMES[0])
+  const [note, setNote] = useState("")
+  const [fee, setFee] = useState(0)
+  const [cart, setCart] = useState<CartLine[]>([])
+  const [busy, setBusy] = useState(false)
+  const recovering = outcome === "Recovered — placed a new order"
+  const noteRequired = !recovering && !CSAT_FOLLOWUP_OUTCOMES.includes(outcome) && outcome !== "Declined to answer"
+
+  if (locked && current) {
+    return (
+      <Dialog open onOpenChange={(o) => !o && onClose()}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Recovery call</DialogTitle></DialogHeader>
+          <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">{current.outcome}</p>
+            {current.note && <p className="text-muted-foreground">"{current.note}"</p>}
+            <p className="text-xs text-muted-foreground">Logged by {current.byName} · {new Date(current.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Already logged — ask a Super Admin to change it.</p>
+          <DialogFooter><Button variant="outline" onClick={onClose}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  const submit = async () => {
+    if (recovering) {
+      if (!canCreate) { toast.error("You don't have permission to create orders — ask someone with order-creation access"); return }
+      if (cart.length === 0) { toast.error("Add what they're reordering"); return }
+      setBusy(true)
+      try {
+        const res = await createRecoveryOrder({
+          id: order._id, items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty, price: c.price, discount: c.discount })),
+          deliveryFee: fee, note: note.trim() || undefined,
+        })
+        toast.success(`Recovery order ${invoice(res.invoiceNo)} created and linked`)
+        onClose()
+        void router.navigate({ to: "/order", search: { id: res.orderId } })
+      } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+      return
+    }
+    if (noteRequired && !note.trim()) { toast.error("Write what the customer actually said before saving."); return }
+    setBusy(true)
+    try {
+      await logRecovery({ id: order._id, outcome, note: note.trim() || undefined })
+      toast.success("Feedback logged")
+      onClose()
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className={recovering ? "max-h-[90vh] overflow-y-auto sm:max-w-2xl" : undefined}>
+        <DialogHeader><DialogTitle>Recovery call</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          {current && (
+            <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
+              Last logged: <span className="font-medium text-foreground">{current.outcome}</span>{current.note ? ` — ${current.note}` : ""} · by {current.byName}
+            </p>
+          )}
+          <div className="space-y-2">
+            <Label>How did it go?</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {RECOVERY_OUTCOMES.map((o2) => (
+                <button key={o2} type="button" onClick={() => setOutcome(o2)}
+                  className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o2 ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>
+                  {o2}
+                </button>
+              ))}
+            </div>
+          </div>
+          {recovering ? (
+            <>
+              <div className="space-y-2">
+                <Label>What are they reordering?</Label>
+                <CartEditor cart={cart} onChange={setCart} />
+                <div className="h-64"><ProductSearch locationId={order.locationId} onAdd={(l) => setCart((c) => addToCart(c, l))} /></div>
+              </div>
+              <div className="space-y-1.5 sm:w-48"><Label>Delivery fee</Label><Input type="number" value={fee} onChange={(e) => setFee(Number(e.target.value) || 0)} /></div>
+              <div className="space-y-1.5"><Label>Note to fulfillment <span className="font-normal text-muted-foreground">(optional)</span></Label><Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything the team should know." /></div>
+              <p className="text-xs text-muted-foreground">Creates a linked order and sends it as a normal fresh sale — the old item's already back with us, so there's nothing for the courier to collect.</p>
+            </>
+          ) : (
+            <div className="space-y-1.5">
+              <Label>What did they say? {noteRequired ? <span className="font-normal text-tone-red">(required, Bangla or English)</span> : <span className="font-normal text-muted-foreground">(optional — nothing was said)</span>}</Label>
+              <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Quality, fit, delivery speed, anything worth keeping — their own words if you can." />
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy} onClick={() => void submit()}>{recovering ? "Create recovery order" : "Save feedback"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

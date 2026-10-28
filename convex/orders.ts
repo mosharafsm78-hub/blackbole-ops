@@ -90,6 +90,7 @@ export type NewOrder = {
   followUpAt?: number
   isExchange?: boolean
   exchangeOfId?: Id<"orders">
+  recoveryOfId?: Id<"orders">
   hasUpsell?: boolean
 }
 
@@ -145,7 +146,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     callCount: 0, createdByName: byName, createdAt: now, updatedAt: now, statusChangedAt: now,
     reason: blocked ?? undefined,
     ipAddress: o.ipAddress, origin: o.origin, campaignId: o.campaignId, followUpAt: o.followUpAt,
-    isExchange: o.isExchange || noCourier || undefined, exchangeOfId: o.exchangeOfId,
+    isExchange: o.isExchange || noCourier || undefined, exchangeOfId: o.exchangeOfId, recoveryOfId: o.recoveryOfId,
     noteCount: 0, itemCount: o.items.reduce((s, i) => s + i.qty, 0),
     hasUpsell: o.hasUpsell ?? o.source === "Up Sell",
     purchaseCost: await computePurchaseCost(ctx, o.items),
@@ -577,6 +578,8 @@ export const get = query({
     const newer = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", order.status).gt("createdAt", order.createdAt)).order("asc").first()
     const older = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", order.status).lt("createdAt", order.createdAt)).order("desc").first()
     const exchangeOf = order.exchangeOfId ? await ctx.db.get(order.exchangeOfId) : null
+    const recoveryOf = order.recoveryOfId ? await ctx.db.get(order.recoveryOfId) : null
+    const recoveredOrder = order.recoveredOrderId ? await ctx.db.get(order.recoveredOrderId) : null
     const customerStats = await statsForPhone(ctx, order.phone, customer)
     return {
       missing: false as const,
@@ -585,6 +588,8 @@ export const get = query({
       history: history.filter((h) => h._id !== id && !h.deletedAt).map((h) => ({ _id: h._id, invoiceNo: h.invoiceNo, invoiceCode: h.invoiceCode, status: h.status, total: h.total, createdAt: h.createdAt })),
       next, newerId: newer?._id ?? null, olderId: older?._id ?? null,
       exchangeOf: exchangeOf ? { _id: exchangeOf._id, label: invoiceLabel(exchangeOf) } : null,
+      recoveryOf: recoveryOf ? { _id: recoveryOf._id, label: invoiceLabel(recoveryOf) } : null,
+      recoveredOrder: recoveredOrder ? { _id: recoveredOrder._id, label: invoiceLabel(recoveredOrder) } : null,
       canCosts: hasPerm(s.perms, "orders.costs"),
     }
   },
@@ -1010,6 +1015,34 @@ export const createExchange = mutation({
       additionalInfo: `EXCHANGE parcel of ${invoiceLabel(o)}${o.consignmentId ? ` — Pathao ID ${o.consignmentId}` : ""}`,
     }, me.staff.name)
     await logOrder(ctx, o._id, `Exchange order BB-${res.invoiceNo} created`, me.staff.name)
+    return res
+  },
+})
+
+/** Recovery: an at-fault return (wrong/damaged item etc.) where the customer agreed to order again. Unlike an
+ *  exchange, the old item is already back in our hands — courier isn't collecting anything — so this ships as a
+ *  normal fresh sale (its own Pathao booking), not an exchange parcel. Logs the recovery call and creates the
+ *  linked order in one shot. */
+export const createRecoveryOrder = mutation({
+  args: { id: v.id("orders"), items: itemsInput, deliveryFee: v.number(), note: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "orders.create")
+    const o = await ctx.db.get(a.id)
+    if (!o) throw new ConvexError("Order not found")
+    const items = await buildItems(ctx, a.items)
+    const res = await insertOrder(ctx, {
+      source: o.source, customerName: o.customerName, phone: o.phone, email: o.email, address: o.address, cityName: o.cityName,
+      pathaoCityId: o.pathaoCityId, pathaoZoneId: o.pathaoZoneId, pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName,
+      locationId: o.locationId, deliveryType: o.deliveryType, items, discount: 0, deliveryFee: a.deliveryFee,
+      customerNote: a.note, recoveryOfId: o._id,
+      additionalInfo: `RECOVERY order — replaces ${invoiceLabel(o)} (${o.reason ?? "at-fault return"})`,
+    }, me.staff.name)
+    await ctx.db.patch(o._id, {
+      recoveredOrderId: res.orderId,
+      recovery: { outcome: "Recovered — placed a new order", note: a.note, byName: me.staff.name, at: Date.now() },
+      recoveryFollowUpAt: undefined,
+    })
+    await logOrder(ctx, o._id, `Recovery order BB-${res.invoiceNo} created`, me.staff.name)
     return res
   },
 })
