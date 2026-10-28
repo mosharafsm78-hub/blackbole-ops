@@ -49,10 +49,16 @@ function Waiting() {
   const markSent = useMutation(api.waQueue.markSent)
   const skip = useMutation(api.waQueue.skip)
 
-  // Opens one small, reusable WhatsApp window (same name every time) instead of a new tab per message — stays
-  // logged in, stays positioned, feels like a docked WhatsApp panel next to Ops. You still tap Send yourself.
+  // Mobile browsers and in-app webviews silently block or no-op a scripted window.open with width/height "popup"
+  // features, so on phones we render a real <a href> instead (below) — a true link tap reliably hands off to the
+  // WhatsApp app, where a JS popup was failing silently. Desktop keeps the small, reusable docked window.
+  const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
   const openAndSend = async (id: Id<"waQueue">, link: string) => {
-    window.open(link, "blackbole_whatsapp", "width=420,height=680")
+    const win = window.open(link, "blackbole_whatsapp", "width=420,height=680")
+    if (!win) {
+      toast.error("Couldn't open WhatsApp — your browser may be blocking pop-ups. Tap the message text to copy it, then open WhatsApp yourself.")
+      return
+    }
     try {
       await markSent({ id })
     } catch (e) {
@@ -80,9 +86,19 @@ function Waiting() {
           </div>
           <p className="mt-2 rounded-lg bg-muted/60 px-3 py-2 text-sm">{r.text}</p>
           <div className="mt-3 flex gap-2">
-            <Button size="sm" className="gap-1.5" onClick={() => void openAndSend(r._id, r.link)}>
-              <MessageCircle className="size-4" /> Open WhatsApp &amp; send
-            </Button>
+            {isMobile ? (
+              // Real link tap, not a scripted window.open — this is what reliably hands off to the WhatsApp app on
+              // phones (deep-link/universal-link handling); a JS popup is what was silently failing before.
+              <Button size="sm" className="gap-1.5" asChild>
+                <a href={r.link} target="_blank" rel="noopener noreferrer" onClick={() => void markSent({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>
+                  <MessageCircle className="size-4" /> Open WhatsApp &amp; send
+                </a>
+              </Button>
+            ) : (
+              <Button size="sm" className="gap-1.5" onClick={() => void openAndSend(r._id, r.link)}>
+                <MessageCircle className="size-4" /> Open WhatsApp &amp; send
+              </Button>
+            )}
             <Button size="sm" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={() => void skip({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>
               <SkipForward className="size-4" /> Skip
             </Button>
