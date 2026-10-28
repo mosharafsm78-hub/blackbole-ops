@@ -5,7 +5,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Link2, Lock, Pencil, PhoneCall, 
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
-import { isRealReason, ORDER_SOURCES, PAYMENT_METHODS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
+import { isNegativeOutcome, isRealReason, ORDER_SOURCES, PAYMENT_METHODS, RETURN_AT_FAULT_REASONS, STATUS_LABEL, TRANSITIONS, type OrderStatus } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
@@ -119,6 +119,7 @@ function OrderPage() {
   const [reasonOpen, setReasonOpen] = useState(false)
   const [csatOpen, setCsatOpen] = useState(false)
   const [returnCsatOpen, setReturnCsatOpen] = useState(false)
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState<"all" | "call" | "note" | "log">("all")
   const [booking, setBooking] = useState(false)
@@ -143,6 +144,9 @@ function OrderPage() {
   const reasonStatus = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"].includes(status) && can("orders.edit")
   const canCsat = (status === "delivered_due" || status === "delivered_paid") && can("orders.view")
   const canReturnCsat = ["pending_returned", "returned", "damaged"].includes(status) && can("orders.view")
+  // Only worth offering a recovery call once we know the return was actually our own fault — there's nothing
+  // to recover from a customer who simply changed their mind.
+  const canRecovery = canReturnCsat && RETURN_AT_FAULT_REASONS.includes((o as any).returnCsat?.outcome)
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -166,6 +170,11 @@ function OrderPage() {
             )}
             {canReturnCsat && (
               <Button variant="outline" size="sm" onClick={() => setReturnCsatOpen(true)}><PhoneCall className="size-4" /> {(o as any).returnCsat ? "Return call logged" : "Return feedback call"}</Button>
+            )}
+            {canRecovery && (
+              <Button variant="outline" size="sm" className={cn((o as any).recovery?.outcome === "Recovered — placed a new order" ? "border-tone-green/40 text-tone-green" : "border-tone-red/40 text-tone-red")} onClick={() => setRecoveryOpen(true)}>
+                <PhoneCall className="size-4" /> {(o as any).recovery ? "Recovery logged" : "Recovery call"}
+              </Button>
             )}
             {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
               : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
@@ -337,9 +346,11 @@ function OrderPage() {
               {events2.map((e) => (
                 <li key={e._id} className="relative">
                   <span className={cn("absolute -left-[26px] top-1 size-3 rounded-full border-2 border-card",
-                    e.type === "call" ? (e.outcome === "Confirmed" ? "bg-tone-green" : "bg-tone-amber") : e.type === "note" ? "bg-tone-violet" : e.type === "payment" ? "bg-tone-green" : "bg-muted-foreground/40")} />
+                    e.type === "call" ? (e.outcome === "Confirmed" ? "bg-tone-green" : isNegativeOutcome(e.outcome) ? "bg-tone-red" : "bg-tone-amber") : e.type === "note" ? "bg-tone-violet" : e.type === "payment" ? "bg-tone-green" : "bg-muted-foreground/40")} />
                   <div className="flex flex-wrap items-center gap-1.5">
-                    {e.type === "call" && <Pill tone={e.outcome === "Confirmed" ? "green" : "amber"}>Call{e.outcome ? ` · ${e.outcome}` : ""}</Pill>}
+                    {/* A call that came back unhappy, or a return that turned out to be our own fault, is flagged red here
+                        instead of the usual neutral amber — a real problem shouldn't blend in with routine call logs. */}
+                    {e.type === "call" && <Pill tone={e.outcome === "Confirmed" ? "green" : isNegativeOutcome(e.outcome) ? "red" : "amber"}>Call{e.outcome ? ` · ${e.outcome}` : ""}</Pill>}
                     {e.type === "note" && <Pill tone="violet">Note</Pill>}
                     {e.type === "payment" && <Pill tone="green">Payment</Pill>}
                     <span className="text-xs text-muted-foreground">{e.byName} · {dateTime(e.at)}</span>
@@ -475,6 +486,7 @@ function OrderPage() {
       <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} loggedBy={o.reasonBy} loggedAt={o.reasonAt} isSuperAdmin={can("*")} open={reasonOpen} onOpenChange={setReasonOpen} />
       <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} kind="delivery" />
       <CsatDialog orderId={o._id} current={(o as any).returnCsat} isSuperAdmin={can("*")} open={returnCsatOpen} onOpenChange={setReturnCsatOpen} kind="return" />
+      <CsatDialog orderId={o._id} current={(o as any).recovery} isSuperAdmin={can("*")} open={recoveryOpen} onOpenChange={setRecoveryOpen} kind="recovery" />
     </div>
   )
 }

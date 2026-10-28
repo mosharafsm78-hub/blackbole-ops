@@ -300,6 +300,8 @@ export default defineSchema({
     csatFollowUpAt: v.optional(v.number()), // feedback call needs a retry (customer didn't pick up etc), mirrors followUpAt
     returnCsat: v.optional(v.any()), // last post-return feedback call: { outcome, note?, byName, at } — mirrors csat, but for a returned/damaged order instead of a delivered one. Separate from `reason`, which is the category logged when the return was first raised, not a call made to the customer about it.
     returnCsatFollowUpAt: v.optional(v.number()), // return feedback call needs a retry, mirrors csatFollowUpAt
+    recovery: v.optional(v.any()), // last recovery call after an at-fault return: { outcome, note?, byName, at } — did we win the customer back with a fresh order
+    recoveryFollowUpAt: v.optional(v.number()), // recovery call needs a retry, mirrors csatFollowUpAt
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),

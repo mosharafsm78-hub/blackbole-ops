@@ -258,6 +258,23 @@ export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged
  *  same as the delivery call. */
 export const RETURN_CSAT_OUTCOMES = [...RETURN_REASONS, "Could not reach", "Declined to answer"]
 
+/** Of the return reasons, these are BlackBole's own doing — the wrong item, a damaged item, a late delivery,
+ *  a listing that didn't match — rather than the customer's own call (changed mind, size didn't fit). These
+ *  are the ones worth a recovery attempt: a mistake we can still make right. */
+export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Late delivery"]
+
+/** True for any call outcome worth flagging red — an unhappy delivery, or a return whose reason was our own
+ *  fault — so a real problem stands out in the timeline instead of blending in with routine calls. */
+export function isNegativeOutcome(outcome?: string | null): boolean {
+  return !!outcome && (outcome.startsWith("Unhappy") || RETURN_AT_FAULT_REASONS.includes(outcome))
+}
+
+/** Recovery call: after a return that was our own fault, CX reaches back out, makes it right, and tries to
+ *  win the customer back with a fresh order — this time fulfilling what they actually wanted. Its own field
+ *  (`recovery`), separate from `returnCsat`, with the same mandatory-note + Super-Admin-lock rules as every
+ *  other feedback call. */
+export const RECOVERY_OUTCOMES = ["Recovered — placed a new order", "Offered — declined", "Could not reach", "Declined to answer"]
+
 /** A `reason` value written by an automatic sync (a Pathao status string, a Nuport migration placeholder) is
  *  not a real, customer-given reason — it's just what the system happened to be told at the time. Treat it as
  *  if no reason were recorded so the UI keeps asking a human to actually call and log one, instead of quietly

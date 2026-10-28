@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, Clock, Lock, Download, Printer, RefreshCw, 
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
+import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, RETURN_AT_FAULT_REASONS, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
@@ -492,13 +492,22 @@ function OrdersPage() {
                         <div className="whitespace-nowrap font-medium text-tone-red">⚠ Feedback call pending</div>
                       )
                     )}
-                    {RETURN_LIKE.includes(o.status as OrderStatus) && (
-                      (o as any).returnCsat ? (
-                        <div className="text-tone-green">✓ Return call: {(o as any).returnCsat.outcome}</div>
-                      ) : (
-                        <div className="whitespace-nowrap font-medium text-tone-red">⚠ Return call pending</div>
-                      )
-                    )}
+                    {RETURN_LIKE.includes(o.status as OrderStatus) && (() => {
+                      const rc = (o as any).returnCsat
+                      const recovery = (o as any).recovery
+                      const atFault = rc && RETURN_AT_FAULT_REASONS.includes(rc.outcome)
+                      if (!rc) return <div className="whitespace-nowrap font-medium text-tone-red">⚠ Return call pending</div>
+                      // An at-fault return (our mistake) pushes toward recovery instead of just showing the reason —
+                      // that's the thing actually worth chasing, since the return call itself is already done.
+                      if (atFault) {
+                        return recovery?.outcome === "Recovered — placed a new order" ? (
+                          <div className="text-tone-green">✓ Recovered</div>
+                        ) : (
+                          <div className="whitespace-nowrap font-medium text-tone-red">⚠ Recovery pending</div>
+                        )
+                      }
+                      return <div className="text-tone-green">✓ Return call: {rc.outcome}</div>
+                    })()}
                     {DELIVERED.includes(o.status as OrderStatus) && (o as any).csatFollowUpAt && (
                       <div className={cn("mt-1 whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
                         Call again {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}

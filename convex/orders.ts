@@ -951,6 +951,28 @@ export const logReturnCsat = mutation({
   },
 })
 
+/** Recovery call — after an at-fault return, did we win the customer back with a fresh order. Same shape and
+ *  rules as logReturnCsat, its own field so it never collides with the return call that triggered it. */
+export const logRecovery = mutation({
+  args: { id: v.id("orders"), outcome: v.string(), note: v.optional(v.string()), followUpAt: v.optional(v.number()) },
+  handler: async (ctx, { id, outcome, note, followUpAt }) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const order = await ctx.db.get(id)
+    if (!order) throw new ConvexError("Order not found")
+    const cleanNote = note?.trim() || undefined
+    if (!cleanNote && !CSAT_FOLLOWUP_OUTCOMES.includes(outcome) && outcome !== "Declined to answer") {
+      throw new ConvexError("Write what the customer actually said before saving.")
+    }
+    const existing = order.recovery as { outcome: string } | undefined
+    if (existing && !CSAT_FOLLOWUP_OUTCOMES.includes(existing.outcome) && !hasPerm(me.perms, "*")) {
+      throw new ConvexError("This recovery call has already been logged — ask a Super Admin to change it.")
+    }
+    const recovery = { outcome, note: cleanNote, byName: me.staff.name, at: Date.now() }
+    await ctx.db.patch(id, { recovery, recoveryFollowUpAt: followUpAt, updatedAt: Date.now() })
+    await logOrder(ctx, id, `Recovery call: ${outcome}${recovery.note ? ` — ${recovery.note}` : ""}`, me.staff.name, "call", outcome)
+  },
+})
+
 export const addPayment = mutation({
   args: { id: v.id("orders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()) },
   handler: async (ctx, a) => {
