@@ -467,12 +467,15 @@ export function StatusDialog({
 // numbers later); `note` is the customer's own words — Bangla or English, exactly as they said it — real raw
 // data for AI to read and act on, never overwritten by a courier/migration placeholder like "Pathao: paid_return".
 export function ReasonDialog({
-  orderId, status, current, currentNote, open, onOpenChange,
+  orderId, status, current, currentNote, loggedBy, loggedAt, isSuperAdmin, open, onOpenChange,
 }: {
   orderId: Id<"orders">
   status: OrderStatus
   current?: string
   currentNote?: string
+  loggedBy?: string
+  loggedAt?: number
+  isSuperAdmin: boolean
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
@@ -482,6 +485,9 @@ export function ReasonDialog({
   // anything — not the category, not the note — it's system junk, not something a human wrote
   const looksLikePreset = !!current && presets.includes(current)
   const looksReal = isRealReason(current)
+  // Once a real reason is on file, it's locked — only a Super Admin can open the edit form. Everyone else sees
+  // a read-only summary of what's already logged, so the record can't quietly get changed after the fact.
+  const locked = looksReal && !isSuperAdmin
   const [reason, setLocalReason] = useState(looksLikePreset ? current! : "")
   const [note, setNote] = useState(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
   const [busy, setBusy] = useState(false)
@@ -491,6 +497,23 @@ export function ReasonDialog({
     setNote(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, current, currentNote])
+
+  if (locked) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Reason</DialogTitle></DialogHeader>
+          <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">{current}</p>
+            {currentNote && <p className="text-muted-foreground">"{currentNote}"</p>}
+            {(loggedBy || loggedAt) && <p className="text-xs text-muted-foreground">Logged{loggedBy ? ` by ${loggedBy}` : ""}{loggedAt ? ` · ${new Date(loggedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : ""}</p>}
+          </div>
+          <p className="text-xs text-muted-foreground">Already logged — ask a Super Admin to change it.</p>
+          <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -507,13 +530,13 @@ export function ReasonDialog({
             <Input value={reason} onChange={(e) => setLocalReason(e.target.value)} placeholder="Pick one above, or type your own" />
           </div>
           <div className="space-y-1.5">
-            <Label>What did the customer actually say? <span className="font-normal text-muted-foreground">(optional, Bangla or English)</span></Label>
+            <Label>What did the customer actually say? <span className="font-normal text-tone-red">(required, Bangla or English)</span></Label>
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Customer's own words, as exactly as you can — this is the real data." rows={3} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={busy || !reason.trim()} onClick={async () => {
+          <Button disabled={busy || !reason.trim() || !note.trim()} onClick={async () => {
             setBusy(true)
             try { await setReason({ id: orderId, reason: reason.trim(), note: note.trim() || undefined }); toast.success("Reason saved"); onOpenChange(false) }
             catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
@@ -526,18 +549,23 @@ export function ReasonDialog({
 
 // ---------------- Post-delivery feedback call ----------------
 export function CsatDialog({
-  orderId, current, open, onOpenChange,
+  orderId, current, isSuperAdmin, open, onOpenChange,
 }: {
   orderId: Id<"orders">
   current?: { outcome: string; note?: string; byName: string; at: number }
+  isSuperAdmin: boolean
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
   const logCsat = useMutation(api.orders.logCsat)
+  // A finished outcome is locked once logged — "Could not reach" is the one exception, since that's not a
+  // finished call, it's a signal the team still needs to try again.
+  const locked = !!current && !CSAT_FOLLOWUP_OUTCOMES.includes(current.outcome) && !isSuperAdmin
   const [outcome, setOutcome] = useState(current?.outcome ?? CSAT_OUTCOMES[0])
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const needsFollowUp = CSAT_FOLLOWUP_OUTCOMES.includes(outcome)
+  const noteRequired = !CSAT_FOLLOWUP_OUTCOMES.includes(outcome) && outcome !== "Declined to answer"
   const [followUp, setFollowUp] = useState("") // yyyy-mm-ddThh:mm (local)
   const toLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
   const quick = (label: string, at: () => Date) => ({ label, value: toLocal(at()) })
@@ -549,6 +577,23 @@ export function CsatDialog({
     quick("In 2 days", at(2, 11)),
   ]
   useEffect(() => { if (open) { setOutcome(current?.outcome ?? CSAT_OUTCOMES[0]); setNote(""); setFollowUp("") } }, [open, current])
+
+  if (locked && current) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delivery feedback call</DialogTitle></DialogHeader>
+          <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
+            <p className="font-medium">{current.outcome}</p>
+            {current.note && <p className="text-muted-foreground">"{current.note}"</p>}
+            <p className="text-xs text-muted-foreground">Logged by {current.byName} · {new Date(current.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Already logged — ask a Super Admin to change it.</p>
+          <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -589,13 +634,13 @@ export function CsatDialog({
             </div>
           )}
           <div className="space-y-1.5">
-            <Label>What did they say? <span className="font-normal text-muted-foreground">(optional, Bangla or English)</span></Label>
+            <Label>What did they say? {noteRequired ? <span className="font-normal text-tone-red">(required, Bangla or English)</span> : <span className="font-normal text-muted-foreground">(optional — nothing was said)</span>}</Label>
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Quality, fit, delivery speed, anything worth keeping — their own words if you can." />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={busy} onClick={async () => {
+          <Button disabled={busy || (noteRequired && !note.trim())} onClick={async () => {
             setBusy(true)
             try {
               const followUpAt = needsFollowUp && followUp ? new Date(followUp).getTime() : undefined

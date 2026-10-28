@@ -12,7 +12,7 @@ import {
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
-  EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
+  CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
 } from "./rules"
@@ -881,6 +881,13 @@ export const setReason = mutation({
     const clean = reason.trim()
     if (!clean) throw new ConvexError("Enter a reason")
     const cleanNote = note?.trim() || undefined
+    if (!cleanNote) throw new ConvexError("Write what the customer actually said before saving — that's the real data this is for.")
+    // Once a real, human-logged reason is on file, lock it — only a Super Admin can change it, so the record
+    // can't quietly get edited after the fact. A system-sync placeholder doesn't count as "already logged";
+    // the first real human entry always goes through.
+    if (isRealReason(order.reason) && order.reasonAt && !hasPerm(me.perms, "*")) {
+      throw new ConvexError("This reason has already been logged — ask a Super Admin to change it.")
+    }
     await ctx.db.patch(id, {
       reason: clean,
       reasonNote: cleanNote,
@@ -902,7 +909,19 @@ export const logCsat = mutation({
     const me = await requirePerm(ctx, "orders.view")
     const order = await ctx.db.get(id)
     if (!order) throw new ConvexError("Order not found")
-    const csat = { outcome, note: note?.trim() || undefined, byName: me.staff.name, at: Date.now() }
+    const cleanNote = note?.trim() || undefined
+    // No note needed when nothing was actually said (couldn't reach them, or they declined) — otherwise this
+    // is the real customer-given data the call exists to capture, so it's required.
+    if (!cleanNote && !CSAT_FOLLOWUP_OUTCOMES.includes(outcome) && outcome !== "Declined to answer") {
+      throw new ConvexError("Write what the customer actually said before saving.")
+    }
+    // A finished outcome is locked once logged — only a Super Admin can correct it. "Could not reach" stays
+    // open, since that's not a finished call, it's a signal to try again.
+    const existing = order.csat as { outcome: string } | undefined
+    if (existing && !CSAT_FOLLOWUP_OUTCOMES.includes(existing.outcome) && !hasPerm(me.perms, "*")) {
+      throw new ConvexError("This feedback call has already been logged — ask a Super Admin to change it.")
+    }
+    const csat = { outcome, note: cleanNote, byName: me.staff.name, at: Date.now() }
     // a new log without a follow-up time clears any old one — same pattern as the confirmation-call follow-up
     await ctx.db.patch(id, { csat, csatFollowUpAt: followUpAt, updatedAt: Date.now() })
     await logOrder(ctx, id, `Feedback call: ${outcome}${csat.note ? ` — ${csat.note}` : ""}`, me.staff.name, "call", outcome)

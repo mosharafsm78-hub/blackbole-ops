@@ -467,8 +467,8 @@ function OrderPage() {
       <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
       {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
-      <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} open={reasonOpen} onOpenChange={setReasonOpen} />
-      <CsatDialog orderId={o._id} current={o.csat} open={csatOpen} onOpenChange={setCsatOpen} />
+      <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} loggedBy={o.reasonBy} loggedAt={o.reasonAt} isSuperAdmin={can("*")} open={reasonOpen} onOpenChange={setReasonOpen} />
+      <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} />
     </div>
   )
 }
