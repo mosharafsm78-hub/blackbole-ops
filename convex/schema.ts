@@ -805,9 +805,9 @@ export default defineSchema({
   // system — not a side chat nobody can trace later. One flag per order per raise; a team member closes it
   // with a real response, which is itself part of the record.
   opsFlags: defineTable({
-    orderId: v.id("orders"),
-    reason: v.string(), // the at-fault return reason that triggered this, e.g. "Wrong product sent"
-    team: v.string(), // which department owns it — see ACCOUNTABILITY_ROUTING
+    orderId: v.optional(v.id("orders")), // unset for a free-form question not tied to one order (e.g. "why is our return ratio high?")
+    reason: v.string(), // the at-fault return reason that triggered this, e.g. "Wrong product sent" — or the free-form question's own text
+    team: v.string(), // which department owns it — see ACCOUNTABILITY_ROUTING, and Settings → Accountability for who that is by name
     note: v.optional(v.string()), // the CX call note, for context
     status: v.string(), // "open" | "resolved"
     raisedByName: v.string(),
@@ -815,5 +815,8 @@ export default defineSchema({
     response: v.optional(v.string()),
     resolvedByName: v.optional(v.string()),
     resolvedAt: v.optional(v.number()),
+    assignee: v.optional(v.string()), // named owner this was routed to at the time (Settings → Accountability), for display even if the setting later changes
+    assigneeEmail: v.optional(v.string()),
+    escalatedAt: v.optional(v.number()), // first time this crossed the 2-day SLA and the ops head got pinged
   }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]),
 })

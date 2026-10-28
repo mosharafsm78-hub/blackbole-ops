@@ -30,6 +30,10 @@ crons.interval("whatsapp queue fill (repeat buyers)", { hours: 1 }, internal.waQ
 // 10:00 Asia/Dhaka (UTC+6) = 04:00 UTC.
 crons.daily("birthday wishes", { hourUTC: 4, minuteUTC: 0 }, internal.birthdays.sendAutomatic, {})
 
+// Accountability: anything still open past the 2-day SLA gets the assignee nudged again and the operations
+// head pinged — every day it stays open, not just once. 9:00 Asia/Dhaka (UTC+6) = 03:00 UTC.
+crons.daily("accountability SLA check", { hourUTC: 3, minuteUTC: 0 }, internal.accountability.checkOverdue, {})
+
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
 

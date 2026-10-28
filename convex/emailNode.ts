@@ -103,6 +103,18 @@ export const sendBirthdayEmail = action({
   },
 })
 
+/** Accountability flags/questions and their 2-day SLA nudges — an internal team email, not a customer one, so
+ *  it doesn't touch smsLogs or any customer record. Best-effort: if the mailbox isn't configured, it just logs
+ *  to the server console rather than failing the flag/escalation that triggered it. */
+export const sendAccountabilityEmail = internalAction({
+  args: { to: v.string(), subject: v.string(), text: v.string() },
+  handler: async (ctx, { to, subject, text }) => {
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    const error = await send(email, to, subject, text)
+    if (error) console.error(`Accountability email to ${to} failed: ${error}`)
+  },
+})
+
 /** Settings → Email: send one test email with the saved mailbox. */
 export const testEmail = action({
   args: { to: v.string() },
