@@ -160,6 +160,18 @@ export const markSent = mutation({
   },
 })
 
+/** Undo a wrong "sent" mark (e.g. the WhatsApp window never actually opened) — puts it straight back at the top
+ *  of the waiting queue so it can be sent for real. */
+export const markNotSent = mutation({
+  args: { id: v.id("waQueue") },
+  handler: async (ctx, { id }) => {
+    await requirePerm(ctx, "orders.view")
+    const row = await ctx.db.get(id)
+    if (!row) return
+    await ctx.db.patch(id, { status: "pending", sentAt: undefined, sentBy: undefined })
+  },
+})
+
 export const skip = mutation({
   args: { id: v.id("waQueue") },
   handler: async (ctx, { id }) => {

@@ -1,10 +1,9 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Check, MessageCircle, SkipForward } from "lucide-react"
+import { Check, MessageCircle, SkipForward, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import type { Id } from "@/convex/_generated/dataModel"
 import { Guard } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
 import { Button } from "@/components/ui/button"
@@ -49,23 +48,6 @@ function Waiting() {
   const markSent = useMutation(api.waQueue.markSent)
   const skip = useMutation(api.waQueue.skip)
 
-  // Mobile browsers and in-app webviews silently block or no-op a scripted window.open with width/height "popup"
-  // features, so on phones we render a real <a href> instead (below) — a true link tap reliably hands off to the
-  // WhatsApp app, where a JS popup was failing silently. Desktop keeps the small, reusable docked window.
-  const isMobile = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  const openAndSend = async (id: Id<"waQueue">, link: string) => {
-    const win = window.open(link, "blackbole_whatsapp", "width=420,height=680")
-    if (!win) {
-      toast.error("Couldn't open WhatsApp — your browser may be blocking pop-ups. Tap the message text to copy it, then open WhatsApp yourself.")
-      return
-    }
-    try {
-      await markSent({ id })
-    } catch (e) {
-      toast.error(errMsg(e))
-    }
-  }
-
   if (!rows) return <Loading />
   if (rows.length === 0) {
     return (
@@ -86,19 +68,15 @@ function Waiting() {
           </div>
           <p className="mt-2 rounded-lg bg-muted/60 px-3 py-2 text-sm">{r.text}</p>
           <div className="mt-3 flex gap-2">
-            {isMobile ? (
-              // Real link tap, not a scripted window.open — this is what reliably hands off to the WhatsApp app on
-              // phones (deep-link/universal-link handling); a JS popup is what was silently failing before.
-              <Button size="sm" className="gap-1.5" asChild>
-                <a href={r.link} target="_blank" rel="noopener noreferrer" onClick={() => void markSent({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>
-                  <MessageCircle className="size-4" /> Open WhatsApp &amp; send
-                </a>
-              </Button>
-            ) : (
-              <Button size="sm" className="gap-1.5" onClick={() => void openAndSend(r._id, r.link)}>
+            {/* A real <a href> tap/click, not a scripted window.open — browsers hand this off to the WhatsApp app
+                or web.whatsapp.com reliably because it's a genuine user-initiated navigation, not something a
+                pop-up blocker can silently swallow (which is what was happening before, on desktop and mobile
+                alike — "sent" would get marked even though nothing opened). */}
+            <Button size="sm" className="gap-1.5" asChild>
+              <a href={r.link} target="_blank" rel="noopener noreferrer" onClick={() => void markSent({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>
                 <MessageCircle className="size-4" /> Open WhatsApp &amp; send
-              </Button>
-            )}
+              </a>
+            </Button>
             <Button size="sm" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={() => void skip({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>
               <SkipForward className="size-4" /> Skip
             </Button>
@@ -111,6 +89,7 @@ function Waiting() {
 
 function Sent() {
   const rows = useQuery(api.waQueue.sent)
+  const markNotSent = useMutation(api.waQueue.markNotSent)
   if (!rows) return <Loading />
   if (rows.length === 0) {
     return <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">Nothing sent yet.</div>
@@ -127,6 +106,10 @@ function Sent() {
             </div>
             <p className="mt-0.5 truncate text-sm text-muted-foreground">{r.phone} — {r.text}</p>
           </div>
+          <Button size="sm" variant="ghost" className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={() => void markNotSent({ id: r._id }).then(() => toast.success("Back in the waiting queue")).catch((e) => toast.error(errMsg(e)))}>
+            <Undo2 className="size-4" /> Didn't actually send
+          </Button>
         </div>
       ))}
     </div>
