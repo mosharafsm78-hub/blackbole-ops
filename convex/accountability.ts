@@ -242,7 +242,7 @@ export const checkOverdue = internalAction({
 })
 
 // ---------------------------------------------------------------------------------------------------------------
-// Business-health flags: not every accountability item should wait for a customer-care call. A weekly check
+// Business-health flags: not every accountability item should wait for a customer-care call. A daily check
 // (see crons.ts) looks at the whole business — sales trend, return ratio — the way an operations head would,
 // and raises a flag against the department that actually owns that outcome even when no one logged a call.
 // Thresholds are deliberately blunt for now (no historical baseline to calibrate against yet); the point is
@@ -281,10 +281,11 @@ export const raiseSystem = internalMutation({
   },
 })
 
-/** Runs weekly (see crons.ts). Compares this week to last week using the same scoreboard the dashboard reads
- *  from (cheap — no re-scanning every order). Raises at most one open flag per metric per team at a time: if
- *  last week's flag on the same thing is still open, it isn't piled on again — the daily digest already keeps
- *  reminding the owner. */
+/** Runs daily (see crons.ts), comparing a rolling 7-day window to the 7 days before it — daily so a real
+ *  problem is caught within a day, but still a week wide so one unusual day doesn't trigger a false alarm.
+ *  Uses the same scoreboard the dashboard reads from (cheap — no re-scanning every order). Raises at most one
+ *  open flag per metric per team at a time: if yesterday's flag on the same thing is still open, it isn't
+ *  piled on again — the daily digest already keeps reminding the owner. */
 export const businessHealthCheck = internalAction({
   args: {},
   handler: async (ctx) => {
