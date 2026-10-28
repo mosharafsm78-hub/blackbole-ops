@@ -257,7 +257,12 @@ export default defineSchema({
     smsCount: v.optional(v.number()),
     customerType: v.optional(v.string()),
     dob: v.optional(v.string()), // "YYYY-MM-DD", given once on the order form (optional) — powers the Dashboard's birthday panel
-    birthdayEmailAt: v.optional(v.number()), // last time Customer Care sent a birthday email from the Dashboard panel (manual — never automatic)
+    // Birthday wishes: sent automatically every day for anyone whose dob matches today (email + SMS go straight
+    // out; WhatsApp is drafted and queued for a human tap, same as win-back, to stay clear of automation bans).
+    // Customer Care can also send/resend by hand from the Dashboard panel — same timestamps either way.
+    birthdayEmailAt: v.optional(v.number()),
+    birthdaySmsAt: v.optional(v.number()),
+    birthdayWaQueuedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
     // Tier 1 — one-time buyer who never came back: last time each channel reached them. No longer "send once
     // ever" — these now double as the repeat-nudge clock (resent every winback.REPEAT1_DAYS until they order again).

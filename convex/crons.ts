@@ -25,6 +25,11 @@ crons.interval("win-back sweep (repeat buyers)", { hours: 1 }, internal.winback.
 crons.interval("win-back email sweep (repeat buyers)", { hours: 1 }, internal.winback.runEmail2, {})
 crons.interval("whatsapp queue fill (repeat buyers)", { hours: 1 }, internal.waQueue.run2, {})
 
+// Birthday wishes: anyone whose dob matches today gets an automatic email + SMS, and a WhatsApp message
+// drafted into the same human-tap queue win-back uses (see waQueue.ts for why WhatsApp isn't fully automatic).
+// 10:00 Asia/Dhaka (UTC+6) = 04:00 UTC.
+crons.daily("birthday wishes", { hourUTC: 4, minuteUTC: 0 }, internal.birthdays.sendAutomatic, {})
+
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
 

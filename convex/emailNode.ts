@@ -72,8 +72,21 @@ export const sendWinbackEmail = internalAction({
   },
 })
 
-/** Dashboard → Birthdays today panel: Customer Care composes and sends this themselves (subject/body editable,
- *  so they can add a personal touch) — never automatic. Gated the same as the panel itself (dashboard.view). */
+/** Birthday email — fully automatic, same reasoning as sendWinbackEmail above (no ban risk for email). Called
+ *  from birthdays.ts's daily sendAutomatic cron, once per customer per day. */
+export const sendBirthdayEmailAuto = internalAction({
+  args: { customerId: v.id("customers"), to: v.string(), subject: v.string(), text: v.string() },
+  handler: async (ctx, { customerId, to, subject, text }) => {
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
+    const error = await send(email, to, subject, text, contact?.hotline)
+    await ctx.runMutation(internal.birthdays.logAutoEmail, { customerId, email: to, text: `${subject} — ${text}`, error })
+  },
+})
+
+/** Dashboard → Birthdays today panel: Customer Care can also compose and send this themselves (subject/body
+ *  editable, so they can add a personal touch, or resend on a channel that already went out automatically).
+ *  Gated the same as the panel itself (dashboard.view). */
 export const sendBirthdayEmail = action({
   args: { customerId: v.id("customers"), subject: v.string(), text: v.string() },
   handler: async (ctx, { customerId, subject, text }): Promise<{ ok: boolean; error?: string }> => {

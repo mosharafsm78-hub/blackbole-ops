@@ -333,8 +333,9 @@ function BusinessInsights() {
 /** Month by month — the business over time. */
 /** Today's birthdays (Asia/Dhaka) — customers who gave a date of birth on the order form. A small, honest panel:
  *  it never nags when the list is empty, but it's always in the same place so checking it becomes a habit.
- *  Email is deliberately NOT automatic — Customer Care opens a row, edits the message, and sends it themselves,
- *  so it carries a human touch. */
+ *  Email and SMS go out automatically every day at 10am (see convex/crons.ts); WhatsApp is drafted and queued
+ *  for a human tap (WhatsApp tab) to stay clear of automation bans. Customer Care can still open a row here to
+ *  send (or resend) a personalized email on top of the automatic one. */
 function Birthdays() {
   const rows = useQuery(api.birthdays.today, {})
   const [openId, setOpenId] = useState<string | null>(null)
@@ -386,14 +387,18 @@ function BirthdayRow({ c, open, onToggle }: { c: any; open: boolean; onToggle: (
           {c.email ? <div className="truncate text-xs text-muted-foreground">{c.email}</div> : <div className="text-xs text-muted-foreground/70">No email on file</div>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {(c.birthdayEmailAt || justSent) && <span className="text-xs text-emerald-600">Sent ✓</span>}
-          {c.email && (
-            <button type="button" onClick={onToggle} className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">
-              {open ? "Cancel" : "✉️ Email"}
-            </button>
-          )}
           <ContactButtons phone={c.phone} />
         </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span className={c.birthdayEmailAt || justSent ? "text-emerald-600" : ""}>✉️ Email {c.birthdayEmailAt || justSent ? "sent ✓" : "— due at 10am"}</span>
+        <span className={c.birthdaySmsAt ? "text-emerald-600" : ""}>💬 SMS {c.birthdaySmsAt ? "sent ✓" : "— due at 10am"}</span>
+        <span className={c.birthdayWaQueuedAt ? "text-emerald-600" : ""}>🟢 WhatsApp {c.birthdayWaQueuedAt ? "queued ✓ (tap to send)" : "— due at 10am"}</span>
+        {c.email && (
+          <button type="button" onClick={onToggle} className="rounded-md border px-1.5 py-0.5 text-xs font-medium hover:bg-muted">
+            {open ? "Cancel" : "Send/resend email"}
+          </button>
+        )}
       </div>
       {open && (
         <div className="mt-2 space-y-2 border-t pt-2">
