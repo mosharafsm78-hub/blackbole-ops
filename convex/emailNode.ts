@@ -60,6 +60,18 @@ export const sendOrderEmail = internalAction({
   },
 })
 
+/** Win-back email — same discount push as the SMS/WhatsApp channels, sent fully automatically (no WhatsApp-style
+ *  ban risk for email, so no human queue needed). Called from winback.ts's hourly runEmail action. */
+export const sendWinbackEmail = internalAction({
+  args: { customerId: v.id("customers"), to: v.string(), subject: v.string(), text: v.string() },
+  handler: async (ctx, { customerId, to, subject, text }) => {
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
+    const error = await send(email, to, subject, text, contact?.hotline)
+    await ctx.runMutation(internal.winback.logSentEmail, { customerId, email: to, text, error })
+  },
+})
+
 /** Settings → Email: send one test email with the saved mailbox. */
 export const testEmail = action({
   args: { to: v.string() },

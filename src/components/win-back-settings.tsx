@@ -11,7 +11,9 @@ import { Loading, Pill } from "@/components/bits"
 import { dateTime, errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-/** Settings → Win-back: fully automatic — a one-time buyer who never reordered gets one SMS with a discount, no one touches it. */
+/** Settings → Win-back: fully automatic — a one-time buyer who never reordered gets one SMS and (if they gave an
+ *  email) one email with a discount, no one touches either. WhatsApp follows the same offer but stays a human
+ *  tap-to-send, over on the WhatsApp page, to avoid WhatsApp's automation bans. */
 export function WinBackSettings() {
   const data = useQuery(api.winback.settings)
   const save = useMutation(api.winback.saveSettings)
@@ -37,8 +39,8 @@ export function WinBackSettings() {
       <section className="rounded-lg border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-semibold">Win-back SMS</h2>
-            <p className="text-sm text-muted-foreground">A customer who ordered once, got it delivered cleanly, and never came back gets one automatic SMS with a discount code — fully automatic, no one has to send it.</p>
+            <h2 className="font-semibold">Win-back — SMS & Email</h2>
+            <p className="text-sm text-muted-foreground">A customer who ordered once, got it delivered cleanly, and never came back gets one automatic SMS, and one automatic email if they gave an address — same offer, same window, no one has to send either.</p>
           </div>
           <div className="flex items-center gap-2">
             {f.enabled ? <Pill tone="green">On · automatic</Pill> : <Pill tone="gray">Off</Pill>}
@@ -87,6 +89,7 @@ export function WinBackSettings() {
             {data.recent.map((r: any) => (
               <div key={r._id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
                 <span className="font-medium">{r.name}</span>
+                <Pill tone="gray">{r.phone.includes("@") ? "Email" : "SMS"}</Pill>
                 <span className="font-mono text-xs text-muted-foreground">{r.phone}</span>
                 <span className="text-xs text-muted-foreground">{dateTime(r.at)}</span>
                 <span className={cn("ml-auto rounded-md px-1.5 py-0.5 text-[11px] font-semibold", r.status === "sent" ? "bg-tone-green-bg text-tone-green" : "bg-tone-red-bg text-tone-red")}>

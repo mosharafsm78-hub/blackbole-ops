@@ -259,6 +259,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     winBackAt: v.optional(v.number()), // when the automatic win-back SMS was sent (never resend)
     waQueuedAt: v.optional(v.number()), // when a WhatsApp win-back message was queued for a human to send (never re-queue)
+    winbackEmailAt: v.optional(v.number()), // when the automatic win-back email was sent (never resend) — mirrors winBackAt
     createdAt: v.number(),
   })
     .index("by_phone", ["phone"])

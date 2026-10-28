@@ -159,3 +159,5 @@ export const sendOrderSms = internalAction({
 export const smsSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "sms")) ?? null })
 
 export const emailSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "email")) ?? null })
+
+export const contactRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "contactPoints")) ?? null })

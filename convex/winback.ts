@@ -1,5 +1,6 @@
-// Win-back: a customer who bought exactly once, had it delivered cleanly, and never came back gets one
-// automatic SMS with a discount code, 10–20 days after delivery. Fully automatic — no human touch.
+// Win-back: a customer who bought exactly once, had it delivered cleanly, and never came back gets an automatic
+// discount-code push, 10–20 days after delivery — by SMS, email (both fully automatic, both here), and WhatsApp
+// (queued here but drafted for a human to tap-send, in waQueue.ts, to stay clear of WhatsApp's automation bans).
 // Lives in: Settings → Win-back (status/log) and the dashboard's "Action Center" card.
 import { v, ConvexError } from "convex/values"
 import { internalAction, internalQuery, query } from "./_generated/server"
@@ -22,15 +23,18 @@ const BATCH = 60
 // being simple and fully automatic.
 export type WinbackConf = {
   enabled: boolean; code: string; minDays: number; maxDays: number; templates: string[]
-  smsSendIndex?: number; waSendIndex?: number // rotation position per channel — persisted so the pattern keeps
-  // advancing correctly across runs instead of resetting to variant #1 every hour
+  smsSendIndex?: number; waSendIndex?: number; emailSendIndex?: number // rotation position per channel — persisted
+  // so the pattern keeps advancing correctly across runs instead of resetting to variant #1 every hour
 }
+// Fixed subject line for the win-back email — the templates themselves are channel-neutral body text shared
+// with SMS/WhatsApp, so the subject lives here rather than being yet another thing to configure.
+const EMAIL_SUBJECT = "We miss you at BlackBole 💙"
 export const DEFAULT_TEMPLATES = [
   "Hi {name}! You were one of our favourite customers at BlackBole and we'd love to have you back 💙 Here's {code} for ৳150 off your next order (on ৳1,500+). Shop: blackbole.com · Need help? Call us: 01805070650",
   "Hi {name}, it's been a while! Come back to BlackBole and grab ৳150 off with code {code} (orders ৳1,500+). Shop: blackbole.com",
   "{name}, we miss you at BlackBole! Use {code} for ৳150 off your next order (min ৳1,500). Shop now: blackbole.com",
 ]
-export const DEFAULT_CONF: WinbackConf = { enabled: true, code: CODE, minDays: 10, maxDays: 20, templates: DEFAULT_TEMPLATES, smsSendIndex: 0, waSendIndex: 0 }
+export const DEFAULT_CONF: WinbackConf = { enabled: true, code: CODE, minDays: 10, maxDays: 20, templates: DEFAULT_TEMPLATES, smsSendIndex: 0, waSendIndex: 0, emailSendIndex: 0 }
 const ROTATE_EVERY = 5
 
 const conf = async (ctx: any): Promise<WinbackConf> => {
@@ -77,11 +81,36 @@ export const candidates = internalQuery({
   },
 })
 
+/** Same customers, same window — deduped on the email send instead, so email runs independently of SMS (a
+ *  customer with no phone but an email still gets reached, and one already SMS'd still gets the email too). */
+export const emailCandidates = internalQuery({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }) => {
+    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    return rows
+      .filter((c) => !c.deletedAt && c.orderCount === 1 && c.deliveredCount === 1 && c.returnedCount === 0 && c.cancelledCount === 0)
+      .filter((c) => c.lastOrderAt && c.lastOrderAt >= from && c.lastOrderAt <= to)
+      .filter((c) => !c.winbackEmailAt && c.email)
+      .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
+      .slice(0, BATCH)
+  },
+})
+
 export const logSent = internalMutation({
   args: { customerId: v.id("customers"), phone: v.string(), text: v.string(), error: v.union(v.string(), v.null()) },
   handler: async (ctx, { customerId, phone, text, error }) => {
     await ctx.db.insert("smsLogs", { phone, text, status: error ? "failed" : "sent", error: error ?? undefined, channel: "winback", customerId, at: Date.now() })
     await ctx.db.patch(customerId, { winBackAt: Date.now() })
+  },
+})
+
+/** Email counterpart to logSent — same "recent" feed (channel: "winback"), the address sits in `phone` per the
+ *  existing convention, and winbackEmailAt (not winBackAt) is what's marked so this never resends. */
+export const logSentEmail = internalMutation({
+  args: { customerId: v.id("customers"), email: v.string(), text: v.string(), error: v.union(v.string(), v.null()) },
+  handler: async (ctx, { customerId, email, text, error }) => {
+    await ctx.db.insert("smsLogs", { phone: email, text, status: error ? "failed" : "sent", error: error ?? undefined, channel: "winback", customerId, at: Date.now() })
+    await ctx.db.patch(customerId, { winbackEmailAt: Date.now() })
   },
 })
 
@@ -112,16 +141,42 @@ export const run = internalAction({
   },
 })
 
+/** Email counterpart to `run` — same hours/window/rotation logic, fully automatic like SMS (email carries none
+ *  of WhatsApp's automation-ban risk, so it skips the human-queue step waQueue.ts uses). Gated on Settings →
+ *  Email being enabled, same mailbox used for transactional order emails. */
+export const runEmail = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    if (now < START_AT) return
+    const bdHour = new Date(now + BD_OFFSET).getUTCHours()
+    if (bdHour < 13 || bdHour >= 20) return
+    const c = await ctx.runQuery(internal.winback.getConf, {})
+    if (!c.enabled) return
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    if (!email?.enabled) return
+    await ctx.runMutation(internal.winback.ensureDiscount, { code: c.code })
+    const list = await ctx.runQuery(internal.winback.emailCandidates, { from: now - c.maxDays * DAY, to: now - c.minDays * DAY })
+    let idx = c.emailSendIndex ?? 0
+    for (const cust of list) {
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code: c.code })
+      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text })
+      idx++
+    }
+    if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "email", count: list.length })
+  },
+})
+
 export const getConf = internalQuery({ args: {}, handler: async (ctx) => conf(ctx) })
 
 /** Advances a channel's rotation position after a batch sends, so the next run picks up the pattern where this
  *  one left off instead of restarting at variant #1 every time. Merges onto the saved doc rather than replacing
  *  it, so it never clobbers templates/code/etc being edited at the same time. */
 export const bumpRotation = internalMutation({
-  args: { channel: v.union(v.literal("sms"), v.literal("wa")), count: v.number() },
+  args: { channel: v.union(v.literal("sms"), v.literal("wa"), v.literal("email")), count: v.number() },
   handler: async (ctx, { channel, count }) => {
     const saved = (await getSetting<any>(ctx, "winback")) ?? {}
-    const key = channel === "sms" ? "smsSendIndex" : "waSendIndex"
+    const key = channel === "sms" ? "smsSendIndex" : channel === "wa" ? "waSendIndex" : "emailSendIndex"
     await setSetting(ctx, "winback", { ...saved, [key]: (saved[key] ?? 0) + count })
   },
 })
