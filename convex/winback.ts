@@ -8,6 +8,7 @@ import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { getSetting, requirePerm, setSetting } from "./lib"
 import { sendSms } from "./outbound"
+import { shopifyGql } from "./shopifyStock"
 
 const DAY = 86400000
 const BD_OFFSET = 6 * 3600000
@@ -84,6 +85,35 @@ export const ensureDiscount = internalMutation({
       code, title: "Win-back — auto (monthly)", type: "amount", value: 150, scope: "all", items: [],
       minSubtotal: 1500, oncePerCustomer: true, active: true, usedCount: 0, createdAt: now, updatedAt: now,
     })
+  },
+})
+
+/** The live site's checkout still runs on Shopify (BlackBole Ops's own discount codes only power the
+ *  not-yet-launched blackbole-storefront rebuild) — so a code that only exists in the `discounts` table above is
+ *  invisible at actual checkout. Mirrors it into Shopify too (same ৳150/৳1500-minimum/one-per-customer terms as
+ *  ensureDiscount) using the same Admin API credentials as the stock sync (Settings → Shopify). Best-effort: if
+ *  Shopify sync isn't set up, or the code already exists there, this quietly does nothing. */
+export const ensureShopifyDiscount = internalAction({
+  args: { code: v.string() },
+  handler: async (ctx, { code }) => {
+    try {
+      const d: any = await shopifyGql(ctx, `mutation($input: DiscountCodeBasicInput!) {
+          discountCodeBasicCreate(basicCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+        }`, {
+        input: {
+          title: "Win-back — auto (monthly)", code, startsAt: new Date().toISOString(), appliesOncePerCustomer: true,
+          context: { all: "ALL" },
+          customerGets: { items: { all: true }, value: { discountAmount: { amount: 150, appliesOnEachItem: false } } },
+          minimumRequirement: { subtotal: { greaterThanOrEqualToSubtotal: 1500 } },
+        },
+      })
+      const errs = d.discountCodeBasicCreate.userErrors
+      if (errs?.length && !errs.some((e: any) => /taken|already exist/i.test(e.message))) {
+        console.error(`Shopify win-back discount sync (${code}) failed: ${errs.map((e: any) => e.message).join("; ")}`)
+      }
+    } catch (e) {
+      console.error(`Shopify win-back discount sync (${code}) failed: ${String((e as Error).message ?? e)}`)
+    }
   },
 })
 
@@ -203,6 +233,7 @@ export const run = internalAction({
     if (!sms?.enabled) return
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
     const list = await ctx.runQuery(internal.winback.candidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
@@ -231,6 +262,7 @@ export const runEmail = internalAction({
     if (!email?.enabled) return
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
     const list = await ctx.runQuery(internal.winback.emailCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
@@ -257,6 +289,7 @@ export const run2 = internalAction({
     if (!sms?.enabled) return
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
     const list = await ctx.runQuery(internal.winback.candidates2, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
@@ -282,6 +315,7 @@ export const runEmail2 = internalAction({
     if (!email?.enabled) return
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
     const list = await ctx.runQuery(internal.winback.email2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
@@ -379,7 +413,10 @@ export const saveSettings = mutation({
     const saved = (await getSetting<any>(ctx, "winback")) ?? {}
     await setSetting(ctx, "winback", { ...saved, enabled: a.enabled, code, minDays: Math.round(a.minDays), templates })
     const monthCode = codeForMonth(code, Date.now())
-    if (a.enabled) await ctx.runMutation(internal.winback.ensureDiscount, { code: monthCode })
+    if (a.enabled) {
+      await ctx.runMutation(internal.winback.ensureDiscount, { code: monthCode })
+      await ctx.scheduler.runAfter(0, internal.winback.ensureShopifyDiscount, { code: monthCode })
+    }
     // Rewrite any WhatsApp messages already sitting in the queue (either tier) so they pick up the new
     // wording/rotation/code right away. Without this, a backlog queued before this edit — or before variants
     // existed at all — stays frozen with whatever single text it got at enqueue time.

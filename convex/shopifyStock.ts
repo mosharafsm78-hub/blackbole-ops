@@ -72,6 +72,13 @@ export const putToken = internalMutation({
   },
 })
 
+/** Reusable Admin API caller (same creds/token as the stock sync) for anything else that needs to talk to the
+ *  live Shopify store — e.g. winback.ts mirroring an Ops discount code into Shopify so it actually works at
+ *  checkout. Throws if Shopify sync isn't configured; callers that are best-effort should catch. */
+export async function shopifyGql(ctx: any, query: string, variables: any = {}) {
+  return gql(ctx, query, variables)
+}
+
 async function gql(ctx: any, query: string, variables: any = {}) {
   const c = await ctx.runQuery(internal.shopifyStock.creds, {})
   if (!c.conf?.shop || !c.conf.clientId || !c.secret) throw new Error("Shopify stock sync is not set up (Settings → Shopify)")
