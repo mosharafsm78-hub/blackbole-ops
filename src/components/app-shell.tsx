@@ -237,7 +237,10 @@ function Layout({ children }: { children: React.ReactNode }) {
           </Button>
           <QuickSearch q={q} setQ={setQ} />
         </header>
-        <main className="mx-auto max-w-[1400px] p-4 md:p-6">{children}</main>
+        {/* No max-width cap: pages that want to stay narrow (Action Center, settings forms, etc.) already wrap
+            themselves in their own `mx-auto max-w-*` — this just stops wide pages (Orders, Dashboard) from
+            being stranded in a fixed-width column with dead space on either side on a big monitor. */}
+        <main className="w-full p-4 md:p-6">{children}</main>
       </div>
     </div>
   )
