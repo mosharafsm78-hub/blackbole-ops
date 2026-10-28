@@ -41,6 +41,7 @@ export const createFromApi = internalMutation({
       source: String(b.source ?? "Website"), externalId: b.external_id ? String(b.external_id) : undefined,
       externalName: b.external_name ? String(b.external_name) : undefined,
       customerName: String(b.customer?.name ?? ""), phone: String(b.customer?.phone ?? ""), email: b.customer?.email,
+      dob: b.customer?.dob ? String(b.customer.dob) : undefined,
       address: String(b.customer?.address ?? ""), cityName: b.customer?.city, deliveryType: b.delivery_type ?? "regular",
       items, discount: Number(b.discount ?? 0), deliveryFee: Number(b.delivery_fee ?? 0),
       advance: b.paid_amount ? { amount: Number(b.paid_amount), method: String(b.payment_method ?? "Online") } : undefined,

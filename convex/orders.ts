@@ -67,6 +67,7 @@ export type NewOrder = {
   customerName: string
   phone: string
   email?: string
+  dob?: string
   address: string
   cityName?: string
   pathaoCityId?: number
@@ -106,10 +107,13 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
 
   let customer = await ctx.db.query("customers").withIndex("by_phone", (q) => q.eq("phone", phone)).unique()
   const now = Date.now()
+  // A plausible, real calendar date, not in the future, and not absurdly old — a bad/garbled value from the form
+  // is silently dropped rather than stored and surfaced on the birthday panel as noise.
+  const dob = o.dob && /^\d{4}-\d{2}-\d{2}$/.test(o.dob) && Date.parse(o.dob) < now && Date.parse(o.dob) > Date.UTC(1920, 0, 1) ? o.dob : undefined
   if (!customer) {
     const code = await nextCounter(ctx, "customer", 10001)
     const id = await ctx.db.insert("customers", {
-      code, name: o.customerName.trim() || "Customer", phone, email: o.email, address: o.address, city: o.cityName,
+      code, name: o.customerName.trim() || "Customer", phone, email: o.email, address: o.address, city: o.cityName, dob,
       tag: "NEW", source: o.source, orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0,
       customerType: "E-Commerce Customer", smsCount: 0, createdAt: now,
     })
@@ -121,6 +125,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     address: o.address || customer.address,
     email: o.email || customer.email,
     city: o.cityName || customer.city,
+    dob: dob || customer.dob,
   })
 
   const noCourier = !!location.noCourier // exchange warehouse: never sent to Pathao

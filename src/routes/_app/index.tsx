@@ -6,7 +6,7 @@ import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, ShieldAler
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
-import { Loading, StatusPill, TeamTag } from "@/components/bits"
+import { ContactButtons, Loading, StatusPill, TeamTag } from "@/components/bits"
 import { startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -192,6 +192,8 @@ function Dashboard() {
             </section>
           </div>
 
+          <Birthdays />
+
           <MonthlySummary />
 
           <div className="grid gap-4 lg:grid-cols-3">
@@ -329,6 +331,31 @@ function BusinessInsights() {
 }
 
 /** Month by month — the business over time. */
+/** Today's birthdays (Asia/Dhaka) — customers who gave a date of birth on the order form. A small, honest panel:
+ *  it never nags when the list is empty, but it's always in the same place so checking it becomes a habit. */
+function Birthdays() {
+  const rows = useQuery(api.birthdays.today, {})
+  if (rows && rows.length === 0) return <p className="text-xs text-muted-foreground">🎂 No customer birthdays today.</p>
+  return (
+    <section className="rounded-xl border bg-gradient-to-br from-tone-pink-bg to-card p-4">
+      <h2 className="mb-3 text-sm font-semibold">🎂 Birthdays today</h2>
+      {!rows ? <Loading /> : (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map((c: any) => (
+            <div key={c._id} className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{c.name}{c.turning ? <span className="ml-1 font-normal text-muted-foreground">· turning {c.turning}</span> : null}</div>
+                <div className="font-mono text-xs text-muted-foreground">{c.phone}</div>
+              </div>
+              <ContactButtons phone={c.phone} />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function MonthlySummary() {
   const [months, setMonths] = useState(6)
   const rows = usePolledAction(api.dashboard.monthly, { months }, 15 * 60000)
