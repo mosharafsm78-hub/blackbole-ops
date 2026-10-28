@@ -11,9 +11,9 @@ import { sendSms } from "./outbound"
 
 const DAY = 86400000
 const BD_OFFSET = 6 * 3600000
-// Nothing sends before this moment (2026-10-29 13:00 Asia/Dhaka = 07:00 UTC) — set once, on purpose, so the
-// first messages go out "tomorrow afternoon" as asked, not the moment this deploys.
-const START_AT = Date.UTC(2026, 9, 29, 7, 0, 0)
+// Nothing sends before this moment (2026-10-28 13:00 Asia/Dhaka = 07:00 UTC) — moved up to start today, at
+// the user's request, instead of waiting for the next afternoon.
+const START_AT = Date.UTC(2026, 9, 28, 7, 0, 0)
 const CODE = "COMEBACK150"
 const BATCH = 60
 
