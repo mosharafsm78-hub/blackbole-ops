@@ -784,4 +784,21 @@ export default defineSchema({
     createdAt: v.number(), // review date
     updatedAt: v.number(),
   }).index("by_ext", ["extId"]).index("by_handle", ["handle"]).index("by_status", ["status"]),
+
+  // Accountability: once a return call confirms a reason was really our own fault, the department that
+  // actually caused it (see ACCOUNTABILITY_ROUTING in rules.ts) gets a flag it has to answer inside this
+  // system — not a side chat nobody can trace later. One flag per order per raise; a team member closes it
+  // with a real response, which is itself part of the record.
+  opsFlags: defineTable({
+    orderId: v.id("orders"),
+    reason: v.string(), // the at-fault return reason that triggered this, e.g. "Wrong product sent"
+    team: v.string(), // which department owns it — see ACCOUNTABILITY_ROUTING
+    note: v.optional(v.string()), // the CX call note, for context
+    status: v.string(), // "open" | "resolved"
+    raisedByName: v.string(),
+    raisedAt: v.number(),
+    response: v.optional(v.string()),
+    resolvedByName: v.optional(v.string()),
+    resolvedAt: v.optional(v.number()),
+  }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]),
 })

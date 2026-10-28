@@ -101,6 +101,48 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   )
 }
 
+/** A return confirmed to be the owning department's own mistake — flagged to them inside the system, not a
+ *  side chat. Anyone can see it's open and who it's waiting on; only that department (or a Super Admin) can
+ *  close it, and closing it requires a real answer, not just a click. */
+function AccountabilityBanner({ flag, canRespond }: { flag: { _id: Id<"opsFlags">; reason: string; team: string; note?: string; raisedAt: number }; canRespond: boolean }) {
+  const respond = useMutation(api.accountability.respond)
+  const [open, setOpen] = useState(false)
+  const [response, setResponse] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    if (!response.trim()) { toast.error("Write what was done about it before closing this out."); return }
+    setBusy(true)
+    try {
+      await respond({ id: flag._id, response: response.trim() })
+      toast.success("Closed out")
+      setOpen(false)
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="mx-5 mt-2 rounded-md border border-tone-red/40 bg-tone-red/5 px-3 py-2 text-sm text-tone-red">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          <span className="font-semibold">Accountability — {flag.team}:</span> {flag.reason}
+          {flag.note && <span className="text-tone-red/80"> — "{flag.note}"</span>}
+        </span>
+        {canRespond ? (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="shrink-0 text-xs font-semibold underline underline-offset-2 hover:opacity-80">
+            {open ? "Cancel" : "Respond & close"}
+          </button>
+        ) : (
+          <span className="shrink-0 text-xs font-medium opacity-80">Waiting on {flag.team}</span>
+        )}
+      </div>
+      {open && canRespond && (
+        <div className="mt-2 space-y-2">
+          <Textarea value={response} onChange={(e) => setResponse(e.target.value)} placeholder="What was actually done about it — re-checked the pick list, retrained the packer, etc." className="bg-background text-foreground" />
+          <Button size="sm" disabled={busy} onClick={() => void submit()}>Close out</Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function OrderPage() {
   const { id } = Route.useSearch()
   const router = useRouter()
@@ -233,6 +275,7 @@ function OrderPage() {
             Recovered — <Link to="/order" search={{ id: data.recoveredOrder._id }} className="font-semibold underline underline-offset-2">{data.recoveredOrder.label}</Link> was created for this customer
           </div>
         )}
+        {data.accountabilityFlag && <AccountabilityBanner flag={data.accountabilityFlag} canRespond={data.canAccountability} />}
 
         <Progress status={status} />
 

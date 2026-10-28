@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useAction, useQuery } from "convex/react"
 import { useEffect } from "react"
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, Target, Undo2 } from "lucide-react"
+import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, ShieldAlert, Target, Undo2 } from "lucide-react"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
@@ -46,6 +46,7 @@ function Dashboard() {
   const data = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
   const counts = useQuery(api.orders.counts)
   const urgency = useQuery(api.orders.urgency)
+  const flagCounts = useQuery(api.accountability.openCounts)
   // Hidden admin check (?check=1): old count vs daily scoreboard for 7/30/90/365 days
   const compare = useAction(api.dashboard.compareStats)
   const [check, setCheck] = useState<any>(null)
@@ -125,11 +126,16 @@ function Dashboard() {
               </div>
               <p className="mb-3 text-xs text-muted-foreground">Every one of these is a customer waiting on us. Click through to work the list.</p>
               {!urgency ? <Loading /> : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                   <Link to="/orders" search={{ tab: "pending" }} className="group rounded-xl bg-tone-amber-bg p-4 text-tone-amber transition hover:-translate-y-0.5 hover:shadow-md">
                     <div className="flex items-center justify-between"><Target className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.pendingOrders}</div>
                     <div className="mt-0.5 text-xs opacity-80">Pending orders →</div>
+                  </Link>
+                  <Link to="/accountability" className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", (flagCounts?.total ?? 0) > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
+                    <div className="flex items-center justify-between"><ShieldAlert className="size-4 opacity-70" /></div>
+                    <div className="mt-2 text-3xl font-bold tabular-nums">{flagCounts?.total ?? 0}</div>
+                    <div className="mt-0.5 text-xs opacity-80">Accountability open →</div>
                   </Link>
                   <Link to="/orders" search={{ tab: "all", flag: "needsFeedback" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", urgency.feedbackPending > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
                     <div className="flex items-center justify-between"><PhoneCall className="size-4 opacity-70" /><TeamTag team="Customer Care" /></div>

@@ -126,6 +126,7 @@ export const PERMISSIONS: { key: string; label: string; group: string }[] = [
   { key: "orders.upload", label: "Upload orders (CSV)", group: "Orders" },
   { key: "orders.delete", label: "Delete / restore orders", group: "Orders" },
   { key: "orders.costs", label: "View & edit order costs", group: "Orders" },
+  { key: "orders.accountability", label: "Respond to accountability flags", group: "Orders" },
   { key: "partners.manage", label: "Manage delivery partners", group: "Delivery" },
   { key: "accounting.view", label: "View accounting", group: "Accounting" },
   { key: "expenses.request", label: "Request expenses", group: "Accounting" },
@@ -159,7 +160,7 @@ export const DEFAULT_ROLES: { name: string; permissions: string[] }[] = [
   { name: "Super Admin", permissions: ["*"] },
   {
     name: "Sales & Marketing",
-    permissions: ["dashboard.view", "orders.view", "orders.create", "orders.export", "customers.manage", "reports.view", "ads.view"],
+    permissions: ["dashboard.view", "orders.view", "orders.create", "orders.export", "customers.manage", "reports.view", "ads.view", "orders.accountability"],
   },
   {
     name: "Procurement & Sourcing",
@@ -176,7 +177,7 @@ export const DEFAULT_ROLES: { name: string; permissions: string[] }[] = [
     name: "Fulfillment",
     permissions: [
       "dashboard.view", "orders.view", "orders.print", "orders.payments", "courier.book",
-      "inventory.receive", ...fulfilmentMoves.map(([f, t]) => moveKey(f, t)),
+      "inventory.receive", "orders.accountability", ...fulfilmentMoves.map(([f, t]) => moveKey(f, t)),
     ],
   },
   {
@@ -262,6 +263,18 @@ export const RETURN_CSAT_OUTCOMES = [...RETURN_REASONS, "Could not reach", "Decl
  *  a listing that didn't match — rather than the customer's own call (changed mind, size didn't fit). These
  *  are the ones worth a recovery attempt: a mistake we can still make right. */
 export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Late delivery"]
+
+/** Accountability: once a return call confirms it was really our own fault, the one department that actually
+ *  caused it gets a flag it has to answer — inside this system, not a side chat. Picking/packing mistakes go to
+ *  Fulfillment, a wrong listing goes to Marketing, and so on — this is where that routing lives, so every at-fault
+ *  reason has exactly one owning department and nothing falls through the cracks. */
+export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
+  "Wrong product sent": "Fulfillment",
+  "Wrong size sent": "Fulfillment",
+  "Damaged / defective": "Fulfillment",
+  "Late delivery": "Fulfillment",
+  "Doesn't match description": "Marketing",
+}
 
 /** True for any call outcome worth flagging red — an unhappy delivery, or a return whose reason was our own
  *  fault — so a real problem stands out in the timeline instead of blending in with routine calls. */

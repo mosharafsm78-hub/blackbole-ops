@@ -7,6 +7,7 @@ import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
+import { raiseAccountabilityFlag } from "./accountability"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
@@ -580,6 +581,7 @@ export const get = query({
     const exchangeOf = order.exchangeOfId ? await ctx.db.get(order.exchangeOfId) : null
     const recoveryOf = order.recoveryOfId ? await ctx.db.get(order.recoveryOfId) : null
     const recoveredOrder = order.recoveredOrderId ? await ctx.db.get(order.recoveredOrderId) : null
+    const accountabilityFlag = await ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", id)).filter((q) => q.eq(q.field("status"), "open")).first()
     const customerStats = await statsForPhone(ctx, order.phone, customer)
     return {
       missing: false as const,
@@ -590,7 +592,9 @@ export const get = query({
       exchangeOf: exchangeOf ? { _id: exchangeOf._id, label: invoiceLabel(exchangeOf) } : null,
       recoveryOf: recoveryOf ? { _id: recoveryOf._id, label: invoiceLabel(recoveryOf) } : null,
       recoveredOrder: recoveredOrder ? { _id: recoveredOrder._id, label: invoiceLabel(recoveredOrder) } : null,
+      accountabilityFlag,
       canCosts: hasPerm(s.perms, "orders.costs"),
+      canAccountability: hasPerm(s.perms, "orders.accountability"),
     }
   },
 })
@@ -953,6 +957,8 @@ export const logReturnCsat = mutation({
     const returnCsat = { outcome, note: cleanNote, byName: me.staff.name, at: Date.now() }
     await ctx.db.patch(id, { returnCsat, returnCsatFollowUpAt: followUpAt, updatedAt: Date.now() })
     await logOrder(ctx, id, `Return feedback call: ${outcome}${returnCsat.note ? ` — ${returnCsat.note}` : ""}`, me.staff.name, "call", outcome)
+    // Confirmed at-fault reason — the department that caused it owes a real answer, inside this system.
+    await raiseAccountabilityFlag(ctx, order, outcome, cleanNote, me.staff.name)
   },
 })
 

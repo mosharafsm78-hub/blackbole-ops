@@ -14,6 +14,7 @@ import { Route as LabelsRouteImport } from './routes/labels'
 import { Route as PrintRouteImport } from './routes/print'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAbandonedRouteImport } from './routes/_app/abandoned'
+import { Route as AppAccountabilityRouteImport } from './routes/_app/accountability'
 import { Route as AppActionCenterRouteImport } from './routes/_app/action-center'
 import { Route as AppCourierPaymentsRouteImport } from './routes/_app/courier-payments'
 import { Route as AppCustomerRouteImport } from './routes/_app/customer'
@@ -80,6 +81,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAbandonedRoute = AppAbandonedRouteImport.update({
   id: '/abandoned',
   path: '/abandoned',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountabilityRoute = AppAccountabilityRouteImport.update({
+  id: '/accountability',
+  path: '/accountability',
   getParentRoute: () => AppRoute,
 } as any)
 const AppActionCenterRoute = AppActionCenterRouteImport.update({
@@ -303,6 +309,7 @@ export interface FileRoutesByFullPath {
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/abandoned': typeof AppAbandonedRoute
+  '/accountability': typeof AppAccountabilityRoute
   '/action-center': typeof AppActionCenterRoute
   '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
@@ -351,6 +358,7 @@ export interface FileRoutesByTo {
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/abandoned': typeof AppAbandonedRoute
+  '/accountability': typeof AppAccountabilityRoute
   '/action-center': typeof AppActionCenterRoute
   '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
@@ -402,6 +410,7 @@ export interface FileRoutesById {
   '/labels': typeof LabelsRoute
   '/print': typeof PrintRoute
   '/_app/abandoned': typeof AppAbandonedRoute
+  '/_app/accountability': typeof AppAccountabilityRoute
   '/_app/action-center': typeof AppActionCenterRoute
   '/_app/courier-payments': typeof AppCourierPaymentsRoute
   '/_app/customer': typeof AppCustomerRoute
@@ -454,6 +463,7 @@ export interface FileRouteTypes {
     | '/labels'
     | '/print'
     | '/abandoned'
+    | '/accountability'
     | '/action-center'
     | '/courier-payments'
     | '/customer'
@@ -502,6 +512,7 @@ export interface FileRouteTypes {
     | '/labels'
     | '/print'
     | '/abandoned'
+    | '/accountability'
     | '/action-center'
     | '/courier-payments'
     | '/customer'
@@ -552,6 +563,7 @@ export interface FileRouteTypes {
     | '/labels'
     | '/print'
     | '/_app/abandoned'
+    | '/_app/accountability'
     | '/_app/action-center'
     | '/_app/courier-payments'
     | '/_app/customer'
@@ -640,6 +652,13 @@ declare module '@tanstack/react-router' {
       path: '/abandoned'
       fullPath: '/abandoned'
       preLoaderRoute: typeof AppAbandonedRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/accountability': {
+      id: '/_app/accountability'
+      path: '/accountability'
+      fullPath: '/accountability'
+      preLoaderRoute: typeof AppAccountabilityRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/action-center': {
@@ -948,6 +967,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAbandonedRoute: typeof AppAbandonedRoute
+  AppAccountabilityRoute: typeof AppAccountabilityRoute
   AppActionCenterRoute: typeof AppActionCenterRoute
   AppCourierPaymentsRoute: typeof AppCourierPaymentsRoute
   AppCustomerRoute: typeof AppCustomerRoute
@@ -995,6 +1015,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAbandonedRoute: AppAbandonedRoute,
+  AppAccountabilityRoute: AppAccountabilityRoute,
   AppActionCenterRoute: AppActionCenterRoute,
   AppCourierPaymentsRoute: AppCourierPaymentsRoute,
   AppCustomerRoute: AppCustomerRoute,
