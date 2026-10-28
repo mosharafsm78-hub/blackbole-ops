@@ -359,7 +359,8 @@ function OrdersPage() {
                 <th className="p-3 font-medium">Products</th>
                 <th className="p-3 font-medium">Payment</th>
                 <th className="w-36 p-3 font-medium">Courier</th>
-                <th className="w-44 p-3 font-medium">Calls</th>
+                <th className="w-40 p-3 font-medium">Calls</th>
+                <th className="w-44 p-3 font-medium">CX Follow-up</th>
                 <th className="w-36 p-3 font-medium">Status</th>
               </tr>
             </thead>
@@ -456,7 +457,10 @@ function OrdersPage() {
                       <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Not sent to Pathao</span>
                     )}
                   </td>
-                  <td className="max-w-44 p-3 text-xs">
+                  <td className="max-w-40 p-3 text-xs">
+                    {/* Confirmation call only — the pre-dispatch "will they actually take delivery" call.
+                        Everything that happens AFTER delivery (feedback call, return call) has its own column
+                        now instead of being stacked under here, so each team's own queue reads cleanly. */}
                     <div className="tabular-nums">{o.callCount}</div>
                     {(o as any).autoCall?.result && (() => {
                       const r = (o as any).autoCall.result as string
@@ -472,24 +476,31 @@ function OrdersPage() {
                         Call again {new Date(o.followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                       </div>
                     )}
+                  </td>
+                  <td className="max-w-44 p-3 text-xs">
+                    {/* CX's own post-delivery work: a feedback call for anything delivered, a return call for
+                        anything that came back. Exactly one of these applies for a given order's current status. */}
                     {DELIVERED.includes(o.status as OrderStatus) && (
                       (o as any).csat ? (
-                        <div className="mt-1 border-t pt-1 text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
+                        <div className="text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
                       ) : (
-                        <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Feedback call pending</div>
+                        <div className="whitespace-nowrap font-medium text-tone-red">⚠ Feedback call pending</div>
                       )
                     )}
                     {RETURN_LIKE.includes(o.status as OrderStatus) && (
                       isRealReason(o.reason) ? (
-                        <div className="mt-1 border-t pt-1 text-tone-green">✓ Return call: {o.reason}</div>
+                        <div className="text-tone-green">✓ Return call: {o.reason}</div>
                       ) : (
-                        <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Return call pending</div>
+                        <div className="whitespace-nowrap font-medium text-tone-red">⚠ Return call pending</div>
                       )
                     )}
                     {(o as any).csatFollowUpAt && (
-                      <div className={cn("whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
-                        Feedback follow-up {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                      <div className={cn("mt-1 whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
+                        Call again {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                       </div>
+                    )}
+                    {!DELIVERED.includes(o.status as OrderStatus) && !RETURN_LIKE.includes(o.status as OrderStatus) && (
+                      <span className="text-muted-foreground">—</span>
                     )}
                   </td>
                   <td className="max-w-36 p-3">
