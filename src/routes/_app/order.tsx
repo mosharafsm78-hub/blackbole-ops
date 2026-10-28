@@ -118,6 +118,7 @@ function OrderPage() {
   const [exchangeOpen, setExchangeOpen] = useState(false)
   const [reasonOpen, setReasonOpen] = useState(false)
   const [csatOpen, setCsatOpen] = useState(false)
+  const [returnCsatOpen, setReturnCsatOpen] = useState(false)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState<"all" | "call" | "note" | "log">("all")
   const [booking, setBooking] = useState(false)
@@ -141,6 +142,7 @@ function OrderPage() {
   const canExchange = ["delivered_due", "delivered_paid", "pending_returned", "returned", "damaged"].includes(status) && can("orders.create")
   const reasonStatus = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"].includes(status) && can("orders.edit")
   const canCsat = (status === "delivered_due" || status === "delivered_paid") && can("orders.view")
+  const canReturnCsat = ["pending_returned", "returned", "damaged"].includes(status) && can("orders.view")
   const paymentType = o.paymentMethod ?? (o.paidAmount >= o.total && o.total > 0 ? "Paid" : o.paidAmount > 0 ? "Partly paid" : "Cash on delivery")
 
   return (
@@ -161,6 +163,9 @@ function OrderPage() {
             <Button variant="outline" size="sm" onClick={() => setCallOpen(true)}><PhoneCall className="size-4" /> Log call</Button>
             {canCsat && (
               <Button variant="outline" size="sm" onClick={() => setCsatOpen(true)}><PhoneCall className="size-4" /> {o.csat ? "Feedback logged" : "Feedback call"}</Button>
+            )}
+            {canReturnCsat && (
+              <Button variant="outline" size="sm" onClick={() => setReturnCsatOpen(true)}><PhoneCall className="size-4" /> {(o as any).returnCsat ? "Return call logged" : "Return feedback call"}</Button>
             )}
             {editable ? <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}><Pencil className="size-4" /> Edit</Button>
               : !can("orders.edit") && <Perm perm="orders.edit"><Button variant="outline" size="sm"><Pencil className="size-4" /> Edit</Button></Perm>}
@@ -468,7 +473,8 @@ function OrderPage() {
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
       {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
       <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} loggedBy={o.reasonBy} loggedAt={o.reasonAt} isSuperAdmin={can("*")} open={reasonOpen} onOpenChange={setReasonOpen} />
-      <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} />
+      <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} kind="delivery" />
+      <CsatDialog orderId={o._id} current={(o as any).returnCsat} isSuperAdmin={can("*")} open={returnCsatOpen} onOpenChange={setReturnCsatOpen} kind="return" />
     </div>
   )
 }

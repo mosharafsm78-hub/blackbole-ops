@@ -298,6 +298,8 @@ export default defineSchema({
     autoCall: v.optional(v.any()), // last automatic confirmation call: { result: confirmed | cancel | agent | no_answer, at, attempts } // last automatic look on Pathao for this exchange's parcels
     csat: v.optional(v.any()), // last post-delivery feedback call: { outcome, note?, byName, at } — separate from callCount/lastCallOutcome, which drive the pre-delivery confirmation-call cron
     csatFollowUpAt: v.optional(v.number()), // feedback call needs a retry (customer didn't pick up etc), mirrors followUpAt
+    returnCsat: v.optional(v.any()), // last post-return feedback call: { outcome, note?, byName, at } — mirrors csat, but for a returned/damaged order instead of a delivered one. Separate from `reason`, which is the category logged when the return was first raised, not a call made to the customer about it.
+    returnCsatFollowUpAt: v.optional(v.number()), // return feedback call needs a retry, mirrors csatFollowUpAt
     returnConsignmentId: v.optional(v.string()), // Pathao "RE…" parcel bringing the old item back (exchange)
     courierStatus: v.optional(v.string()),
     courierFee: v.optional(v.number()),

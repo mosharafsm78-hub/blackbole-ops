@@ -928,6 +928,29 @@ export const logCsat = mutation({
   },
 })
 
+/** Post-return feedback call — same idea as logCsat, but for a returned/damaged order: an actual call to the
+ *  customer confirming why it came back, not the category logged by setReason when the return was first
+ *  raised. Its own field (`returnCsat`) so it never collides with `reason`/`reasonNote`. */
+export const logReturnCsat = mutation({
+  args: { id: v.id("orders"), outcome: v.string(), note: v.optional(v.string()), followUpAt: v.optional(v.number()) },
+  handler: async (ctx, { id, outcome, note, followUpAt }) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const order = await ctx.db.get(id)
+    if (!order) throw new ConvexError("Order not found")
+    const cleanNote = note?.trim() || undefined
+    if (!cleanNote && !CSAT_FOLLOWUP_OUTCOMES.includes(outcome) && outcome !== "Declined to answer") {
+      throw new ConvexError("Write what the customer actually said before saving.")
+    }
+    const existing = order.returnCsat as { outcome: string } | undefined
+    if (existing && !CSAT_FOLLOWUP_OUTCOMES.includes(existing.outcome) && !hasPerm(me.perms, "*")) {
+      throw new ConvexError("This return feedback call has already been logged — ask a Super Admin to change it.")
+    }
+    const returnCsat = { outcome, note: cleanNote, byName: me.staff.name, at: Date.now() }
+    await ctx.db.patch(id, { returnCsat, returnCsatFollowUpAt: followUpAt, updatedAt: Date.now() })
+    await logOrder(ctx, id, `Return feedback call: ${outcome}${returnCsat.note ? ` — ${returnCsat.note}` : ""}`, me.staff.name, "call", outcome)
+  },
+})
+
 export const addPayment = mutation({
   args: { id: v.id("orders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()) },
   handler: async (ctx, a) => {

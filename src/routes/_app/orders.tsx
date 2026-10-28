@@ -493,15 +493,20 @@ function OrdersPage() {
                       )
                     )}
                     {RETURN_LIKE.includes(o.status as OrderStatus) && (
-                      isRealReason(o.reason) ? (
-                        <div className="text-tone-green">✓ Return call: {o.reason}</div>
+                      (o as any).returnCsat ? (
+                        <div className="text-tone-green">✓ Return call: {(o as any).returnCsat.outcome}</div>
                       ) : (
                         <div className="whitespace-nowrap font-medium text-tone-red">⚠ Return call pending</div>
                       )
                     )}
-                    {(o as any).csatFollowUpAt && (
+                    {DELIVERED.includes(o.status as OrderStatus) && (o as any).csatFollowUpAt && (
                       <div className={cn("mt-1 whitespace-nowrap font-medium", (o as any).csatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
                         Call again {new Date((o as any).csatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                      </div>
+                    )}
+                    {RETURN_LIKE.includes(o.status as OrderStatus) && (o as any).returnCsatFollowUpAt && (
+                      <div className={cn("mt-1 whitespace-nowrap font-medium", (o as any).returnCsatFollowUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>
+                        Call again {new Date((o as any).returnCsatFollowUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                       </div>
                     )}
                     {!DELIVERED.includes(o.status as OrderStatus) && !RETURN_LIKE.includes(o.status as OrderStatus) && (

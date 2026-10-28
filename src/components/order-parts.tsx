@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, RETURN_CSAT_OUTCOMES, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -547,21 +547,31 @@ export function ReasonDialog({
   )
 }
 
-// ---------------- Post-delivery feedback call ----------------
+// ---------------- Post-delivery / post-return feedback call ----------------
+// One shared dialog for both calls — they're the same idea (call the customer, log what they actually said,
+// lock it once logged except for a Super Admin) with different outcome options and a different place to save
+// to. Keeping them as one component means they can never quietly drift apart in look or behaviour.
 export function CsatDialog({
   orderId, current, isSuperAdmin, open, onOpenChange,
+  kind = "delivery",
 }: {
   orderId: Id<"orders">
   current?: { outcome: string; note?: string; byName: string; at: number }
   isSuperAdmin: boolean
   open: boolean
   onOpenChange: (o: boolean) => void
+  /** "delivery" = the existing post-delivery call (csat); "return" = the post-return call (returnCsat). */
+  kind?: "delivery" | "return"
 }) {
+  const title = kind === "delivery" ? "Delivery feedback call" : "Return feedback call"
+  const outcomes = kind === "delivery" ? CSAT_OUTCOMES : RETURN_CSAT_OUTCOMES
   const logCsat = useMutation(api.orders.logCsat)
+  const logReturnCsat = useMutation(api.orders.logReturnCsat)
+  const log = kind === "delivery" ? logCsat : logReturnCsat
   // A finished outcome is locked once logged — "Could not reach" is the one exception, since that's not a
   // finished call, it's a signal the team still needs to try again.
   const locked = !!current && !CSAT_FOLLOWUP_OUTCOMES.includes(current.outcome) && !isSuperAdmin
-  const [outcome, setOutcome] = useState(current?.outcome ?? CSAT_OUTCOMES[0])
+  const [outcome, setOutcome] = useState(current?.outcome ?? outcomes[0])
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const needsFollowUp = CSAT_FOLLOWUP_OUTCOMES.includes(outcome)
@@ -576,13 +586,13 @@ export function CsatDialog({
     quick("Tomorrow", at(1, 11)),
     quick("In 2 days", at(2, 11)),
   ]
-  useEffect(() => { if (open) { setOutcome(current?.outcome ?? CSAT_OUTCOMES[0]); setNote(""); setFollowUp("") } }, [open, current])
+  useEffect(() => { if (open) { setOutcome(current?.outcome ?? outcomes[0]); setNote(""); setFollowUp("") } }, [open, current])
 
   if (locked && current) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Delivery feedback call</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
           <div className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm">
             <p className="font-medium">{current.outcome}</p>
             {current.note && <p className="text-muted-foreground">"{current.note}"</p>}
@@ -598,7 +608,7 @@ export function CsatDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
-        <DialogHeader><DialogTitle>Delivery feedback call</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <div className="space-y-4">
           {current && (
             <p className="rounded-md bg-muted/60 p-2.5 text-xs text-muted-foreground">
@@ -608,7 +618,7 @@ export function CsatDialog({
           <div className="space-y-2">
             <Label>How did it go?</Label>
             <div className="flex flex-wrap gap-1.5">
-              {CSAT_OUTCOMES.map((o) => (
+              {outcomes.map((o) => (
                 <button
                   key={o} type="button" onClick={() => { setOutcome(o); if (CSAT_FOLLOWUP_OUTCOMES.includes(o) && !followUp) setFollowUp(toLocal(at(0, 19)())) }}
                   className={cn("rounded-full border px-3 py-1.5 text-sm", outcome === o ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}
@@ -644,7 +654,7 @@ export function CsatDialog({
             setBusy(true)
             try {
               const followUpAt = needsFollowUp && followUp ? new Date(followUp).getTime() : undefined
-              await logCsat({ id: orderId, outcome, note: note.trim() || undefined, followUpAt })
+              await log({ id: orderId, outcome, note: note.trim() || undefined, followUpAt })
               toast.success(followUpAt ? `Feedback logged — follow up ${new Date(followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}` : "Feedback logged")
               onOpenChange(false)
             }

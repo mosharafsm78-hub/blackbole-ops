@@ -246,6 +246,14 @@ export const CSAT_OUTCOMES = [
 /** Outcomes that need another feedback-call attempt — mirrors FOLLOW_UP_OUTCOMES for the pre-delivery call. */
 export const CSAT_FOLLOWUP_OUTCOMES = ["Could not reach"]
 
+/** Post-return feedback call: confirming with the customer why the order actually came back, in their own
+ *  words — separate from `reason`, which is just the category logged when the return was first raised and
+ *  may have been set by whoever first saw the parcel coming back, not from talking to the customer. Reuses
+ *  "Could not reach" as its own follow-up trigger, same as the delivery call. */
+export const RETURN_CSAT_OUTCOMES = [
+  "Confirmed — reason matches", "Changed mind — wants to keep it", "Unhappy — product issue", "Unhappy — service issue", "Could not reach", "Declined to answer",
+]
+
 /** A `reason` value written by an automatic sync (a Pathao status string, a Nuport migration placeholder) is
  *  not a real, customer-given reason — it's just what the system happened to be told at the time. Treat it as
  *  if no reason were recorded so the UI keeps asking a human to actually call and log one, instead of quietly
