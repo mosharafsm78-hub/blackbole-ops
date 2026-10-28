@@ -358,9 +358,9 @@ function OrdersPage() {
                 <th className="p-3 font-medium">Warehouse</th>
                 <th className="p-3 font-medium">Products</th>
                 <th className="p-3 font-medium">Payment</th>
-                <th className="p-3 font-medium">Courier</th>
-                <th className="p-3 font-medium">Calls</th>
-                <th className="p-3 font-medium">Status</th>
+                <th className="w-36 p-3 font-medium">Courier</th>
+                <th className="w-44 p-3 font-medium">Calls</th>
+                <th className="w-36 p-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -438,7 +438,7 @@ function OrdersPage() {
                     <div className="text-muted-foreground">Delivery {taka(o.deliveryFee)}</div>
                     <div className="mt-0.5 text-muted-foreground">{o.due === 0 && o.paidAmount > 0 ? `Paid · ${o.paymentMethod ?? ""}` : o.paidAmount > 0 ? `COD + advance` : (o.paymentMethod ?? "Cash On Delivery")}</div>
                   </td>
-                  <td className="p-3 text-xs">
+                  <td className="max-w-36 p-3 text-xs">
                     {o.courier === "pickup" ? (
                       <span className="text-muted-foreground">Store pickup</span>
                     ) : o.consignmentId ? (
@@ -456,7 +456,7 @@ function OrdersPage() {
                       <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Not sent to Pathao</span>
                     )}
                   </td>
-                  <td className="p-3 text-xs">
+                  <td className="max-w-44 p-3 text-xs">
                     <div className="tabular-nums">{o.callCount}</div>
                     {(o as any).autoCall?.result && (() => {
                       const r = (o as any).autoCall.result as string
@@ -474,14 +474,14 @@ function OrdersPage() {
                     )}
                     {DELIVERED.includes(o.status as OrderStatus) && (
                       (o as any).csat ? (
-                        <div className="mt-1 whitespace-nowrap border-t pt-1 text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
+                        <div className="mt-1 border-t pt-1 text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
                       ) : (
                         <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Feedback call pending</div>
                       )
                     )}
                     {RETURN_LIKE.includes(o.status as OrderStatus) && (
                       isRealReason(o.reason) ? (
-                        <div className="mt-1 whitespace-nowrap border-t pt-1 text-tone-green">✓ Return call: {o.reason}</div>
+                        <div className="mt-1 border-t pt-1 text-tone-green">✓ Return call: {o.reason}</div>
                       ) : (
                         <div className="mt-1 whitespace-nowrap border-t pt-1 font-medium text-tone-red">⚠ Return call pending</div>
                       )
@@ -492,12 +492,12 @@ function OrdersPage() {
                       </div>
                     )}
                   </td>
-                  <td className="p-3">
+                  <td className="max-w-36 p-3">
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
                       {RETURN_LIKE.includes(o.status as OrderStatus) && !isRealReason(o.reason) && (
-                        <span className="whitespace-nowrap rounded bg-tone-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">⚠ No reason logged</span>
+                        <span className="rounded bg-tone-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">⚠ No reason logged</span>
                       )}
                     </div>
                   </td>
