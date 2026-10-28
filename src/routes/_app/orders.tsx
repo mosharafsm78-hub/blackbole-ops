@@ -387,11 +387,19 @@ function OrdersPage() {
                       {o.externalName && <span className="text-xs text-muted-foreground">{o.externalName}</span>}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground">{dateTime(o.createdAt)}</div>
-                    {(o.lastNote || (o.reason && NEEDS_REASON.includes(o.status as OrderStatus))) && (
-                      <div className="mt-1 max-w-52 rounded bg-tone-amber-bg px-1.5 py-0.5 text-[11px] text-foreground" data-testid="row-note">
-                        📝 {o.lastNote ?? o.reason}{o.lastNoteBy ? <span className="text-muted-foreground"> — {o.lastNoteBy}</span> : null}
-                      </div>
-                    )}
+                    {(() => {
+                      // A note written by an automatic sync (Pathao/Nuport) is the same junk `isRealReason` already
+                      // filters out of `reason` elsewhere — it was never a real human note, just what the system
+                      // happened to say at the time. Showing it here wrapped this cell across 3-4 lines and blew up
+                      // the whole row's height. Treat a sync-authored note as no note, same as everywhere else.
+                      const isSystemNote = o.lastNoteBy === "Pathao sync" || o.lastNoteBy === "Nuport sync"
+                      const note = o.lastNote && !isSystemNote ? o.lastNote : isRealReason(o.reason) && NEEDS_REASON.includes(o.status as OrderStatus) ? o.reason : null
+                      return note ? (
+                        <div className="mt-1 max-w-52 rounded bg-tone-amber-bg px-1.5 py-0.5 text-[11px] text-foreground" data-testid="row-note">
+                          📝 {note}{o.lastNoteBy && !isSystemNote ? <span className="text-muted-foreground"> — {o.lastNoteBy}</span> : null}
+                        </div>
+                      ) : null
+                    })()}
                     {o.printedAt && <div className="text-[11px] text-muted-foreground">Printed</div>}
                   </td>
                   <td className="max-w-64 p-3">
@@ -448,7 +456,7 @@ function OrdersPage() {
                       <span className="inline-flex rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Not sent to Pathao</span>
                     )}
                   </td>
-                  <td className="p-3 text-xs align-middle">
+                  <td className="p-3 text-xs">
                     <div className="tabular-nums">{o.callCount}</div>
                     {(o as any).autoCall?.result && (() => {
                       const r = (o as any).autoCall.result as string
@@ -484,7 +492,7 @@ function OrdersPage() {
                       </div>
                     )}
                   </td>
-                  <td className="p-3 align-middle">
+                  <td className="p-3">
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}

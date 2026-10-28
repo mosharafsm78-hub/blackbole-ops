@@ -19,16 +19,33 @@ export const Route = createFileRoute("/_app/action-center")({
   ),
 })
 
-const STATUS: Record<string, { label: string; dot: string; badge: string; border: string; box: string }> = {
-  automatic: { label: "AUTOMATIC", dot: "●", badge: "bg-tone-green-bg text-tone-green", border: "border-l-tone-green", box: "bg-tone-green-bg/40" },
-  human: { label: "NEEDS A HUMAN", dot: "●", badge: "bg-muted text-muted-foreground", border: "border-l-muted-foreground/40", box: "bg-muted/60" },
-  setup: { label: "NEEDS SETUP", dot: "●", badge: "bg-tone-amber-bg text-tone-amber", border: "border-l-tone-amber", box: "bg-tone-amber-bg/40" },
-}
-
 const LOG_STATUS: Record<string, { label: string; badge: string }> = {
   open: { label: "Open", badge: "bg-tone-amber-bg text-tone-amber" },
   in_progress: { label: "In progress", badge: "bg-tone-blue-bg text-tone-blue" },
   resolved: { label: "Resolved", badge: "bg-tone-green-bg text-tone-green" },
+}
+
+// The real workflow a finding moves through — not the static "who can fix this" label the backend computes
+// (automatic/human/setup), but where it actually sits right now, combining that with the team's own log entries:
+//   pending   → nothing logged yet (or explicitly reopened) — nobody has started
+//   ai        → the backend handles this one automatically and it isn't marked resolved — it's just running
+//   human     → a person logged "in progress" — someone is actively on it
+//   done      → a person logged "resolved"
+// This is what lets the page read as a pipeline (todo → doing → done) instead of a flat pile of cards.
+type Stage = "pending" | "ai" | "human" | "done"
+const STAGE_ORDER: Stage[] = ["pending", "ai", "human", "done"]
+const STAGE: Record<Stage, { label: string; sub: string; badge: string; border: string; dot: string; icon: string }> = {
+  pending: { label: "Needs action", sub: "nobody's started", badge: "bg-tone-amber-bg text-tone-amber", border: "border-l-tone-amber", dot: "bg-tone-amber", icon: "○" },
+  ai: { label: "AI working", sub: "running automatically", badge: "bg-tone-green-bg text-tone-green", border: "border-l-tone-green", dot: "bg-tone-green", icon: "◐" },
+  human: { label: "In progress", sub: "a team member is on it", badge: "bg-tone-blue-bg text-tone-blue", border: "border-l-tone-blue", dot: "bg-tone-blue", icon: "●" },
+  done: { label: "Done", sub: "resolved", badge: "bg-muted text-muted-foreground", border: "border-l-muted-foreground/30", dot: "bg-muted-foreground/50", icon: "✓" },
+}
+
+function stageOf(f: { status: string }, ls: { status: string } | undefined): Stage {
+  if (ls?.status === "resolved") return "done"
+  if (f.status === "automatic") return "ai"
+  if (ls?.status === "in_progress") return "human"
+  return "pending"
 }
 
 function ActionCenter() {
@@ -36,60 +53,106 @@ function ActionCenter() {
   const findingIds = useMemo(() => (data?.findings ?? []).map((f: any) => f.id), [data])
   const latest = useQuery(api.findingLog.latest, findingIds.length ? { findingIds } : "skip")
 
+  const groups = useMemo(() => {
+    const g: Record<Stage, { items: any[]; impact: number }> = {
+      pending: { items: [], impact: 0 }, ai: { items: [], impact: 0 }, human: { items: [], impact: 0 }, done: { items: [], impact: 0 },
+    }
+    for (const f of data?.findings ?? []) {
+      const ls = latest?.[f.id]
+      const stage = stageOf(f, ls)
+      g[stage].items.push({ ...f, ls })
+      g[stage].impact += f.impact
+    }
+    return g
+  }, [data, latest])
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <PageHeader title="Action Center" sub="Every problem the data has found over the last 90 days, what AI is doing about it, what still needs you — and a real log of what actually got done." />
+      <PageHeader title="Action Center" sub="Every problem the data has found over the last 90 days — where it sits right now, what AI is doing, what still needs you, and a real log of what actually got done." />
       {!data ? <Loading /> : data.findings.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
           Nothing flagged right now — once a real pattern shows up (returns, cancellations, repeat customers), it'll appear here.
         </div>
       ) : (
-        <div className="space-y-4">
-          {data.findings.map((f: any) => {
-            const s = STATUS[f.status] ?? STATUS.human
-            const ls = latest?.[f.id]
-            return (
-              <section key={f.id} className={cn("rounded-xl border border-l-4 bg-card p-5", s.border)}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide", s.badge)}>{s.dot} {s.label}</span>
-                    {ls && (
-                      <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide", LOG_STATUS[ls.status].badge)}>
-                        {LOG_STATUS[ls.status].label} by {ls.byName}
-                      </span>
-                    )}
-                    {(f.team as string[] | undefined)?.map((t) => <TeamTag key={t} team={t} />)}
+        <>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {STAGE_ORDER.map((stage) => {
+              const s = STAGE[stage]
+              const g = groups[stage]
+              return (
+                <a key={stage} href={`#stage-${stage}`} className="block rounded-lg border bg-card p-3 transition hover:bg-muted/40">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                    <span className={cn("inline-block size-1.5 rounded-full", s.dot)} />
+                    {s.label}
                   </div>
-                  <span className="text-xs text-muted-foreground">~{taka(f.impact)} impact</span>
-                </div>
-                <h2 className="mt-3 text-base font-semibold">{f.problem}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{f.finding}</p>
+                  <div className="mt-1 text-2xl font-semibold tabular-nums">{g.items.length}</div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{g.items.length > 0 ? `~${taka(g.impact)} at stake` : s.sub}</div>
+                </a>
+              )
+            })}
+          </div>
 
-                <div className={cn("mt-3 rounded-lg px-3.5 py-2.5", s.box)}>
-                  <div className="text-xs font-bold text-foreground/70">{f.status === "automatic" ? "AI is doing" : "AI found"}</div>
-                  <div className="mt-0.5 text-sm">{f.aiDid}</div>
-                </div>
-
-                {f.detail?.length > 0 && (
-                  <div className="mt-2 rounded-lg border px-3.5 py-2.5">
-                    <div className="text-xs font-bold text-foreground/70">Last {f.detail.length} return reason{f.detail.length > 1 ? "s" : ""}</div>
-                    <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-                      {f.detail.map((r: string, i: number) => <li key={i}>· {r}</li>)}
-                    </ul>
+          <div className="space-y-6">
+            {STAGE_ORDER.filter((stage) => groups[stage].items.length > 0).map((stage) => {
+              const s = STAGE[stage]
+              return (
+                <section key={stage} id={`stage-${stage}`} className="scroll-mt-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide", s.badge)}>{s.icon} {s.label.toUpperCase()}</span>
+                    <span className="text-xs text-muted-foreground">{groups[stage].items.length} · ~{taka(groups[stage].impact)}</span>
                   </div>
-                )}
-
-                {f.id === "repeat-rate" && <WinbackActivity />}
-
-                <p className="mt-3 text-sm"><span className="font-semibold">{f.status === "automatic" ? "What it does: " : "Do this: "}</span>{f.solution}</p>
-
-                <FindingLog findingId={f.id} />
-              </section>
-            )
-          })}
-        </div>
+                  <div className="space-y-4">
+                    {groups[stage].items.map((f: any) => <FindingCard key={f.id} f={f} stage={stage} />)}
+                  </div>
+                </section>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
+  )
+}
+
+function FindingCard({ f, stage }: { f: any; stage: Stage }) {
+  const s = STAGE[stage]
+  const ls = f.ls as { status: string; at: number; byName: string } | undefined
+  return (
+    <section className={cn("rounded-xl border border-l-4 bg-card p-5", s.border)}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {ls && (
+            <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide", LOG_STATUS[ls.status].badge)}>
+              {LOG_STATUS[ls.status].label} by {ls.byName}
+            </span>
+          )}
+          {(f.team as string[] | undefined)?.map((t) => <TeamTag key={t} team={t} />)}
+        </div>
+        <span className="text-xs text-muted-foreground">~{taka(f.impact)} impact</span>
+      </div>
+      <h2 className="mt-3 text-base font-semibold">{f.problem}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{f.finding}</p>
+
+      <div className={cn("mt-3 rounded-lg px-3.5 py-2.5", stage === "ai" ? "bg-tone-green-bg/40" : "bg-muted/60")}>
+        <div className="text-xs font-bold text-foreground/70">{f.status === "automatic" ? "AI is doing" : "AI found"}</div>
+        <div className="mt-0.5 text-sm">{f.aiDid}</div>
+      </div>
+
+      {f.detail?.length > 0 && (
+        <div className="mt-2 rounded-lg border px-3.5 py-2.5">
+          <div className="text-xs font-bold text-foreground/70">Last {f.detail.length} return reason{f.detail.length > 1 ? "s" : ""}</div>
+          <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+            {f.detail.map((r: string, i: number) => <li key={i}>· {r}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {f.id === "repeat-rate" && <WinbackActivity />}
+
+      <p className="mt-3 text-sm"><span className="font-semibold">{f.status === "automatic" ? "What it does: " : "Do this: "}</span>{f.solution}</p>
+
+      <FindingLog findingId={f.id} />
+    </section>
   )
 }
 
@@ -125,7 +188,8 @@ function WinbackActivity() {
 }
 
 /** The actual audit trail for a finding: what the team has logged doing about it, oldest first, plus a box to
- *  add the next entry. This is what makes a finding a real, working item instead of a static suggestion. */
+ *  add the next entry. Logging "in progress" or "resolved" here is what actually moves this card between the
+ *  workflow columns above — there's no separate "move" action, the log IS the move. */
 function FindingLog({ findingId }: { findingId: string }) {
   const [open, setOpen] = useState(false)
   const entries = useQuery(api.findingLog.list, open ? { findingId } : "skip")
