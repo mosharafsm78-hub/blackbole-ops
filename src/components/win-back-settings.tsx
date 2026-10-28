@@ -20,7 +20,14 @@ export function WinBackSettings() {
   if (!data || !f) return <Loading />
   const set = (k: string, val: any) => setF((x: any) => ({ ...x, [k]: val }))
   const doSave = async () => {
-    try { await save(f); toast.success("Saved") } catch (e) { toast.error(errMsg(e)) }
+    // `f` starts as the full saved config, which also carries the smsSendIndex/waSendIndex rotation
+    // counters — fields the mutation doesn't declare and never needs from the client (it reads/writes
+    // them itself). Convex rejects unknown fields on a mutation call, so sending `f` as-is always failed
+    // silently here. Send only what the form actually edits.
+    try {
+      await save({ enabled: f.enabled, code: f.code, minDays: f.minDays, maxDays: f.maxDays, templates: f.templates })
+      toast.success("Saved")
+    } catch (e) { toast.error(errMsg(e)) }
   }
   const starts = new Date(data.startAt)
   const started = Date.now() >= data.startAt
