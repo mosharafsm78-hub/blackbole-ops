@@ -358,7 +358,7 @@ function BirthdayRow({ c, open, onToggle }: { c: any; open: boolean; onToggle: (
   const sendEmail = useAction(api.emailNode.sendBirthdayEmail)
   const [subject, setSubject] = useState(`Happy Birthday, ${c.name}! 🎉`)
   const [body, setBody] = useState(
-    `Hi ${c.name},\n\nWishing you a very happy birthday from all of us at BlackBole! 🎂 We hope your day is full of good moments.\n\nAs a small thank-you, give our team a call so we can arrange a little something for you today.\n\nWarm wishes,\nTeam BlackBole`,
+    `Hi ${c.name},\n\nWishing you a very happy birthday from all of us at BlackBole! 🎂 We hope your day is full of good moments.\n\nAs a small birthday gift, here's ৳500 off your next order — just use the code BDAYGIFT500 at checkout (on orders ৳2500+).\n\nWarm wishes,\nTeam BlackBole`,
   )
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)

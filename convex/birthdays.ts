@@ -9,6 +9,7 @@ import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
 import { sendSms } from "./outbound"
+import { shopifyGql } from "./shopifyStock"
 
 const BD_OFFSET = 6 * 3600000
 
@@ -26,17 +27,64 @@ const sentToday = (at: number | undefined, today: string) => !!at && dateKey(at)
 
 const firstName = (name: string) => name.trim().split(/\s+/)[0] || name
 
-/** Warm, plain-English birthday notes — first name up front, nothing that reads like a template. Per-channel
+// One evergreen birthday gift code (unlike win-back, this doesn't need a monthly rotation — it isn't a marketing
+// funnel metric, just a thank-you). Self-heals into Shopify below the same way win-back's code does.
+const BIRTHDAY_CODE = "BDAYGIFT500"
+const BIRTHDAY_OFF = 500
+const BIRTHDAY_MIN = 2500
+
+/** Warm, plain-English birthday notes — first name up front, nothing that reads like a template. No request to
+ *  call in: the team calls birthday customers themselves, so the message just states the gift. Per-channel
  *  length/tone: SMS short, email a little fuller, WhatsApp closest to how the team actually talks. */
-function emailBody(name: string) {
-  return `Hi ${name},\n\nIt's your birthday today, and we didn't want to let it pass without saying — thank you for being part of the BlackBole family. Every order of yours means more to us than you'd probably guess.\n\nHope today brings you good food, good people, and a few extra reasons to smile.\n\nGive our team a call if you'd like — we've got a little something we'd love to send your way today.\n\nWarmly,\nTeam BlackBole`
+function emailBody(name: string, code: string) {
+  return `Hi ${name},\n\nIt's your birthday today, and we didn't want to let it pass without saying — thank you for being part of the BlackBole family. Every order of yours means more to us than you'd probably guess.\n\nAs a small birthday gift, here's ৳${BIRTHDAY_OFF} off your next order — just use the code ${code} at checkout (on orders ৳${BIRTHDAY_MIN}+).\n\nHope today brings you good food, good people, and a few extra reasons to smile.\n\nWarmly,\nTeam BlackBole`
 }
-function smsBody(name: string) {
-  return `Hi ${name}, happy birthday from all of us at BlackBole! Hope your day is a great one. Give us a call today — we've got a little something for you.`
+function smsBody(name: string, code: string) {
+  return `Hi ${name}, happy birthday from all of us at BlackBole! Here's a Tk ${BIRTHDAY_OFF} gift for you — use code ${code} on your next order (min Tk ${BIRTHDAY_MIN}). Hope today's a great one!`
 }
-function waBody(name: string) {
-  return `Hi ${name} 🎉\n\nHappy Birthday from everyone at BlackBole! Just wanted to drop a quick note to say we're really glad to have you with us.\n\nHope today's full of good food, good people and zero stress 🎂\n\nCall us if you'd like — we've got a little something we'd love to send your way.`
+function waBody(name: string, code: string) {
+  return `Hi ${name} 🎉\n\nHappy Birthday from everyone at BlackBole! Just wanted to drop a quick note to say we're really glad to have you with us.\n\nAs a little gift, here's ৳${BIRTHDAY_OFF} off your next order — code *${code}* at checkout (on orders ৳${BIRTHDAY_MIN}+).\n\nHope today's full of good food, good people and zero stress 🎂`
 }
+
+/** Mirrors ensureDiscount/ensureShopifyDiscount in winback.ts — same two-step pattern (Ops's own `discounts`
+ *  table, then the live Shopify store where checkout actually validates codes), just for the one fixed code
+ *  above instead of a monthly-rotating one. Both are no-ops once the code already exists. */
+export const ensureBirthdayDiscount = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const exists = await ctx.db.query("discounts").withIndex("by_code", (q) => q.eq("code", BIRTHDAY_CODE)).first()
+    if (exists) return
+    const now = Date.now()
+    await ctx.db.insert("discounts", {
+      code: BIRTHDAY_CODE, title: "Birthday gift", type: "amount", value: BIRTHDAY_OFF, scope: "all", items: [],
+      minSubtotal: BIRTHDAY_MIN, oncePerCustomer: true, active: true, usedCount: 0, createdAt: now, updatedAt: now,
+    })
+  },
+})
+
+export const ensureBirthdayShopifyDiscount = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    try {
+      const d: any = await shopifyGql(ctx, `mutation($input: DiscountCodeBasicInput!) {
+          discountCodeBasicCreate(basicCodeDiscount: $input) { codeDiscountNode { id } userErrors { field message code } }
+        }`, {
+        input: {
+          title: "Birthday gift", code: BIRTHDAY_CODE, startsAt: new Date().toISOString(), appliesOncePerCustomer: true,
+          context: { all: "ALL" },
+          customerGets: { items: { all: true }, value: { discountAmount: { amount: BIRTHDAY_OFF, appliesOnEachItem: false } } },
+          minimumRequirement: { subtotal: { greaterThanOrEqualToSubtotal: BIRTHDAY_MIN } },
+        },
+      })
+      const errs = d.discountCodeBasicCreate.userErrors
+      if (errs?.length && !errs.some((e: any) => /taken|already exist/i.test(e.message))) {
+        console.error(`Shopify birthday discount sync failed: ${errs.map((e: any) => e.message).join("; ")}`)
+      }
+    } catch (e) {
+      console.error(`Shopify birthday discount sync failed: ${String((e as Error).message ?? e)}`)
+    }
+  },
+})
 
 /** Customers whose stored dob (YYYY-MM-DD) matches today's month+day, Asia/Dhaka — the year doesn't need to
  *  match anything, it's just there to compute an age to show if it looks real. */
@@ -136,21 +184,24 @@ export const sendAutomatic = internalAction({
   handler: async (ctx) => {
     const today = dateKey(Date.now())
     const list = await ctx.runQuery(internal.birthdays.dueToday, {})
+    if (!list.length) return
+    await ctx.runMutation(internal.birthdays.ensureBirthdayDiscount, {})
+    await ctx.runAction(internal.birthdays.ensureBirthdayShopifyDiscount, {})
     for (const c of list) {
       const name = firstName(c.name)
       if (c.email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(c.email) && !sentToday(c.birthdayEmailAt, today)) {
-        await ctx.runAction(internal.emailNode.sendBirthdayEmailAuto, { customerId: c._id, to: c.email, subject: `Happy Birthday, ${name}! 🎂`, text: emailBody(name) })
+        await ctx.runAction(internal.emailNode.sendBirthdayEmailAuto, { customerId: c._id, to: c.email, subject: `Happy Birthday, ${name}! 🎂`, text: emailBody(name, BIRTHDAY_CODE) })
       }
       if (c.phone && !sentToday(c.birthdaySmsAt, today)) {
         const sms = await ctx.runQuery(internal.outbound.smsSettingsRaw, {})
         if (sms?.enabled) {
-          const text = smsBody(name)
+          const text = smsBody(name, BIRTHDAY_CODE)
           const error = await sendSms(sms, c.phone, text)
           await ctx.runMutation(internal.birthdays.logAutoSms, { customerId: c._id, phone: c.phone, text, error })
         }
       }
       if (c.phone && !sentToday(c.birthdayWaQueuedAt, today)) {
-        await ctx.runMutation(internal.birthdays.queueWa, { customerId: c._id, phone: c.phone, name: c.name, text: waBody(name) })
+        await ctx.runMutation(internal.birthdays.queueWa, { customerId: c._id, phone: c.phone, name: c.name, text: waBody(name, BIRTHDAY_CODE) })
       }
     }
   },
