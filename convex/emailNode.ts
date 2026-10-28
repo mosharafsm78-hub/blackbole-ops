@@ -72,6 +72,24 @@ export const sendWinbackEmail = internalAction({
   },
 })
 
+/** Dashboard → Birthdays today panel: Customer Care composes and sends this themselves (subject/body editable,
+ *  so they can add a personal touch) — never automatic. Gated the same as the panel itself (dashboard.view). */
+export const sendBirthdayEmail = action({
+  args: { customerId: v.id("customers"), subject: v.string(), text: v.string() },
+  handler: async (ctx, { customerId, subject, text }): Promise<{ ok: boolean; error?: string }> => {
+    const by = await ctx.runQuery(internal.pathao.checkPerm, { perm: "dashboard.view" })
+    const customer = await ctx.runQuery(internal.birthdays.customerRaw, { customerId })
+    if (!customer) return { ok: false, error: "Customer not found" }
+    if (!customer.email || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(customer.email)) return { ok: false, error: "No valid email on file for this customer" }
+    if (!subject.trim() || !text.trim()) return { ok: false, error: "Subject and message can't be empty" }
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
+    const error = await send(email, customer.email, subject.trim(), text.trim(), contact?.hotline)
+    await ctx.runMutation(internal.birthdays.logSent, { customerId, email: customer.email, text: `${subject.trim()} — ${text.trim()}`, error, by })
+    return error ? { ok: false, error } : { ok: true }
+  },
+})
+
 /** Settings → Email: send one test email with the saved mailbox. */
 export const testEmail = action({
   args: { to: v.string() },

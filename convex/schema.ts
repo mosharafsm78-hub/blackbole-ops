@@ -257,6 +257,7 @@ export default defineSchema({
     smsCount: v.optional(v.number()),
     customerType: v.optional(v.string()),
     dob: v.optional(v.string()), // "YYYY-MM-DD", given once on the order form (optional) — powers the Dashboard's birthday panel
+    birthdayEmailAt: v.optional(v.number()), // last time Customer Care sent a birthday email from the Dashboard panel (manual — never automatic)
     deletedAt: v.optional(v.number()),
     // Tier 1 — one-time buyer who never came back: last time each channel reached them. No longer "send once
     // ever" — these now double as the repeat-nudge clock (resent every winback.REPEAT1_DAYS until they order again).

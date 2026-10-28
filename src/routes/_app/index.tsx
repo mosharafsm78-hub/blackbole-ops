@@ -332,9 +332,12 @@ function BusinessInsights() {
 
 /** Month by month — the business over time. */
 /** Today's birthdays (Asia/Dhaka) — customers who gave a date of birth on the order form. A small, honest panel:
- *  it never nags when the list is empty, but it's always in the same place so checking it becomes a habit. */
+ *  it never nags when the list is empty, but it's always in the same place so checking it becomes a habit.
+ *  Email is deliberately NOT automatic — Customer Care opens a row, edits the message, and sends it themselves,
+ *  so it carries a human touch. */
 function Birthdays() {
   const rows = useQuery(api.birthdays.today, {})
+  const [openId, setOpenId] = useState<string | null>(null)
   if (rows && rows.length === 0) return <p className="text-xs text-muted-foreground">🎂 No customer birthdays today.</p>
   return (
     <section className="rounded-xl border bg-gradient-to-br from-tone-pink-bg to-card p-4">
@@ -342,17 +345,83 @@ function Birthdays() {
       {!rows ? <Loading /> : (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {rows.map((c: any) => (
-            <div key={c._id} className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <div className="truncate font-medium">{c.name}{c.turning ? <span className="ml-1 font-normal text-muted-foreground">· turning {c.turning}</span> : null}</div>
-                <div className="font-mono text-xs text-muted-foreground">{c.phone}</div>
-              </div>
-              <ContactButtons phone={c.phone} />
-            </div>
+            <BirthdayRow key={c._id} c={c} open={openId === c._id} onToggle={() => setOpenId(openId === c._id ? null : c._id)} />
           ))}
         </div>
       )}
     </section>
+  )
+}
+
+function BirthdayRow({ c, open, onToggle }: { c: any; open: boolean; onToggle: () => void }) {
+  const sendEmail = useAction(api.emailNode.sendBirthdayEmail)
+  const [subject, setSubject] = useState(`Happy Birthday, ${c.name}! 🎉`)
+  const [body, setBody] = useState(
+    `Hi ${c.name},\n\nWishing you a very happy birthday from all of us at BlackBole! 🎂 We hope your day is full of good moments.\n\nAs a small thank-you, give our team a call so we can arrange a little something for you today.\n\nWarm wishes,\nTeam BlackBole`,
+  )
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [justSent, setJustSent] = useState(false)
+
+  const send = async () => {
+    setSending(true)
+    setError(null)
+    try {
+      const res = await sendEmail({ customerId: c._id, subject, text: body })
+      if (res.ok) {
+        setJustSent(true)
+        onToggle()
+      } else setError(res.error || "Couldn't send")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2 text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium">{c.name}{c.turning ? <span className="ml-1 font-normal text-muted-foreground">· turning {c.turning}</span> : null}</div>
+          <div className="font-mono text-xs text-muted-foreground">{c.phone}</div>
+          {c.email ? <div className="truncate text-xs text-muted-foreground">{c.email}</div> : <div className="text-xs text-muted-foreground/70">No email on file</div>}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {(c.birthdayEmailAt || justSent) && <span className="text-xs text-emerald-600">Sent ✓</span>}
+          {c.email && (
+            <button type="button" onClick={onToggle} className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">
+              {open ? "Cancel" : "✉️ Email"}
+            </button>
+          )}
+          <ContactButtons phone={c.phone} />
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2 space-y-2 border-t pt-2">
+          <input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+            placeholder="Subject"
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={5}
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+            placeholder="Message — add a personal touch before sending"
+          />
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <button
+            type="button"
+            disabled={sending}
+            onClick={send}
+            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background disabled:opacity-60"
+          >
+            {sending ? "Sending…" : "Send email"}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
