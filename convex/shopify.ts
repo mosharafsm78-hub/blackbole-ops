@@ -47,6 +47,17 @@ async function hmacOk(body: string, header: string | null, key: string) {
 
 const num = (x: unknown) => Number(x ?? 0) || 0
 
+/** The "Birthday" custom attribute the COD popup (bb26-cod.js / bb-cod-order) attaches to the order when the
+ *  customer gave one — note_attributes is Shopify's top-level order-attribute array (distinct from a line item's
+ *  own `properties`). "YYYY-MM-DD" only, sanity-checked the same way as everywhere else this is validated. */
+function dobFromAttrs(o: any): string | undefined {
+  const raw = (o.note_attributes ?? []).find((a: any) => String(a?.name ?? "").trim().toLowerCase() === "birthday")?.value
+  const s = String(raw ?? "").trim()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined
+  const t = Date.parse(s)
+  return Number.isFinite(t) && t < Date.now() && t > Date.UTC(1920, 0, 1) ? s : undefined
+}
+
 export const webhook = httpAction(async (ctx, req) => {
   const body = await req.text()
   const topic = req.headers.get("X-Shopify-Topic") ?? ""
@@ -106,6 +117,7 @@ export const webhook = httpAction(async (ctx, req) => {
       customerName: name,
       phone,
       email: o.email || cust.email || undefined,
+      dob: dobFromAttrs(o),
       address: address || "Address not given",
       cityName: ship.city || undefined,
       items,

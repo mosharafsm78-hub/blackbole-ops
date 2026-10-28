@@ -1210,6 +1210,7 @@ export const ingest = internalMutation({
     customerName: v.string(),
     phone: v.string(),
     email: v.optional(v.string()),
+    dob: v.optional(v.string()),
     address: v.string(),
     cityName: v.optional(v.string()),
     items: v.array(orderItem),
