@@ -153,20 +153,29 @@ export const saveOwners = mutation({
 })
 
 // ---------------------------------------------------------------------------------------------------------------
-// 2-day SLA: a daily cron (see crons.ts) nudges the assignee again and pings the operations head once a flag's
-// been open past SLA_DAYS — repeating every day it stays open, so nothing quietly sits unanswered.
+// Daily reminders: a daily cron (see crons.ts) emails every owner one digest of their own still-open items —
+// from day 1, not just once overdue — and separately pings the operations head about anything past the 2-day
+// SLA, every day it stays open, so nothing quietly sits unanswered.
 // ---------------------------------------------------------------------------------------------------------------
 
-export const overdue = internalQuery({
+export const openForDigest = internalQuery({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - SLA_DAYS * DAY
     const rows = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "open")).collect()
     const owners = await ownersConf(ctx)
-    return rows.filter((r) => r.raisedAt <= cutoff).map((r) => ({
-      _id: r._id, reason: r.reason, team: r.team, raisedAt: r.raisedAt, orderId: r.orderId,
-      assignee: r.assignee, assigneeEmail: r.assigneeEmail, opsHead: owners.opsHead,
-    }))
+    const out: any[] = []
+    for (const r of rows) {
+      let orderInvoice: string | null = null
+      if (r.orderId) {
+        const o = await ctx.db.get(r.orderId)
+        if (o) orderInvoice = invoiceLabel(o)
+      }
+      out.push({
+        _id: r._id, reason: r.reason, team: r.team, raisedAt: r.raisedAt, orderInvoice,
+        assignee: r.assignee, assigneeEmail: r.assigneeEmail,
+      })
+    }
+    return { rows: out, opsHead: owners.opsHead }
   },
 })
 
@@ -177,31 +186,49 @@ export const markEscalated = internalMutation({
   },
 })
 
-/** Runs daily (see crons.ts). For every flag open past the 2-day SLA: nudges the assignee again by email, and
- *  separately alerts the operations head (Settings → Accountability) so they can chase it personally — exactly
- *  once per day, every day it stays open, until someone actually answers it. */
+function itemLine(r: { reason: string; team: string; orderInvoice: string | null; raisedAt: number }) {
+  const days = Math.floor((Date.now() - r.raisedAt) / DAY)
+  return `- ${r.orderInvoice ? `${r.orderInvoice} — ` : ""}"${r.reason}" (${r.team}, open ${days} day${days === 1 ? "" : "s"})`
+}
+
+/** Runs daily (see crons.ts). Every owner with open items gets one email listing all of them, every day they
+ *  stay open — not just once they cross the SLA. Anything 2+ days old also gets a separate digest to the
+ *  operations head, so they can chase it personally. */
 export const checkOverdue = internalAction({
   args: {},
   handler: async (ctx) => {
-    const rows = await ctx.runQuery(internal.accountability.overdue, {})
+    const { rows, opsHead } = await ctx.runQuery(internal.accountability.openForDigest, {})
+    if (!rows.length) return
+
+    type Group = { name: string; items: any[] }
+    const byAssignee = new Map<string, Group>()
+    const overdue: any[] = []
     for (const r of rows) {
-      const days = Math.floor((Date.now() - r.raisedAt) / DAY)
-      const subject = `Accountability: still open after ${days} days — ${r.reason.slice(0, 60)}`
       if (r.assigneeEmail) {
-        await ctx.runAction(internal.emailNode.sendAccountabilityEmail, {
-          to: r.assigneeEmail,
-          subject,
-          text: `Hi ${r.assignee?.split(" ")[0] ?? "there"},\n\nThis has been open ${days} days and still needs your answer: "${r.reason}"\n\nPlease close it out in Ops → Accountability.\n\n— BlackBole Ops`,
-        })
+        const g: Group = byAssignee.get(r.assigneeEmail) ?? { name: r.assignee ?? "", items: [] }
+        g.items.push(r)
+        byAssignee.set(r.assigneeEmail, g)
       }
-      if (r.opsHead?.email) {
-        await ctx.runAction(internal.emailNode.sendAccountabilityEmail, {
-          to: r.opsHead.email,
-          subject: `Accountability: ${r.team} hasn't answered in ${days} days`,
-          text: `Hi ${r.opsHead.name.split(" ")[0]},\n\n${r.team}${r.assignee ? ` (${r.assignee})` : ""} still hasn't answered this, ${days} days in: "${r.reason}"\n\nWorth a direct chase.\n\n— BlackBole Ops`,
-        })
-      }
-      await ctx.runMutation(internal.accountability.markEscalated, { id: r._id })
+      if (Date.now() - r.raisedAt >= SLA_DAYS * DAY) overdue.push(r)
+    }
+
+    for (const [email, g] of byAssignee) {
+      const lines = g.items.map(itemLine).join("\n")
+      await ctx.runAction(internal.emailNode.sendAccountabilityEmail, {
+        to: email,
+        subject: `Accountability: ${g.items.length} pending item${g.items.length === 1 ? "" : "s"} need${g.items.length === 1 ? "s" : ""} your answer`,
+        text: `Hi ${g.name.split(" ")[0] || "there"},\n\nStill open and waiting on you:\n\n${lines}\n\nPlease close these out in Ops → Accountability.\n\n— BlackBole Ops`,
+      })
+    }
+
+    if (opsHead?.email && overdue.length) {
+      const lines = overdue.map(itemLine).join("\n")
+      await ctx.runAction(internal.emailNode.sendAccountabilityEmail, {
+        to: opsHead.email,
+        subject: `Accountability: ${overdue.length} item${overdue.length === 1 ? "" : "s"} past the 2-day SLA`,
+        text: `Hi ${opsHead.name.split(" ")[0]},\n\nThese have been open 2+ days with no answer:\n\n${lines}\n\nWorth a direct chase.\n\n— BlackBole Ops`,
+      })
+      for (const r of overdue) await ctx.runMutation(internal.accountability.markEscalated, { id: r._id })
     }
   },
 })
