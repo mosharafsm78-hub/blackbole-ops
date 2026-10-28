@@ -30,7 +30,9 @@ export const TEAM_STYLE: Record<string, string> = {
   "Development": "bg-tone-gray/15 text-tone-gray",
   "Marketing": "bg-tone-pink/15 text-tone-pink",
 }
-const TEAM_CODE: Record<string, string> = { "Customer Care": "CC", "Fulfillment": "FUL", "Development": "DEV", "Marketing": "MKT" }
+// CX (customer experience) and OPS (operations/fulfillment) are the terms these teams actually go by in e-commerce —
+// more recognizable at a glance than the literal first letters of "Customer Care" / "Fulfillment".
+const TEAM_CODE: Record<string, string> = { "Customer Care": "CX", "Fulfillment": "OPS", "Development": "DEV", "Marketing": "MKT" }
 export function TeamTag({ team }: { team: string }) {
   return (
     <span title={team} className={cn("shrink-0 whitespace-nowrap rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide", TEAM_STYLE[team] ?? "bg-muted text-muted-foreground")}>
