@@ -12,7 +12,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
-import { pickTemplate } from "./winback"
+import { pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
 
 const DAY = 86400000
 const BATCH = 100
@@ -22,42 +22,81 @@ const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)
  *  member still has to press send themselves inside WhatsApp. */
 const waLink = (local11: string, text: string) => `https://wa.me/88${local11}?text=${encodeURIComponent(text)}`
 
-/** Same rule as the win-back SMS playbook (one order, delivered cleanly, never came back), but tracked against
- *  `waQueuedAt` so a customer can get both the automatic SMS *and* a queued WhatsApp message without double-booking either channel. */
+/** Tier 1 — same rule as the win-back SMS playbook (one order, delivered cleanly, never came back), same repeat
+ *  cadence (re-queued every REPEAT1_DAYS, tracked via `waQueuedAt`, until they order again) — kept independent of
+ *  SMS/email so a customer can get all three without double-booking any one channel. WhatsApp itself still goes
+ *  out by a human tap (see file header); this only decides who gets drafted into the queue. */
 export const winbackCandidates = internalQuery({
-  args: { from: v.number(), to: v.number() },
-  handler: async (ctx, { from, to }) => {
+  args: { minDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { minDays, repeatDays }) => {
+    const now = Date.now()
     const rows = await ctx.db.query("customers").withIndex("by_created").collect()
     return rows
       .filter((c) => !c.deletedAt && c.orderCount === 1 && c.deliveredCount === 1 && c.returnedCount === 0 && c.cancelledCount === 0)
-      .filter((c) => c.lastOrderAt && c.lastOrderAt >= from && c.lastOrderAt <= to)
-      .filter((c) => !c.waQueuedAt && c.phone)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - minDays * DAY)
+      .filter((c) => c.phone && (!c.waQueuedAt || c.waQueuedAt <= now - repeatDays * DAY))
+      .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
+      .slice(0, BATCH)
+  },
+})
+
+/** Tier 2 — repeat buyer (2+ orders) gone quiet: same firstDays/repeatDays clock as the SMS/email tier-2 run,
+ *  tracked via `waQueued2At` so it never collides with the tier-1 clock above. */
+export const winback2Candidates = internalQuery({
+  args: { firstDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { firstDays, repeatDays }) => {
+    const now = Date.now()
+    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    return rows
+      .filter((c) => !c.deletedAt && c.orderCount >= 2 && c.deliveredCount >= 1)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - firstDays * DAY)
+      .filter((c) => c.phone && (!c.waQueued2At || c.waQueued2At <= now - repeatDays * DAY))
       .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
       .slice(0, BATCH)
   },
 })
 
 export const enqueueOne = internalMutation({
-  args: { customerId: v.id("customers"), phone: v.string(), name: v.string(), text: v.string(), source: v.string() },
-  handler: async (ctx, { customerId, phone, name, text, source }) => {
+  args: { customerId: v.id("customers"), phone: v.string(), name: v.string(), text: v.string(), source: v.string(), tier: v.optional(v.union(v.literal(1), v.literal(2))) },
+  handler: async (ctx, { customerId, phone, name, text, source, tier }) => {
     await ctx.db.insert("waQueue", { customerId, phone, name, text, source, status: "pending", createdAt: Date.now() })
-    await ctx.db.patch(customerId, { waQueuedAt: Date.now() })
+    await ctx.db.patch(customerId, tier === 2 ? { waQueued2At: Date.now() } : { waQueuedAt: Date.now() })
   },
 })
 
-/** Runs hourly: pulls fresh win-back candidates and queues a personalized WhatsApp message for each, using the
- *  same code/window/message set in Settings → Win-back. Does nothing while win-back is switched off. */
+/** Runs hourly: pulls fresh tier-1 win-back candidates and queues a personalized WhatsApp message for each, using
+ *  the same monthly code/message set in Settings → Win-back. Does nothing while win-back is switched off. */
 export const run = internalAction({
   args: {},
   handler: async (ctx) => {
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
     const now = Date.now()
-    const list = await ctx.runQuery(internal.waQueue.winbackCandidates, { from: now - c.maxDays * DAY, to: now - c.minDays * DAY })
+    const code = codeForMonth(c.code, now)
+    const list = await ctx.runQuery(internal.waQueue.winbackCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.waSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code: c.code })
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
       await ctx.runMutation(internal.waQueue.enqueueOne, { customerId: cust._id, phone: cust.phone, name: cust.name, text, source: "winback" })
+      idx++
+    }
+    if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "wa", count: list.length })
+  },
+})
+
+/** Tier 2 counterpart — repeat buyers who've gone quiet, same monthly code, slower cadence. */
+export const run2 = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const c = await ctx.runQuery(internal.winback.getConf, {})
+    if (!c.enabled) return
+    const now = Date.now()
+    const code = codeForMonth(c.code, now)
+    const list = await ctx.runQuery(internal.waQueue.winback2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
+    let idx = c.waSendIndex ?? 0
+    for (const cust of list) {
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      await ctx.runMutation(internal.waQueue.enqueueOne, { customerId: cust._id, phone: cust.phone, name: cust.name, text, source: "winback2", tier: 2 })
       idx++
     }
     if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "wa", count: list.length })

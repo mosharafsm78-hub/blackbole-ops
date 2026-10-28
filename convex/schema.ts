@@ -257,9 +257,16 @@ export default defineSchema({
     smsCount: v.optional(v.number()),
     customerType: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
-    winBackAt: v.optional(v.number()), // when the automatic win-back SMS was sent (never resend)
-    waQueuedAt: v.optional(v.number()), // when a WhatsApp win-back message was queued for a human to send (never re-queue)
-    winbackEmailAt: v.optional(v.number()), // when the automatic win-back email was sent (never resend) — mirrors winBackAt
+    // Tier 1 — one-time buyer who never came back: last time each channel reached them. No longer "send once
+    // ever" — these now double as the repeat-nudge clock (resent every winback.REPEAT1_DAYS until they order again).
+    winBackAt: v.optional(v.number()),
+    waQueuedAt: v.optional(v.number()),
+    winbackEmailAt: v.optional(v.number()),
+    // Tier 2 — repeat buyer (2+ orders) who has since gone quiet: separate clock per channel, first nudge at
+    // winback.TIER2_FIRST_DAYS after their last order, then re-nudged every winback.TIER2_REPEAT_DAYS.
+    winBack2At: v.optional(v.number()),
+    waQueued2At: v.optional(v.number()),
+    winbackEmail2At: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_phone", ["phone"])

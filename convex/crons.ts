@@ -12,12 +12,18 @@ crons.interval("pathao exchange parcels", { minutes: 60 }, internal.pathao.cronT
 // automatic order confirmation calls: start due calls every minute (does nothing while switched off)
 crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tick, {})
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
-// win-back SMS: one-time buyers who never came back get an automatic discount SMS (does nothing before its start date or while switched off)
+// win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every
+// winback.REPEAT1_DAYS until they order again (does nothing before its start date or while switched off)
 crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
-// win-back email: same idea, same window, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)
+// win-back email, tier 1: same idea, same cadence, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)
 crons.interval("win-back email sweep", { hours: 1 }, internal.winback.runEmail, {})
-// WhatsApp send queue: drafts a win-back message for a human to tap-send (never sends anything itself)
+// WhatsApp send queue, tier 1: drafts a win-back message for a human to tap-send (never sends anything itself)
 crons.interval("whatsapp queue fill", { hours: 1 }, internal.waQueue.run, {})
+// Tier 2 — repeat buyers (2+ orders) who've gone quiet: same three channels, slower cadence
+// (winback.TIER2_FIRST_DAYS then winback.TIER2_REPEAT_DAYS), same monthly discount code.
+crons.interval("win-back sweep (repeat buyers)", { hours: 1 }, internal.winback.run2, {})
+crons.interval("win-back email sweep (repeat buyers)", { hours: 1 }, internal.winback.runEmail2, {})
+crons.interval("whatsapp queue fill (repeat buyers)", { hours: 1 }, internal.waQueue.run2, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})

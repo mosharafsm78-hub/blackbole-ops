@@ -16,6 +16,16 @@ const BD_OFFSET = 6 * 3600000
 const START_AT = Date.UTC(2026, 9, 28, 7, 0, 0)
 const CODE = "COMEBACK150"
 const BATCH = 60
+// Tier 1 (one-time buyer): first message at conf.minDays after delivery (settings UI), then this system no
+// longer marks them "done forever" — it re-nudges every REPEAT1_DAYS, with a freshly-dated monthly code, until
+// they place a 2nd order (at which point orderCount flips to 2 and they fall out of this tier automatically).
+// At the user's explicit request: "the message will send until they purchase."
+export const REPEAT1_DAYS = 30
+// Tier 2 (repeat buyer gone quiet): once someone has 2+ orders and stops ordering, wait TIER2_FIRST_DAYS since
+// their last order for the first nudge, then re-nudge every TIER2_REPEAT_DAYS after that — same discount
+// mechanism, same monthly-rotating code, just a slower cadence befitting an already-proven customer.
+export const TIER2_FIRST_DAYS = 45
+export const TIER2_REPEAT_DAYS = 60
 
 // Several message variants instead of one fixed string — sending the exact same text to dozens of different
 // customers in a row (over WhatsApp especially) reads as robotic and risks looking like spam. Rotating in blocks
@@ -52,7 +62,18 @@ const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)
 /** Which variant to use for the `n`th message sent on this channel (0-indexed, persisted across runs). */
 export const pickTemplate = (templates: string[], n: number) => templates[Math.floor(n / ROTATE_EVERY) % templates.length]
 
-/** Creates the win-back discount code once (৳150 off, ৳1500 minimum order, once per customer) if it doesn't exist yet. */
+/** The configured code is now a PREFIX, not the literal code — "every month you will refresh the code" (user's
+ *  words): each calendar month (Asia/Dhaka) gets its own code, e.g. "COMEBACK150" → "COMEBACK150-2611" for Nov
+ *  2026. Same ৳150/৳1500-minimum/one-per-customer terms every month, just a code that reads as fresh to anyone
+ *  who got last month's text and didn't use it. */
+export const codeForMonth = (prefix: string, at: number) => {
+  const d = new Date(at + BD_OFFSET)
+  const ym = `${String(d.getUTCFullYear()).slice(2)}${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+  return `${prefix}-${ym}`
+}
+
+/** Creates this month's win-back discount code (৳150 off, ৳1500 minimum order, once per customer) if it doesn't
+ *  exist yet. Called every run — cheap no-op once the month's code has been created. */
 export const ensureDiscount = internalMutation({
   args: { code: v.string() },
   handler: async (ctx, { code }) => {
@@ -60,37 +81,72 @@ export const ensureDiscount = internalMutation({
     if (exists) return
     const now = Date.now()
     await ctx.db.insert("discounts", {
-      code, title: "Win-back — one-time buyers", type: "amount", value: 150, scope: "all", items: [],
+      code, title: "Win-back — auto (monthly)", type: "amount", value: 150, scope: "all", items: [],
       minSubtotal: 1500, oncePerCustomer: true, active: true, usedCount: 0, createdAt: now, updatedAt: now,
     })
   },
 })
 
-/** Customers who ordered exactly once, it was delivered cleanly (never returned/cancelled), the window has
- *  passed, and we haven't already messaged them. */
+/** Tier 1 — bought exactly once, it was delivered cleanly (never returned/cancelled), and at least `minDays`
+ *  have passed since that delivery. No longer a one-shot: once contacted, `repeatDays` must also have passed
+ *  since the last contact on this channel, so the same customer keeps resurfacing here every cycle until they
+ *  place a 2nd order (which flips orderCount to 2 and drops them out of this filter on its own). */
 export const candidates = internalQuery({
-  args: { from: v.number(), to: v.number() },
-  handler: async (ctx, { from, to }) => {
+  args: { minDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { minDays, repeatDays }) => {
+    const now = Date.now()
     const rows = await ctx.db.query("customers").withIndex("by_created").collect()
     return rows
       .filter((c) => !c.deletedAt && c.orderCount === 1 && c.deliveredCount === 1 && c.returnedCount === 0 && c.cancelledCount === 0)
-      .filter((c) => c.lastOrderAt && c.lastOrderAt >= from && c.lastOrderAt <= to)
-      .filter((c) => !c.winBackAt && c.phone)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - minDays * DAY)
+      .filter((c) => c.phone && (!c.winBackAt || c.winBackAt <= now - repeatDays * DAY))
       .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
       .slice(0, BATCH)
   },
 })
 
-/** Same customers, same window — deduped on the email send instead, so email runs independently of SMS (a
+/** Same tier, same repeating logic — deduped on the email clock instead, so email runs independently of SMS (a
  *  customer with no phone but an email still gets reached, and one already SMS'd still gets the email too). */
 export const emailCandidates = internalQuery({
-  args: { from: v.number(), to: v.number() },
-  handler: async (ctx, { from, to }) => {
+  args: { minDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { minDays, repeatDays }) => {
+    const now = Date.now()
     const rows = await ctx.db.query("customers").withIndex("by_created").collect()
     return rows
       .filter((c) => !c.deletedAt && c.orderCount === 1 && c.deliveredCount === 1 && c.returnedCount === 0 && c.cancelledCount === 0)
-      .filter((c) => c.lastOrderAt && c.lastOrderAt >= from && c.lastOrderAt <= to)
-      .filter((c) => !c.winbackEmailAt && c.email)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - minDays * DAY)
+      .filter((c) => c.email && (!c.winbackEmailAt || c.winbackEmailAt <= now - repeatDays * DAY))
+      .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
+      .slice(0, BATCH)
+  },
+})
+
+/** Tier 2 — proven repeat buyer (2+ orders, at least one actually delivered) who has since gone quiet: first
+ *  nudge `firstDays` after their last order, then re-nudged every `repeatDays` after the last tier-2 contact,
+ *  for as long as they keep not ordering. A new order (lastOrderAt moves forward) naturally resets the clock. */
+export const candidates2 = internalQuery({
+  args: { firstDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { firstDays, repeatDays }) => {
+    const now = Date.now()
+    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    return rows
+      .filter((c) => !c.deletedAt && c.orderCount >= 2 && c.deliveredCount >= 1)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - firstDays * DAY)
+      .filter((c) => c.phone && (!c.winBack2At || c.winBack2At <= now - repeatDays * DAY))
+      .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
+      .slice(0, BATCH)
+  },
+})
+
+export const email2Candidates = internalQuery({
+  args: { firstDays: v.number(), repeatDays: v.number() },
+  handler: async (ctx, { firstDays, repeatDays }) => {
+    const now = Date.now()
+    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    return rows
+      .filter((c) => !c.deletedAt && c.orderCount >= 2 && c.deliveredCount >= 1)
+      .filter((c) => c.lastOrderAt !== undefined && c.lastOrderAt <= now - firstDays * DAY)
+      .filter((c) => c.email && (!c.winbackEmail2At || c.winbackEmail2At <= now - repeatDays * DAY))
       .sort((a, b) => (a.lastOrderAt ?? 0) - (b.lastOrderAt ?? 0))
       .slice(0, BATCH)
   },
@@ -105,7 +161,7 @@ export const logSent = internalMutation({
 })
 
 /** Email counterpart to logSent — same "recent" feed (channel: "winback"), the address sits in `phone` per the
- *  existing convention, and winbackEmailAt (not winBackAt) is what's marked so this never resends. */
+ *  existing convention. */
 export const logSentEmail = internalMutation({
   args: { customerId: v.id("customers"), email: v.string(), text: v.string(), error: v.union(v.string(), v.null()) },
   handler: async (ctx, { customerId, email, text, error }) => {
@@ -114,9 +170,26 @@ export const logSentEmail = internalMutation({
   },
 })
 
+export const logSent2 = internalMutation({
+  args: { customerId: v.id("customers"), phone: v.string(), text: v.string(), error: v.union(v.string(), v.null()) },
+  handler: async (ctx, { customerId, phone, text, error }) => {
+    await ctx.db.insert("smsLogs", { phone, text, status: error ? "failed" : "sent", error: error ?? undefined, channel: "winback2", customerId, at: Date.now() })
+    await ctx.db.patch(customerId, { winBack2At: Date.now() })
+  },
+})
+
+export const logSentEmail2 = internalMutation({
+  args: { customerId: v.id("customers"), email: v.string(), text: v.string(), error: v.union(v.string(), v.null()) },
+  handler: async (ctx, { customerId, email, text, error }) => {
+    await ctx.db.insert("smsLogs", { phone: email, text, status: error ? "failed" : "sent", error: error ?? undefined, channel: "winback2", customerId, at: Date.now() })
+    await ctx.db.patch(customerId, { winbackEmail2At: Date.now() })
+  },
+})
+
 export const smsSettingsRaw = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "sms")) ?? null })
 
-/** Runs every hour; does nothing before START_AT, outside 1pm–8pm Dhaka, or while switched off. */
+/** Runs every hour; does nothing before START_AT, outside 1pm–8pm Dhaka, or while switched off. Tier 1: one-time
+ *  buyers, first message at conf.minDays and re-sent every REPEAT1_DAYS until they order again. */
 export const run = internalAction({
   args: {},
   handler: async (ctx) => {
@@ -128,11 +201,12 @@ export const run = internalAction({
     if (!c.enabled) return
     const sms = await ctx.runQuery(internal.winback.smsSettingsRaw, {})
     if (!sms?.enabled) return
-    await ctx.runMutation(internal.winback.ensureDiscount, { code: c.code })
-    const list = await ctx.runQuery(internal.winback.candidates, { from: now - c.maxDays * DAY, to: now - c.minDays * DAY })
+    const code = codeForMonth(c.code, now)
+    await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    const list = await ctx.runQuery(internal.winback.candidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code: c.code })
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
       const error = await sendSms(sms, cust.phone, text)
       await ctx.runMutation(internal.winback.logSent, { customerId: cust._id, phone: cust.phone, text, error })
       idx++
@@ -155,11 +229,63 @@ export const runEmail = internalAction({
     if (!c.enabled) return
     const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
     if (!email?.enabled) return
-    await ctx.runMutation(internal.winback.ensureDiscount, { code: c.code })
-    const list = await ctx.runQuery(internal.winback.emailCandidates, { from: now - c.maxDays * DAY, to: now - c.minDays * DAY })
+    const code = codeForMonth(c.code, now)
+    await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    const list = await ctx.runQuery(internal.winback.emailCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code: c.code })
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text })
+      idx++
+    }
+    if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "email", count: list.length })
+  },
+})
+
+/** Tier 2 — repeat buyer (2+ orders) who's gone quiet: first nudge TIER2_FIRST_DAYS after their last order, then
+ *  re-nudged every TIER2_REPEAT_DAYS. Same hours/switch/discount-mechanism as tier 1, just a separate clock. */
+export const run2 = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    if (now < START_AT) return
+    const bdHour = new Date(now + BD_OFFSET).getUTCHours()
+    if (bdHour < 13 || bdHour >= 20) return
+    const c = await ctx.runQuery(internal.winback.getConf, {})
+    if (!c.enabled) return
+    const sms = await ctx.runQuery(internal.winback.smsSettingsRaw, {})
+    if (!sms?.enabled) return
+    const code = codeForMonth(c.code, now)
+    await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    const list = await ctx.runQuery(internal.winback.candidates2, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
+    let idx = c.smsSendIndex ?? 0
+    for (const cust of list) {
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      const error = await sendSms(sms, cust.phone, text)
+      await ctx.runMutation(internal.winback.logSent2, { customerId: cust._id, phone: cust.phone, text, error })
+      idx++
+    }
+    if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "sms", count: list.length })
+  },
+})
+
+export const runEmail2 = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    if (now < START_AT) return
+    const bdHour = new Date(now + BD_OFFSET).getUTCHours()
+    if (bdHour < 13 || bdHour >= 20) return
+    const c = await ctx.runQuery(internal.winback.getConf, {})
+    if (!c.enabled) return
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    if (!email?.enabled) return
+    const code = codeForMonth(c.code, now)
+    await ctx.runMutation(internal.winback.ensureDiscount, { code })
+    const list = await ctx.runQuery(internal.winback.email2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
+    let idx = c.emailSendIndex ?? 0
+    for (const cust of list) {
+      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
       await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text })
       idx++
     }
@@ -181,16 +307,23 @@ export const bumpRotation = internalMutation({
   },
 })
 
+/** Every discount doc ever generated for this prefix (one per calendar month) — summed, since a customer nudged
+ *  in an earlier month who redeems late should still count, and the UI shows one running total, not per-month. */
+async function redeemedTotal(ctx: any, prefix: string) {
+  const all = await ctx.db.query("discounts").collect()
+  return all.filter((d: any) => d.code === prefix || d.code.startsWith(`${prefix}-`)).reduce((sum: number, d: any) => sum + (d.usedCount ?? 0), 0)
+}
+
 /** Real individual sends, for the Action Center's "what AI actually did" feed — any signed-in staff with
- *  dashboard access, not just settings.manage. This is the proof, not a summary of it. */
+ *  dashboard access, not just settings.manage. This is the proof, not a summary of it. Covers both tiers. */
 export const activity = query({
   args: {},
   handler: async (ctx) => {
     await requirePerm(ctx, "dashboard.view")
     const rows = await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(300)
-    const mine = rows.filter((r) => r.channel === "winback").slice(0, 15)
+    const mine = rows.filter((r) => r.channel === "winback" || r.channel === "winback2").slice(0, 15)
     return Promise.all(mine.map(async (r) => ({
-      _id: r._id, phone: r.phone, status: r.status, at: r.at, error: r.error,
+      _id: r._id, phone: r.phone, status: r.status, at: r.at, error: r.error, tier: r.channel === "winback2" ? 2 : 1,
       name: r.customerId ? ((await ctx.db.get(r.customerId))?.name ?? r.phone) : r.phone,
     })))
   },
@@ -201,34 +334,38 @@ export const liveStats = internalQuery({
   args: {},
   handler: async (ctx) => {
     const c = await conf(ctx)
-    const discount = await ctx.db.query("discounts").withIndex("by_code", (q) => q.eq("code", c.code)).first()
+    const redeemed = await redeemedTotal(ctx, c.code)
     const scan = await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(600)
-    const sentTotal = scan.filter((r) => r.channel === "winback" && r.status === "sent").length
-    return { enabled: c.enabled, startAt: START_AT, sentTotal, redeemed: discount?.usedCount ?? 0 }
+    const sentTotal = scan.filter((r) => (r.channel === "winback" || r.channel === "winback2") && r.status === "sent").length
+    return { enabled: c.enabled, startAt: START_AT, sentTotal, redeemed }
   },
 })
 
-/** Settings → Win-back: current setup, the discount's redemptions, and the last 30 messages sent. */
+/** Settings → Win-back: current setup, the discount's redemptions (across every month's code), and the last 30
+ *  messages sent across both tiers. */
 export const settings = query({
   args: {},
   handler: async (ctx) => {
     const s = await requirePerm(ctx, "settings.manage").catch(() => null)
     if (!s) return null
     const c = await conf(ctx)
-    const discount = await ctx.db.query("discounts").withIndex("by_code", (q) => q.eq("code", c.code)).first()
+    const redeemed = await redeemedTotal(ctx, c.code)
     const scan = await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(600)
-    const recent = scan.filter((r) => r.channel === "winback").slice(0, 30)
+    const recent = scan.filter((r) => r.channel === "winback" || r.channel === "winback2").slice(0, 30)
     const withNames = await Promise.all(recent.map(async (r) => ({
-      _id: r._id, at: r.at, phone: r.phone, status: r.status, error: r.error,
+      _id: r._id, at: r.at, phone: r.phone, status: r.status, error: r.error, tier: r.channel === "winback2" ? 2 : 1,
       name: r.customerId ? (await ctx.db.get(r.customerId))?.name ?? "—" : "—",
     })))
-    const sentTotal = scan.filter((r) => r.channel === "winback" && r.status === "sent").length
-    return { conf: c, startAt: START_AT, redeemed: discount?.usedCount ?? 0, sentTotal, recent: withNames }
+    const sentTotal = scan.filter((r) => (r.channel === "winback" || r.channel === "winback2") && r.status === "sent").length
+    return {
+      conf: c, startAt: START_AT, redeemed, sentTotal, recent: withNames,
+      currentCode: codeForMonth(c.code, Date.now()), repeat1Days: REPEAT1_DAYS, tier2FirstDays: TIER2_FIRST_DAYS, tier2RepeatDays: TIER2_REPEAT_DAYS,
+    }
   },
 })
 
 export const saveSettings = mutation({
-  args: { enabled: v.boolean(), code: v.string(), minDays: v.number(), maxDays: v.number(), templates: v.array(v.string()) },
+  args: { enabled: v.boolean(), code: v.string(), minDays: v.number(), templates: v.array(v.string()) },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
     const code = a.code.trim().toUpperCase()
@@ -237,19 +374,20 @@ export const saveSettings = mutation({
     if (templates.length === 0) throw new ConvexError("Add at least one message")
     for (const t of templates) if (!t.includes("{code}")) throw new ConvexError("Every message variant must include {code} so the customer sees the discount code")
     if (a.minDays < 3 || a.minDays > 60) throw new ConvexError("Use a 'send after' window between 3 and 60 days")
-    if (a.maxDays <= a.minDays || a.maxDays > 90) throw new ConvexError("The 'until' day must be after 'after' and at most 90")
-    // Merge onto the saved doc so the rotation counters (smsSendIndex/waSendIndex) survive an edit here.
+    // Merge onto the saved doc so the rotation counters (smsSendIndex/waSendIndex) and the legacy maxDays field
+    // (no longer used for filtering — tier 1 now repeats indefinitely until the customer orders again) survive an edit here.
     const saved = (await getSetting<any>(ctx, "winback")) ?? {}
-    await setSetting(ctx, "winback", { ...saved, enabled: a.enabled, code, minDays: Math.round(a.minDays), maxDays: Math.round(a.maxDays), templates })
-    if (a.enabled) await ctx.runMutation(internal.winback.ensureDiscount, { code })
-    // Rewrite any WhatsApp messages already sitting in the queue so they pick up the new wording/rotation right
-    // away. Without this, a backlog queued before this edit — or before variants existed at all — stays frozen
-    // with whatever single text it got at enqueue time, even though the pattern it was drawn from just changed.
+    await setSetting(ctx, "winback", { ...saved, enabled: a.enabled, code, minDays: Math.round(a.minDays), templates })
+    const monthCode = codeForMonth(code, Date.now())
+    if (a.enabled) await ctx.runMutation(internal.winback.ensureDiscount, { code: monthCode })
+    // Rewrite any WhatsApp messages already sitting in the queue (either tier) so they pick up the new
+    // wording/rotation/code right away. Without this, a backlog queued before this edit — or before variants
+    // existed at all — stays frozen with whatever single text it got at enqueue time.
     const pendingWinback = (await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).collect())
-      .filter((r) => r.source === "winback")
+      .filter((r) => r.source === "winback" || r.source === "winback2")
       .sort((x, y) => x.createdAt - y.createdAt)
     for (let i = 0; i < pendingWinback.length; i++) {
-      const text = fill(pickTemplate(templates, i), { name: pendingWinback[i].name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(templates, i), { name: pendingWinback[i].name.split(" ")[0] || "there", code: monthCode })
       await ctx.db.patch(pendingWinback[i]._id, { text })
     }
   },

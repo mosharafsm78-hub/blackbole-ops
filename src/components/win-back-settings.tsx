@@ -27,7 +27,7 @@ export function WinBackSettings() {
     // them itself). Convex rejects unknown fields on a mutation call, so sending `f` as-is always failed
     // silently here. Send only what the form actually edits.
     try {
-      await save({ enabled: f.enabled, code: f.code, minDays: f.minDays, maxDays: f.maxDays, templates: f.templates })
+      await save({ enabled: f.enabled, code: f.code, minDays: f.minDays, templates: f.templates })
       toast.success("Saved")
     } catch (e) { toast.error(errMsg(e)) }
   }
@@ -39,28 +39,30 @@ export function WinBackSettings() {
       <section className="rounded-lg border bg-card p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-semibold">Win-back — SMS & Email</h2>
-            <p className="text-sm text-muted-foreground">A customer who ordered once, got it delivered cleanly, and never came back gets one automatic SMS, and one automatic email if they gave an address — same offer, same window, no one has to send either.</p>
+            <h2 className="font-semibold">Win-back — SMS, Email & WhatsApp</h2>
+            <p className="text-sm text-muted-foreground">
+              Runs on its own, two tiers, three channels. <strong>One-time buyers</strong> who never came back get a nudge starting {f.minDays} days after delivery, repeated every {data.repeat1Days} days until they order again.{" "}
+              <strong>Repeat buyers</strong> (2+ orders) who've gone quiet get their own nudge starting {data.tier2FirstDays} days after their last order, repeated every {data.tier2RepeatDays} days. SMS and email send fully automatically; WhatsApp is drafted here and a teammate taps send on the WhatsApp page, to stay clear of WhatsApp's automation bans. The discount code refreshes every calendar month.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {f.enabled ? <Pill tone="green">On · automatic</Pill> : <Pill tone="gray">Off</Pill>}
             <Switch checked={f.enabled} onCheckedChange={(v) => setF((x: any) => ({ ...x, enabled: v }))} />
           </div>
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">{started ? "Running since" : "Starts"} {dateTime(data.startAt)}{!started && " (Asia/Dhaka) — nothing sends before then."}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{started ? "Running since" : "Starts"} {dateTime(data.startAt)}{!started && " (Asia/Dhaka) — nothing sends before then."} · This month's code: <span className="font-mono">{data.currentCode}</span></p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <Stat label="Messages sent" value={data.sentTotal} />
           <Stat label="Discount redeemed" value={data.redeemed} tone="text-tone-green" />
-          <Stat label="Window" value={`${f.minDays}–${f.maxDays} days after delivery`} />
+          <Stat label="Repeats every" value={`${data.repeat1Days}d (1st-time) / ${data.tier2RepeatDays}d (repeat buyers)`} />
         </div>
       </section>
 
       <section className="rounded-lg border bg-card p-5">
         <h2 className="mb-3 font-semibold">Offer & timing</h2>
-        <div className="grid max-w-2xl gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5"><Label>Discount code</Label><Input value={f.code} onChange={(e) => set("code", e.target.value.toUpperCase())} className="font-mono" /></div>
-          <div className="space-y-1.5"><Label>Send after (days)</Label><Input type="number" value={f.minDays} onChange={(e) => set("minDays", Number(e.target.value) || 0)} /></div>
-          <div className="space-y-1.5"><Label>…until (days)</Label><Input type="number" value={f.maxDays} onChange={(e) => set("maxDays", Number(e.target.value) || 0)} /></div>
+        <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label>Discount code prefix</Label><Input value={f.code} onChange={(e) => set("code", e.target.value.toUpperCase())} className="font-mono" /><p className="text-xs text-muted-foreground">A new code is generated from this prefix every month — e.g. "{f.code || "COMEBACK150"}-2611" in Nov 2026.</p></div>
+          <div className="space-y-1.5"><Label>First nudge after (days)</Label><Input type="number" value={f.minDays} onChange={(e) => set("minDays", Number(e.target.value) || 0)} /><p className="text-xs text-muted-foreground">One-time buyers only. Repeat buyers always start at {data.tier2FirstDays} days — not editable here.</p></div>
         </div>
         <div className="mt-3 max-w-2xl space-y-2">
           <Label>Message — rotates through these every 5 sends</Label>
@@ -90,6 +92,7 @@ export function WinBackSettings() {
               <div key={r._id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm">
                 <span className="font-medium">{r.name}</span>
                 <Pill tone="gray">{r.phone.includes("@") ? "Email" : "SMS"}</Pill>
+                {r.tier === 2 && <Pill tone="violet">Repeat buyer</Pill>}
                 <span className="font-mono text-xs text-muted-foreground">{r.phone}</span>
                 <span className="text-xs text-muted-foreground">{dateTime(r.at)}</span>
                 <span className={cn("ml-auto rounded-md px-1.5 py-0.5 text-[11px] font-semibold", r.status === "sent" ? "bg-tone-green-bg text-tone-green" : "bg-tone-red-bg text-tone-red")}>
