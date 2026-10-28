@@ -107,13 +107,14 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
 function AccountabilityBanner({ flag, canRespond }: { flag: { _id: Id<"opsFlags">; reason: string; team: string; note?: string; raisedAt: number }; canRespond: boolean }) {
   const respond = useMutation(api.accountability.respond)
   const [open, setOpen] = useState(false)
-  const [response, setResponse] = useState("")
+  const [rootCause, setRootCause] = useState("")
+  const [correctiveAction, setCorrectiveAction] = useState("")
+  const [preventiveAction, setPreventiveAction] = useState("")
   const [busy, setBusy] = useState(false)
   const submit = async () => {
-    if (!response.trim()) { toast.error("Write what was done about it before closing this out."); return }
     setBusy(true)
     try {
-      await respond({ id: flag._id, response: response.trim() })
+      await respond({ id: flag._id, rootCause: rootCause.trim(), correctiveAction: correctiveAction.trim(), preventiveAction: preventiveAction.trim() })
       toast.success("Closed out")
       setOpen(false)
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
@@ -135,7 +136,18 @@ function AccountabilityBanner({ flag, canRespond }: { flag: { _id: Id<"opsFlags"
       </div>
       {open && canRespond && (
         <div className="mt-2 space-y-2">
-          <Textarea value={response} onChange={(e) => setResponse(e.target.value)} placeholder="What was actually done about it — re-checked the pick list, retrained the packer, etc." className="bg-background text-foreground" />
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide opacity-80">Root cause — what actually went wrong</label>
+            <Textarea value={rootCause} onChange={(e) => setRootCause(e.target.value)} placeholder="The real reason, not an excuse." className="bg-background text-foreground" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide opacity-80">Corrective action — what was done about this case</label>
+            <Textarea value={correctiveAction} onChange={(e) => setCorrectiveAction(e.target.value)} placeholder="What was actually done — refund, re-pick, etc." className="bg-background text-foreground" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide opacity-80">Preventive action — what stops this happening again</label>
+            <Textarea value={preventiveAction} onChange={(e) => setPreventiveAction(e.target.value)} placeholder="A concrete process change, not a promise." className="bg-background text-foreground" />
+          </div>
           <Button size="sm" disabled={busy} onClick={() => void submit()}>Close out</Button>
         </div>
       )}
