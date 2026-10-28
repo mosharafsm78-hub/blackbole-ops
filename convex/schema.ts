@@ -812,7 +812,10 @@ export default defineSchema({
     status: v.string(), // "open" | "resolved"
     raisedByName: v.string(),
     raisedAt: v.number(),
-    response: v.optional(v.string()),
+    response: v.optional(v.string()), // composed, readable version of rootCause/correctiveAction/preventiveAction below — what shows in the list and what gets emailed/logged
+    rootCause: v.optional(v.string()), // CAPA: what actually went wrong (the real reason, not an excuse)
+    correctiveAction: v.optional(v.string()), // CAPA: what was done about this specific case
+    preventiveAction: v.optional(v.string()), // CAPA: the concrete process change that stops it happening again
     resolvedByName: v.optional(v.string()),
     resolvedAt: v.optional(v.number()),
     assignee: v.optional(v.string()), // named owner this was routed to at the time (Settings → Accountability), for display even if the setting later changes

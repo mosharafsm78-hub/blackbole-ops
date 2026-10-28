@@ -27,16 +27,20 @@ function daysOpen(raisedAt: number) {
   return Math.floor((Date.now() - raisedAt) / 86400000)
 }
 
+/** CAPA — Corrective & Preventive Action, the standard industry format for closing out an accountability item.
+ *  Three required fields, not one free-text box, so a response is a real answer the team is held to, not a
+ *  one-line excuse. */
 function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
   const respond = useMutation(api.accountability.respond)
   const [open, setOpen] = useState(false)
-  const [response, setResponse] = useState("")
+  const [rootCause, setRootCause] = useState("")
+  const [correctiveAction, setCorrectiveAction] = useState("")
+  const [preventiveAction, setPreventiveAction] = useState("")
   const [busy, setBusy] = useState(false)
   const submit = async () => {
-    if (!response.trim()) { toast.error("Write what was done about it before closing this out."); return }
     setBusy(true)
     try {
-      await respond({ id: flag._id, response: response.trim() })
+      await respond({ id: flag._id, rootCause: rootCause.trim(), correctiveAction: correctiveAction.trim(), preventiveAction: preventiveAction.trim() })
       toast.success("Closed out")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
@@ -68,8 +72,19 @@ function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
         )}
       </div>
       {open && canRespond && (
-        <div className="mt-3 space-y-2 border-t pt-3">
-          <Textarea value={response} onChange={(e) => setResponse(e.target.value)} placeholder="What was actually done about it — re-checked the pick list, retrained the packer, etc." />
+        <div className="mt-3 space-y-3 border-t pt-3">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Root cause — what actually went wrong</label>
+            <Textarea value={rootCause} onChange={(e) => setRootCause(e.target.value)} placeholder="The real reason, not an excuse — e.g. the picker read the order list off an old printout instead of the screen." />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Corrective action — what was done about this case</label>
+            <Textarea value={correctiveAction} onChange={(e) => setCorrectiveAction(e.target.value)} placeholder="What was actually done — e.g. customer refunded/exchanged, item re-picked and verified." />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preventive action — what stops this happening again</label>
+            <Textarea value={preventiveAction} onChange={(e) => setPreventiveAction(e.target.value)} placeholder="A concrete process change, not a promise — e.g. pickers now scan the SKU barcode before sealing every parcel." />
+          </div>
           <Button size="sm" disabled={busy} onClick={() => void submit()}>Close out</Button>
         </div>
       )}

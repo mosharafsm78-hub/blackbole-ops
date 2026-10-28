@@ -113,18 +113,25 @@ export const listOpen = query({
   },
 })
 
-/** A department closes its own flag with a real response — required, so the record actually says what was
- *  done about it, not just that someone clicked a button. */
+const MIN_CAPA_CHARS = 15
+
+/** A department closes its own flag with a CAPA answer (Corrective & Preventive Action — the standard format
+ *  for this across manufacturing and retail ops): what actually went wrong, what was done about this case, and
+ *  what concretely changes so it doesn't happen again. All three are required and checked for real substance
+ *  (not "fixed it" or "ok") — this is the record of whether the team actually improved, not just closed a ticket. */
 export const respond = mutation({
-  args: { id: v.id("opsFlags"), response: v.string() },
+  args: { id: v.id("opsFlags"), rootCause: v.string(), correctiveAction: v.string(), preventiveAction: v.string() },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.accountability")
     const flag = await ctx.db.get(a.id)
     if (!flag) throw new ConvexError("Flag not found")
     if (flag.status !== "open") throw new ConvexError("Already resolved")
-    const response = a.response.trim()
-    if (!response) throw new ConvexError("Write what was done about it before closing this out.")
-    await ctx.db.patch(a.id, { status: "resolved", response, resolvedByName: me.staff.name, resolvedAt: Date.now() })
+    const rootCause = a.rootCause.trim(), correctiveAction = a.correctiveAction.trim(), preventiveAction = a.preventiveAction.trim()
+    if (rootCause.length < MIN_CAPA_CHARS) throw new ConvexError("Write what actually went wrong — a real reason, not a one-liner.")
+    if (correctiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write what was actually done about this specific case.")
+    if (preventiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write the concrete change that stops this happening again — not a promise, an action.")
+    const response = `Root cause: ${rootCause}\nFix: ${correctiveAction}\nPrevention: ${preventiveAction}`
+    await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now() })
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability resolved by ${flag.team}: ${response}`, me.staff.name)
   },
 })
