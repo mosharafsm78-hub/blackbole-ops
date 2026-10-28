@@ -234,6 +234,7 @@ export const run = internalAction({
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
+    await ctx.runMutation(internal.winback.refreshPendingQueueText, { templates: c.templates, code })
     const list = await ctx.runQuery(internal.winback.candidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
@@ -290,6 +291,7 @@ export const run2 = internalAction({
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
+    await ctx.runMutation(internal.winback.refreshPendingQueueText, { templates: c.templates, code })
     const list = await ctx.runQuery(internal.winback.candidates2, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
@@ -398,6 +400,26 @@ export const settings = query({
   },
 })
 
+/** Rewrite any WhatsApp messages already sitting in the queue (either tier) so they pick up the current
+ *  wording/rotation/code. Without this, a backlog queued before a settings edit — or before the monthly-code
+ *  rollover, or from before per-month codes existed at all — stays frozen with whatever stale text it got at
+ *  enqueue time (which is exactly what happened the day this feature launched: a backlog drafted with a flat,
+ *  no-longer-valid code sat untouched until someone tapped "send" on it, hours after the code had moved on).
+ *  Called from every SMS cron tick (cheap — a no-op once the queue is already current) as well as from
+ *  saveSettings, so this heals itself automatically and doesn't depend on anyone remembering to hit Save. */
+export const refreshPendingQueueText = internalMutation({
+  args: { templates: v.array(v.string()), code: v.string() },
+  handler: async (ctx, { templates, code }) => {
+    const pendingWinback = (await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).collect())
+      .filter((r) => r.source === "winback" || r.source === "winback2")
+      .sort((x, y) => x.createdAt - y.createdAt)
+    for (let i = 0; i < pendingWinback.length; i++) {
+      const text = fill(pickTemplate(templates, i), { name: pendingWinback[i].name.split(" ")[0] || "there", code })
+      if (text !== pendingWinback[i].text) await ctx.db.patch(pendingWinback[i]._id, { text })
+    }
+  },
+})
+
 export const saveSettings = mutation({
   args: { enabled: v.boolean(), code: v.string(), minDays: v.number(), templates: v.array(v.string()) },
   handler: async (ctx, a) => {
@@ -417,15 +439,6 @@ export const saveSettings = mutation({
       await ctx.runMutation(internal.winback.ensureDiscount, { code: monthCode })
       await ctx.scheduler.runAfter(0, internal.winback.ensureShopifyDiscount, { code: monthCode })
     }
-    // Rewrite any WhatsApp messages already sitting in the queue (either tier) so they pick up the new
-    // wording/rotation/code right away. Without this, a backlog queued before this edit — or before variants
-    // existed at all — stays frozen with whatever single text it got at enqueue time.
-    const pendingWinback = (await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).collect())
-      .filter((r) => r.source === "winback" || r.source === "winback2")
-      .sort((x, y) => x.createdAt - y.createdAt)
-    for (let i = 0; i < pendingWinback.length; i++) {
-      const text = fill(pickTemplate(templates, i), { name: pendingWinback[i].name.split(" ")[0] || "there", code: monthCode })
-      await ctx.db.patch(pendingWinback[i]._id, { text })
-    }
+    await ctx.runMutation(internal.winback.refreshPendingQueueText, { templates, code: monthCode })
   },
 })
