@@ -567,7 +567,15 @@ export const createProductWithSizes = mutation({
       if (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()) throw new ConvexError(`SKU ${sku} already exists`)
     }
     const now = Date.now()
-    let product = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", a.name.trim())).take(10)).find((p) => p.name === a.name.trim())
+    // The same product again (same name, any capitals/spacing) is never created a second time: its stock would never meet the
+    // first one's (e.g. test pairs would never be replaced by the real pairs). New sizes on it are fine; a size it already has is not.
+    const norm = (t: string) => t.trim().replace(/\s+/g, " ").toLowerCase()
+    let product = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", a.name.trim())).take(20)).find((p) => !p.deletedAt && norm(p.name) === norm(a.name))
+    if (product) {
+      const have = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", product!._id)).collect()).filter((x) => x.active)
+      const dup = a.variants.map((x) => x.title.trim()).filter((t) => have.some((h) => norm(h.title) === norm(t)))
+      if (dup.length) throw new ConvexError(`"${product.name}" already exists with size ${dup.join(", ")}. Don't create it again: pick the existing product and its sizes in the list, so the stock lands on the same product.`)
+    }
     const productId = product?._id ?? (await ctx.db.insert("products", { name: a.name.trim(), category: a.category, imageUrl: a.imageUrl, active: true, createdAt: now }))
     const out: { variantId: Id<"variants">; sku: string; title: string }[] = []
     for (let i = 0; i < a.variants.length; i++) {

@@ -129,3 +129,35 @@ describe("delete purchase", () => {
     expect(st.purchased).toBe(0)
   })
 })
+
+describe("fake (test) pairs and the real purchase", () => {
+  const webVariant = (sku: string, size: string, testQty?: number) => ({ sku, title: size, options: { Size: size }, price: 1500, fullPrice: 1500, compareAt: null, cost: 700, weightKg: 0.5, ...(testQty ? { testQty } : {}) })
+
+  it("5 fake pairs, then 10 real received on the purchase: 10 in stock, none fake (never 15)", async () => {
+    const { t, as, locationId, supplierId } = await setup()
+    const productId = await as.mutation(api.website.createProduct, {
+      title: "Cloud Test", handle: "", html: "", vendor: "BlackBole", type: "Sneakers", tags: [], seo: { title: "", description: "" }, options: ["Size"], images: [], mf: {},
+      published: true, preOrder: false, preOrderFrom: "china", collections: [], variants: [webVariant("CT-41", "41", 5)],
+    })
+    const variantId = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).first()))!._id
+    expect(await stockOf(t, variantId)).toMatchObject({ available: 5, virtual: 5 })
+    // the real purchase uses the SAME product / size
+    const id = await as.mutation(api.purchasing.savePO, {
+      supplierId, locationId, lines: [{ variantId, orderedQty: 10, unitCost: 500 }], discount: 0, shippingCost: 0, otherCost: 0, status: "ordered", supplierRef: "PI-9", invoiceFile: await fakeFile(t),
+    })
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "keep", lines: [{ variantId, qty: 10, damaged: 0 }] })
+    expect(await stockOf(t, variantId)).toMatchObject({ available: 10, virtual: 0 })
+  })
+
+  it("creating the same product again in a purchase is refused; new sizes on it are fine", async () => {
+    const { as } = await setup()
+    await expect(as.mutation(api.purchasing.createProductWithSizes, {
+      name: "  blackbole harbor shore sandal for men - black ", price: 1480, purchasePrice: 0, weightKg: 0.4, attrLabel: "Size", variants: [{ title: "41", sku: "OTHER-41" }],
+    })).rejects.toThrow(/already exists with size 41/)
+    const more = await as.mutation(api.purchasing.createProductWithSizes, {
+      name: "BlackBole Harbor Shore Sandal For Men - Black", price: 1480, purchasePrice: 0, weightKg: 0.4, attrLabel: "Size", variants: [{ title: "43", sku: "BB-SH-HSS-BLACK-43" }],
+    })
+    expect(more.variants).toHaveLength(1)
+  })
+})
+
