@@ -58,6 +58,7 @@ import { Route as AppWebsiteThemeEditorRouteImport } from './routes/_app/website
 import { Route as AppWebsiteThemesRouteImport } from './routes/_app/website-themes'
 import { Route as AppWhatsappRouteImport } from './routes/_app/whatsapp'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
+import { Route as AppProductsIndexRouteImport } from './routes/_app/products.index'
 import { Route as AppProductsProductIdRouteImport } from './routes/_app/products.$productId'
 
 const AppRoute = AppRouteImport.update({
@@ -304,6 +305,11 @@ const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   path: '/api/pathao-proxy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppProductsIndexRoute = AppProductsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppProductsRoute,
+} as any)
 const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
   id: '/$productId',
   path: '/$productId',
@@ -360,6 +366,7 @@ export interface FileRoutesByFullPath {
   '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/products/$productId': typeof AppProductsProductIdRoute
+  '/products/': typeof AppProductsIndexRoute
 }
 export interface FileRoutesByTo {
   '/labels': typeof LabelsRoute
@@ -377,7 +384,6 @@ export interface FileRoutesByTo {
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
-  '/products': typeof AppProductsRouteWithChildren
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
@@ -411,6 +417,7 @@ export interface FileRoutesByTo {
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
   '/products/$productId': typeof AppProductsProductIdRoute
+  '/products': typeof AppProductsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -464,6 +471,7 @@ export interface FileRoutesById {
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
   '/_app/products/$productId': typeof AppProductsProductIdRoute
+  '/_app/products/': typeof AppProductsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -517,6 +525,7 @@ export interface FileRouteTypes {
     | '/whatsapp'
     | '/api/pathao-proxy'
     | '/products/$productId'
+    | '/products/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/labels'
@@ -534,7 +543,6 @@ export interface FileRouteTypes {
     | '/new-order'
     | '/order'
     | '/orders'
-    | '/products'
     | '/purchase'
     | '/purchases'
     | '/reports'
@@ -568,6 +576,7 @@ export interface FileRouteTypes {
     | '/api/pathao-proxy'
     | '/'
     | '/products/$productId'
+    | '/products'
   id:
     | '__root__'
     | '/_app'
@@ -620,6 +629,7 @@ export interface FileRouteTypes {
     | '/api/pathao-proxy'
     | '/_app/'
     | '/_app/products/$productId'
+    | '/_app/products/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -974,6 +984,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPathaoProxyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/products/': {
+      id: '/_app/products/'
+      path: '/'
+      fullPath: '/products/'
+      preLoaderRoute: typeof AppProductsIndexRouteImport
+      parentRoute: typeof AppProductsRoute
+    }
     '/_app/products/$productId': {
       id: '/_app/products/$productId'
       path: '/$productId'
@@ -986,10 +1003,12 @@ declare module '@tanstack/react-router' {
 
 interface AppProductsRouteChildren {
   AppProductsProductIdRoute: typeof AppProductsProductIdRoute
+  AppProductsIndexRoute: typeof AppProductsIndexRoute
 }
 
 const AppProductsRouteChildren: AppProductsRouteChildren = {
   AppProductsProductIdRoute: AppProductsProductIdRoute,
+  AppProductsIndexRoute: AppProductsIndexRoute,
 }
 
 const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(

@@ -160,6 +160,16 @@ function OrderPage() {
   const router = useRouter()
   const can = useCan()
   const data = useQuery(api.orders.get, id ? { id: id as Id<"orders"> } : "skip")
+  // One batched lookup for every line item on this order: resolves productId -> variantId -> SKU so the
+  // Product Name / SKU links always land on the specific /products/$productId page, never the catalog list.
+  const linkItems = data && !data.missing
+    ? data.order.items.map((i) => ({
+        productId: (i as { productId?: string }).productId,
+        variantId: i.variantId as string | undefined,
+        sku: i.sku,
+      }))
+    : []
+  const links = useQuery(api.catalog.resolveProductLinks, linkItems.length ? { items: linkItems } : "skip")
   const addNote = useMutation(api.orders.addNote)
   const retryBook = useAction(api.pathao.retryBook)
   const cancelParcel = useAction(api.pathao.cancelParcel)
@@ -345,20 +355,35 @@ function OrderPage() {
                 <div key={k} className="flex items-center gap-3 py-3 first:pt-0">
                   {i.imageUrl ? <img src={i.imageUrl} alt="" className="size-14 shrink-0 rounded-lg border object-cover" /> : <div className="size-14 shrink-0 rounded-lg bg-muted" />}
                   <div className="min-w-0 flex-1">
-                    {i.variantId ? (
-                      <Link to="/products/$productId" params={{ productId: i.variantId }} className="font-medium leading-snug hover:text-tone-blue hover:underline underline-offset-2">{i.name}</Link>
-                    ) : (
-                      <div className="font-medium leading-snug">{i.name}</div>
-                    )}
+                    {(() => {
+                      const l = links?.[k]
+                      return l?.id ? (
+                        <Link
+                          to="/products/$productId"
+                          params={{ productId: l.id }}
+                          search={l.via === "variantId" && i.variantId ? { variant: i.variantId as string } : {}}
+                          className="font-medium leading-snug hover:text-tone-blue hover:underline underline-offset-2"
+                        >{i.name}</Link>
+                      ) : (
+                        <div className="font-medium leading-snug">{i.name}</div>
+                      )
+                    })()}
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       {i.attrs && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{i.attrs}</span>}
-                      {i.variantId ? (
-                        <Link to="/products/$productId" params={{ productId: i.variantId }} className="font-mono hover:text-tone-blue hover:underline underline-offset-2">{i.sku}</Link>
+                      {links?.[k]?.id ? (
+                        <Link
+                          to="/products/$productId"
+                          params={{ productId: links[k]!.id }}
+                          search={links[k]!.via === "variantId" && i.variantId ? { variant: i.variantId as string } : {}}
+                          className="font-mono hover:text-tone-blue hover:underline underline-offset-2"
+                        >{i.sku}</Link>
                       ) : (
                         <span className="font-mono">{i.sku}</span>
                       )}
                     </div>
-                    {!i.variantId && <div className="mt-0.5 text-xs text-tone-red">Not linked to a product — stock not tracked</div>}
+                    {links && !links[k] && (
+                      <div className="mt-0.5 text-xs text-tone-red">Not linked to a product — stock not tracked</div>
+                    )}
                   </div>
                   <div className="text-right text-sm tabular-nums">
                     <div className="text-muted-foreground">{taka(i.price)} × {i.qty}</div>

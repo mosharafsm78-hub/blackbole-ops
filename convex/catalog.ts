@@ -327,21 +327,16 @@ export const stockLogs = query({
 
 /** Internal product page (Nuport-style): one product with its size variants, live stock per size, and the
  *  bulleted features. Read-only. Powers the Order View line-item link so a CX agent can check stock and
- *  product details without leaving Ops. Additive — reads existing tables only, changes nothing. */
+ *  product details without leaving Ops. Additive — reads existing tables only, changes nothing.
+ *
+ *  Accepts any of: a product id, a variant id, or an SKU. Older order line items often carry only a SKU
+ *  (no variantId), so the SKU path keeps those links working instead of falling back to the catalog. */
 export const productDetail = query({
   args: { id: v.string() },
   handler: async (ctx, { id }) => {
     const s = await currentStaff(ctx)
     if (!s) return null
-    // The link may carry a product id or a variant id — resolve to the product either way.
-    // A malformed id makes db.get throw, so guard each lookup.
-    let product: Doc<"products"> | null = null
-    try { product = await ctx.db.get(id as Id<"products">) } catch { product = null }
-    if (!product) {
-      let vr: Doc<"variants"> | null = null
-      try { vr = await ctx.db.get(id as Id<"variants">) } catch { vr = null }
-      if (vr) product = await ctx.db.get(vr.productId)
-    }
+    const product = await findProduct(ctx, id)
     if (!product) return null
     const productId = product._id
     const variants = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
@@ -377,6 +372,76 @@ export const productDetail = query({
           warehouses: (byVariant.get(vr._id) ?? []).sort((a, b) => a.locationName.localeCompare(b.locationName)),
         })),
     }
+  },
+})
+
+/** Resolve a free-form string to a product: product id first, then variant id, then SKU.
+ *
+ *  A cast id is not a table check — Convex can hand back a document from ANY table for a given id, so each
+ *  result is validated by SHAPE (a product has `name`; a variant has `productId`) instead of trusting the
+ *  generic. Without this, a variant id resolved "successfully" to a variant row and the page rendered a
+ *  nameless product. A malformed id makes db.get throw, so each lookup is guarded. */
+async function findProduct(ctx: any, id: string): Promise<Doc<"products"> | null> {
+  const raw = (id ?? "").trim()
+  if (!raw) return null
+  const isProduct = (d: any): Doc<"products"> | null =>
+    d && typeof d.name === "string" && d.productId === undefined ? d : null
+  const isVariant = (d: any): Doc<"variants"> | null =>
+    d && d.productId !== undefined && typeof d.sku === "string" ? d : null
+
+  let doc: any = null
+  try { doc = await ctx.db.get(raw as any) } catch { doc = null }
+  const direct = isProduct(doc)
+  if (direct) return direct
+  const vr = isVariant(doc)
+  if (vr) {
+    const owner: Doc<"products"> | null = await ctx.db.get(vr.productId)
+    return isProduct(owner)
+  }
+  // Older line items only carry the SKU — look the variant up by SKU and hop to its product.
+  const bySku = await ctx.db.query("variants").withIndex("by_sku", (q: any) => q.eq("sku", raw)).first()
+  if (bySku) {
+    const owner: Doc<"products"> | null = await ctx.db.get(bySku.productId)
+    return isProduct(owner)
+  }
+  return null
+}
+
+/** Link target for an order line item. Resolves in priority order — explicit productId, then the line's
+ *  variantId, then the SKU — and returns both the id to put in `/products/$productId` and which rule won,
+ *  so the UI can open the exact size and tests can prove the fallback. One batched call per Order View,
+ *  never one per row. Read-only. */
+export const resolveProductLinks = query({
+  args: {
+    items: v.array(v.object({
+      productId: v.optional(v.string()),
+      variantId: v.optional(v.string()),
+      sku: v.optional(v.string()),
+    })),
+  },
+  handler: async (ctx, { items }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return items.map(() => null)
+    // Batch the lookups once for the whole page instead of once per line item.
+    const products = new Map<string, Doc<"products">>()
+    for (const p of await ctx.db.query("products").collect()) products.set(p._id as string, p)
+    const variants = new Map<string, Doc<"variants">>()
+    for (const vr of await ctx.db.query("variants").collect()) variants.set(vr._id as string, vr)
+    const bySku = new Map<string, Doc<"variants">>()
+    for (const vr of variants.values()) bySku.set(vr.sku.trim().toLowerCase(), vr)
+
+    return items.map((item) => {
+      const pid = item.productId?.trim()
+      if (pid && products.has(pid)) return { id: pid, via: "productId" as const }
+      const vid = item.variantId?.trim()
+      if (vid && variants.has(vid)) return { id: vid, via: "variantId" as const }
+      const sku = item.sku?.trim().toLowerCase()
+      if (sku) {
+        const vr = bySku.get(sku)
+        if (vr) return { id: vr._id as string, via: "sku" as const }
+      }
+      return null
+    })
   },
 })
 

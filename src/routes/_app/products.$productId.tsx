@@ -13,6 +13,9 @@ import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/products/$productId")({
+  // Optional ?variant=<variantId> so a link from an order line item opens straight on that size.
+  // Returning {} when absent keeps `search` optional on every <Link> to this route.
+  validateSearch: (s: Record<string, unknown>): { variant?: string } => (s.variant ? { variant: String(s.variant) } : {}),
   component: () => (
     <Guard perm="orders.view">
       <ProductDetailPage />
@@ -22,16 +25,19 @@ export const Route = createFileRoute("/_app/products/$productId")({
 
 function ProductDetailPage() {
   const { productId } = useParams({ from: "/_app/products/$productId" })
+  const { variant } = Route.useSearch()
   const can = useCan()
   const product = useQuery(api.catalog.productDetail, { id: productId })
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Keep a valid size tab selected as variants load / change.
+  // Keep a valid size tab selected as variants load / change. Prefer the ?variant= passed in by the
+  // calling page (an order line item knows the exact size), else the first size.
   useEffect(() => {
     if (!product) return
     if (activeId && product.variants.some((v) => v._id === activeId)) return
+    if (variant && product.variants.some((v) => v._id === variant)) { setActiveId(variant); return }
     setActiveId(product.variants[0]?._id ?? null)
-  }, [product, activeId])
+  }, [product, activeId, variant])
 
   if (product === undefined) return <Loading />
   if (product === null) {
