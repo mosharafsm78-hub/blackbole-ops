@@ -255,3 +255,64 @@ export function marketingPlan(args: {
 /** Is the month's delivered revenue at least its straight-line share of the target by `dayOfMonth`? */
 export const onPace = (args: { target: number; delivered: number; dayOfMonth: number; days: number }) =>
   args.delivered >= (args.target * args.dayOfMonth) / args.days
+
+// ------------------------------------------------------------------------------------------------ profit
+
+export type MonthlyCosts = { salary: number; rent: number; other: number }
+export const fixedTotal = (c: MonthlyCosts) => Math.max(0, c.salary) + Math.max(0, c.rent) + Math.max(0, c.other)
+
+/** Revenue-weighted gross margin (0–1) of the planned mix: Σ units×(price−cost) ÷ Σ units×price. Products with
+ *  no known purchase price are left out of both sides, so they neither help nor hurt the figure. Null if none. */
+export function mixMargin(lines: { units: number; price: number; cost: number | null }[]): number | null {
+  let rev = 0, gp = 0
+  for (const l of lines) {
+    if (l.cost === null || l.units <= 0 || l.price <= 0) continue
+    rev += l.units * l.price
+    gp += l.units * (l.price - l.cost)
+  }
+  return rev > 0 ? gp / rev : null
+}
+
+export type ProfitPlan = {
+  /** Share of revenue left after the shoes' purchase cost (planned product mix). */
+  grossMargin: number
+  /** Ad spend per taka of revenue at the 30-day efficiency (1 ÷ MER). */
+  adRate: number
+  /** What each taka of revenue contributes toward fixed costs: gross margin − ad rate. */
+  contribution: number
+  fixed: number
+  /** Monthly revenue at which profit is zero; null when ads eat the whole margin (never breaks even). */
+  breakEven: number | null
+  /** Profit at the month's target, after shoe cost, the ad budget and fixed costs. */
+  profitAtTarget: number
+  /** Profit so far this month: delivered × margin − ad spend − fixed costs for the days gone. */
+  profitMtd: number
+  /** Target as a multiple of break-even (>1 means the target makes money). */
+  coverage: number | null
+}
+
+export function profitPlan(args: {
+  target: number
+  grossMargin: number
+  mer: number
+  costs: MonthlyCosts
+  deliveredMtd: number
+  spentMtd: number
+  dayOfMonth: number
+  days: number
+}): ProfitPlan {
+  const fixed = fixedTotal(args.costs)
+  const adRate = 1 / args.mer
+  const contribution = args.grossMargin - adRate
+  const breakEven = contribution > 0 ? Math.ceil(fixed / contribution) : null
+  return {
+    grossMargin: Math.round(args.grossMargin * 1000) / 1000,
+    adRate: Math.round(adRate * 1000) / 1000,
+    contribution: Math.round(contribution * 1000) / 1000,
+    fixed,
+    breakEven,
+    profitAtTarget: Math.round(args.target * contribution - fixed),
+    profitMtd: Math.round(args.deliveredMtd * args.grossMargin - args.spentMtd - (fixed * args.dayOfMonth) / args.days),
+    coverage: breakEven ? Math.round((args.target / breakEven) * 100) / 100 : null,
+  }
+}

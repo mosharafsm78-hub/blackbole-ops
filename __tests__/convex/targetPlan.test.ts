@@ -210,3 +210,39 @@ describe("pace and sales history", () => {
     expect(prevMonthKey("2026-11")).toBe("2026-10")
   })
 })
+
+import { fixedTotal, mixMargin, profitPlan } from "../../convex/targetPlan"
+
+describe("profit: margin, break-even and profit at target", () => {
+  const costs = { salary: 127000, rent: 42000, other: 40000 }
+
+  it("adds the fixed costs", () => {
+    expect(fixedTotal(costs)).toBe(209000)
+  })
+
+  it("weights margin by revenue and ignores products with no known cost", () => {
+    // A: 10 × 1000 at cost 400 (60%), B: 10 × 2000 at cost 1400 (30%) → (6000+6000)/(10000+20000) = 40%
+    expect(mixMargin([{ units: 10, price: 1000, cost: 400 }, { units: 10, price: 2000, cost: 1400 }, { units: 99, price: 500, cost: null }])).toBeCloseTo(0.4, 5)
+    expect(mixMargin([{ units: 5, price: 1000, cost: null }])).toBeNull()
+  })
+
+  it("break-even = fixed ÷ (margin − ad spend per taka); profit at target follows", () => {
+    // margin 55%, MER 4 → ads 25% of revenue → 30% contributes → 209,000 / 0.30 = 696,667
+    const p = profitPlan({ target: 1200000, grossMargin: 0.55, mer: 4, costs, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(p.contribution).toBeCloseTo(0.3, 5)
+    expect(p.breakEven).toBe(696667)
+    expect(p.profitAtTarget).toBe(Math.round(1200000 * 0.3 - 209000)) // 151,000
+    expect(p.coverage).toBeCloseTo(1.72, 2)
+  })
+
+  it("never breaks even when ads eat the whole margin", () => {
+    const p = profitPlan({ target: 1200000, grossMargin: 0.3, mer: 3, costs, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(p.breakEven).toBeNull()
+    expect(p.profitAtTarget).toBeLessThan(0)
+  })
+
+  it("profit so far counts fixed costs only for the days gone", () => {
+    const p = profitPlan({ target: 1200000, grossMargin: 0.5, mer: 4, costs, deliveredMtd: 400000, spentMtd: 90000, dayOfMonth: 10, days: 30 })
+    expect(p.profitMtd).toBe(Math.round(400000 * 0.5 - 90000 - (209000 * 10) / 30)) // 40,333
+  })
+})

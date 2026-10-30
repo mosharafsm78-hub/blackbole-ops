@@ -75,6 +75,7 @@ export function RevenueTargetCard() {
         <Fig label="Each day after today" value={p.perDayFromTomorrow > 0 ? taka(p.perDayFromTomorrow) : "—"} sub={p.perDayFromTomorrow > 0 ? "needed to land the month" : beaten ? "nothing more needed" : "no days left"} />
       </div>
 
+      {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
       {data.marketing && <MarketingStrip m={data.marketing} />}
       <ProductPlan data={data} />
 
@@ -214,6 +215,26 @@ function ProductPlan({ data }: { data: TargetProgress }) {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+/** Will this target make money? Shoe cost, the ad budget and the fixed costs, against the target. Managers only. */
+function ProfitStrip({ p, target }: { p: NonNullable<TargetProgress["profit"]>; target: number }) {
+  const makes = p.profitAtTarget >= 0
+  return (
+    <div className={cn("mt-4 rounded-lg border p-3", !makes && "border-tone-red/30 bg-tone-red-bg/30")} data-testid="target-profit">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold">Profit</h3>
+        <Pill tone={makes ? "green" : "red"}>{makes ? `Target makes ${taka(p.profitAtTarget)}` : `Target loses ${taka(-p.profitAtTarget)}`}</Pill>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Fig label="Break-even revenue" value={p.breakEven === null ? "never" : taka(p.breakEven)} sub={p.breakEven === null ? "ads eat the whole margin" : `${taka(p.fixed)} fixed costs a month`} />
+        <Fig label="Profit at target" value={taka(p.profitAtTarget)} sub={`on ${taka(target)} delivered`} tone={makes ? "green" : undefined} />
+        <Fig label="Profit so far" value={taka(p.profitMtd)} sub="after costs for the days gone" tone={p.profitMtd >= 0 ? "green" : undefined} />
+        <Fig label="Each ৳100 earns" value={`৳${Math.round(p.contribution * 100)}`} sub={`${Math.round(p.grossMargin * 100)}% margin − ${Math.round(p.adRate * 100)}% ads`} />
+      </div>
+      {!makes && p.breakEven !== null && <p className="mt-2 text-xs">Raise the target to at least <b>{taka(p.breakEven)}</b> or cut ad cost per order — at this target the month loses money.</p>}
     </div>
   )
 }

@@ -14,13 +14,13 @@ import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { action, internalAction, internalQuery, query, type ActionCtx } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
-import { currentStaff, requirePerm } from "./lib"
+import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { daysInMonth, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, monthStartMs, nextMonthKey, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, marketingPlan, onPace, productRows, skuBase, summarizeSales,
-  type MarketingPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
+  buildPlan, fixedTotal, marketingPlan, mixMargin, onPace, productRows, profitPlan, skuBase, summarizeSales,
+  type MarketingPlan, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
 } from "./targetPlan"
 
 const DAY = 86400000
@@ -63,6 +63,37 @@ export const setMonthlyTarget = mutation({
     const row = { month, amount: whole, setByName: me.staff.name, updatedAt: Date.now() }
     if (existing) await ctx.db.patch(existing._id, existing.amount === whole ? row : { ...row, plan: undefined })
     else await ctx.db.insert("revenueTargets", row)
+  },
+})
+
+// ---- monthly running costs (salary, rent, other): they decide what target is needed to make a profit ----
+
+const costsArgs = { salary: v.number(), rent: v.number(), other: v.number() }
+
+/** Salary, rent and other running costs per month. Managers only — salaries are not for everyone's eyes. */
+export const getCosts = query({
+  args: {},
+  handler: async (ctx): Promise<MonthlyCosts | null> => {
+    try { await requirePerm(ctx, "team.manage") } catch { return null }
+    return (await getSetting<MonthlyCosts>(ctx, "monthlyCosts")) ?? { salary: 0, rent: 0, other: 0 }
+  },
+})
+
+export const setMonthlyCosts = mutation({
+  args: costsArgs,
+  handler: async (ctx, a) => {
+    await requirePerm(ctx, "team.manage")
+    for (const n of [a.salary, a.rent, a.other]) if (!Number.isFinite(n) || n < 0) throw new ConvexError("Costs must be zero or more.")
+    await setSetting(ctx, "monthlyCosts", { salary: Math.round(a.salary), rent: Math.round(a.rent), other: Math.round(a.other) })
+  },
+})
+
+/** For the progress action: the costs, or null for anyone who may not see them. */
+export const costsForProgress = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<MonthlyCosts | null> => {
+    try { await requirePerm(ctx, "team.manage") } catch { return null }
+    return (await getSetting<MonthlyCosts>(ctx, "monthlyCosts")) ?? null
   },
 })
 
@@ -129,12 +160,12 @@ export const productPage = internalQuery({
 
 export const variantPage = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { cursor }): Promise<Page<{ id: string; sku: string; productId: string; active: boolean }>> => {
+  handler: async (ctx, { cursor }): Promise<Page<{ id: string; sku: string; productId: string; active: boolean; cost: number }>> => {
     const res = await ctx.db.query("variants").paginate({ cursor, numItems: 400 })
     return {
       isDone: res.isDone,
       cursor: res.continueCursor,
-      rows: res.page.map((x) => ({ id: x._id as string, sku: x.sku, productId: x.productId as string, active: x.active })),
+      rows: res.page.map((x) => ({ id: x._id as string, sku: x.sku, productId: x.productId as string, active: x.active, cost: x.purchasePrice })),
     }
   },
 })
@@ -177,7 +208,8 @@ const salesRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]>
 // Gathering what the plan is built from
 // ---------------------------------------------------------------------------------------------------------------
 
-type StockMap = Record<string, { name: string; units: number | null }>
+/** units null = pre-order (not capped); cost = average purchase price per pair, null when none is recorded. */
+type StockMap = Record<string, { name: string; units: number | null; cost: number | null }>
 
 type Gathered = {
   at: number
@@ -192,7 +224,7 @@ type Gathered = {
 
 async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
   type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean }
-  type V = { id: string; sku: string; productId: string; active: boolean }
+  type V = { id: string; sku: string; productId: string; active: boolean; cost: number }
   type S = { variantId: string; locationId: string; available: number }
   const sellable: string[] = await ctx.runQuery(internal.targets.sellableLocations, {})
   const products: P[] = await pageAll<P>((cursor) => ctx.runQuery(internal.targets.productPage, { cursor }))
@@ -204,15 +236,18 @@ async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
   for (const s of stockRows) if (usable.has(s.locationId)) unitsByVariant.set(s.variantId, (unitsByVariant.get(s.variantId) ?? 0) + s.available)
 
   const out: StockMap = {}
+  const costSum: Record<string, { sum: number; n: number }> = {}
   for (const x of variants) {
     if (!x.active) continue
     const p = prod.get(x.productId)
     if (!p || !p.active || p.deleted) continue
     const key = skuBase(x.sku)
-    const entry = (out[key] ??= { name: p.name, units: 0 })
+    const entry = (out[key] ??= { name: p.name, units: 0, cost: null })
+    if (x.cost > 0) { const c = (costSum[key] ??= { sum: 0, n: 0 }); c.sum += x.cost; c.n++ }
     if (p.preOrder || /^PO-/i.test(x.sku)) entry.units = null
     else if (entry.units !== null) entry.units += Math.max(0, unitsByVariant.get(x.id) ?? 0)
   }
+  for (const [k, c] of Object.entries(costSum)) out[k].cost = c.sum / c.n
   return out
 }
 
@@ -261,9 +296,11 @@ export type TargetProgress = {
   productInfo: { at: number; gap: number; unitsShort: number; windowDays: number } | null
   /** Budget vs spend. Null for people without ads access (they never see spend figures). */
   marketing: MarketingView | null
+  /** Margin, break-even and profit. Only for people who may see salaries and ad spend, and only once costs are entered. */
+  profit: ProfitPlan | null
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null })
+const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -308,6 +345,7 @@ export const progress = action({
     const monthPlan = planMonth({ month: m, target: row.amount, deliveredByDay: data.byDay, today })
 
     // ---- the product plan ----
+    let snapshot: ProductPlan | undefined
     let products: ProductRow[] | null = null
     let productInfo: TargetProgress["productInfo"] = null
     if (data.stock) {
@@ -322,7 +360,7 @@ export const progress = action({
           demandRevenue: t.revenue,
           stockUnits: stockMap[k] ? stockMap[k].units : null, // no stock record: not capped
         }))
-      let snapshot = row.plan as ProductPlan | undefined
+      snapshot = row.plan as ProductPlan | undefined
       if (!snapshot || now - snapshot.at > REPLAN_MS) {
         snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, row.amount - monthPlan.delivered), products: inputs, soldMtd })
         if (m === current) await ctx.runMutation(internal.targets.savePlan, { month: m, plan: snapshot })
@@ -361,7 +399,25 @@ export const progress = action({
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing }
+    // ---- profit: shoe cost + ad budget + fixed costs against the target ----
+    let profit: ProfitPlan | null = null
+    if (marketing?.state === "ok" && marketing.plan.mer && data.stock && snapshot) {
+      const costs = await ctx.runQuery(internal.targets.costsForProgress, {})
+      if (costs && fixedTotal(costs) > 0) {
+        const stockMap = data.stock
+        const gm = mixMargin(Object.entries(snapshot.products).map(([k, p]) => ({ units: p.units, price: p.price / data.ratio, cost: stockMap[k]?.cost ?? null })))
+        if (gm !== null) {
+          profit = profitPlan({
+            target: row.amount, grossMargin: gm, mer: marketing.plan.mer, costs,
+            deliveredMtd: monthPlan.delivered, spentMtd: marketing.plan.spentMtd,
+            dayOfMonth: monthPlan.started ? (monthPlan.finished ? daysInMonth(m) : Number(today.slice(8, 10))) : 0,
+            days: daysInMonth(m),
+          })
+        }
+      }
+    }
+
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit }
   },
 })
 

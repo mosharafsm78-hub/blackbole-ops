@@ -214,3 +214,44 @@ describe("KPI points for the target", () => {
     expect(await events()).toHaveLength(0)
   })
 })
+
+describe("profit: running costs against the target", () => {
+  const meta = () =>
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      json: async () => ({ data: Array.from({ length: 10 }, (_, i) => ({ date_start: new Date(NOW + 6 * 3600000 - i * DAY).toISOString().slice(0, 10), spend: "1000" })) }),
+    }) as any))
+  const prep = async () => {
+    const s = await setup()
+    await s.addProduct("Soft Slide", 1000, "BB-SOFT") // cost 500, sells at 1000 → 50% margin
+    await s.sell("BB-SOFT-41", "Soft Slide", 100, 1000, NOW - 5 * DAY)
+    await s.t.run((ctx) => ctx.db.insert("settings", { key: "metaAds", value: { token: "tok", accounts: [{ id: "1", name: "Main" }] } }))
+    meta()
+    return s
+  }
+
+  it("works out break-even and profit at target from margin, ad budget and fixed costs", async () => {
+    const { asAdmin } = await prep()
+    await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 300000 })
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.profit).toMatchObject({ fixed: 209000, grossMargin: 0.5, adRate: 0.1, contribution: 0.4, breakEven: 522500, profitAtTarget: -89000 })
+  })
+
+  it("shows no profit until costs are entered, and never to someone without manage rights", async () => {
+    const { asAdmin, asCx } = await prep()
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 300000 })
+    expect((await asAdmin.action(api.targets.progress, {})).profit).toBeNull()
+    await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
+    expect((await asAdmin.action(api.targets.progress, {})).profit).not.toBeNull()
+    expect((await asCx.action(api.targets.progress, {})).profit).toBeNull()
+    expect(await asCx.query(api.targets.getCosts, {})).toBeNull()
+    await expect(asCx.mutation(api.targets.setMonthlyCosts, { salary: 1, rent: 1, other: 1 })).rejects.toThrow()
+  })
+
+  it("rejects negative costs and reads back what was saved", async () => {
+    const { asAdmin } = await setup()
+    await expect(asAdmin.mutation(api.targets.setMonthlyCosts, { salary: -1, rent: 0, other: 0 })).rejects.toThrow(/zero or more/)
+    await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
+    expect(await asAdmin.query(api.targets.getCosts, {})).toEqual({ salary: 127000, rent: 42000, other: 40000 })
+  })
+})

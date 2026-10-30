@@ -30,7 +30,51 @@ export function RevenueTargetSettings() {
         <TargetRow month={thisMonth} />
         <TargetRow month={nextMonth(thisMonth)} />
       </div>
+      <CostsForm />
     </section>
+  )
+}
+
+/** Monthly running costs. They are what the target has to cover before there is any profit. */
+function CostsForm() {
+  const saved = useQuery(api.targets.getCosts)
+  const save = useMutation(api.targets.setMonthlyCosts)
+  const [d, setD] = useState({ salary: "", rent: "", other: "" })
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (saved) setD({ salary: String(saved.salary || ""), rent: String(saved.rent || ""), other: String(saved.other || "") }) }, [saved])
+  if (saved === undefined) return <Loading />
+  if (saved === null) return null
+  const n = (x: string) => (x.trim() === "" ? 0 : Number(x))
+  const vals = { salary: n(d.salary), rent: n(d.rent), other: n(d.other) }
+  const invalid = Object.values(vals).some((x) => !Number.isFinite(x) || x < 0)
+  const unchanged = vals.salary === saved.salary && vals.rent === saved.rent && vals.other === saved.other
+  const total = vals.salary + vals.rent + vals.other
+  const field = (key: keyof typeof d, label: string) => (
+    <label className="text-xs font-medium text-muted-foreground">
+      {label}
+      <Input type="number" inputMode="numeric" min={0} step={1000} value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} className="mt-1 text-right tabular-nums" disabled={busy} />
+    </label>
+  )
+  return (
+    <div className="mt-5 border-t pt-4" data-testid="running-costs">
+      <h3 className="text-sm font-semibold">Monthly running costs</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Salaries, rent and everything else you pay every month. The Dashboard uses them, with each product's purchase
+        price and the ad budget, to show the revenue needed to break even and the profit at your target. Only people
+        who manage the team can see this.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">{field("salary", "Salaries (৳)")}{field("rent", "Office rent (৳)")}{field("other", "Other expenses (৳)")}</div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">Total fixed: <b className="text-foreground">{taka(total)}</b> a month</span>
+        <Button
+          size="sm" disabled={busy || invalid || unchanged}
+          onClick={async () => {
+            setBusy(true)
+            try { await save(vals); toast.success("Running costs saved") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}
+        >Save</Button>
+      </div>
+    </div>
   )
 }
 
