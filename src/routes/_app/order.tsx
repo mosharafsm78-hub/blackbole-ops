@@ -292,6 +292,11 @@ function OrderPage() {
             )}
           </div>
         )}
+        {o.autoApproveAt !== undefined && o.status === "on_hold" && (
+          <div className="mx-5 mt-2 rounded-md border border-tone-blue bg-tone-blue-bg/60 px-3 py-1.5 text-sm text-tone-blue" data-testid="auto-approve-banner">
+            Ships {dateTime(o.autoApproveAt)} — moves to Approved by itself that day.
+          </div>
+        )}
         {o.csat && (
           <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-blue-bg px-3 py-1.5 text-sm text-tone-blue">
             <span>Feedback: {o.csat.outcome}{o.csat.note ? ` — ${o.csat.note}` : ""}</span>

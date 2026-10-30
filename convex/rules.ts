@@ -383,7 +383,7 @@ export function resolveReasonToggle(input: { from?: string | null; to: string; a
 
 /** Ordinary reason chips for a move — the shared vocabulary behind the Hold/Cancel/Return pickers. */
 export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
-export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Address unclear", "Other"]
+export const HOLD_REASONS = ["Customer asked to ship on a date", "Customer asked to wait", "Stock not ready", "Address unclear", "Other"]
 
 /**
  * Reason chips for a status. The advance-payment reasons come FIRST on Hold and Cancel so they read as one

@@ -606,7 +606,7 @@ export const get = query({
 })
 
 // ---------- status changes ----------
-export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean; systemReason?: boolean; advance?: AdvanceFields } = {}) {
+export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean; systemReason?: boolean; advance?: AdvanceFields; autoApproveAt?: number } = {}) {
   const from = order.status as OrderStatus
   /**
    * Staying in the same status is normally a no-op (a sync re-sending "already approved"), but it is a real
@@ -681,6 +681,13 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   if (to !== "on_hold" && to !== "cancelled" && order.expectedAdvanceAmount !== undefined) {
     patch.advanceClearedAt = now
   }
+  // ---- Ship-on-a-date hold ----
+  // "Customer asked us to ship after <date>": the team puts the order on hold with that date, and the order
+  // should come back to Approved by itself that day — nobody should have to remember to go find it. Only ever
+  // meaningful while sitting on hold, so a move to any other status (including a manual, earlier approve)
+  // clears it — the scheduled wake is spent either way. A same-status reason edit with no new date given also
+  // clears it, for the same reason the advance fields do: a re-recorded hold can't silently keep an old promise.
+  if (!opts.systemReason) patch.autoApproveAt = to === "on_hold" ? opts.autoApproveAt : undefined
   if (to === "approved" && !order.approvedAt) patch.approvedAt = now
   if (to === "in_transit" && !order.shippedAt) patch.shippedAt = now
   if (isDelivered(to) && !order.deliveredAt) {
@@ -732,8 +739,11 @@ export const changeStatus = mutation({
     // Only meaningful with one of the three ADVANCE_REASONS; validated in buildAdvanceFields.
     expectedAdvanceAmount: v.optional(v.number()),
     promisedPaymentDate: v.optional(v.number()),
+    // Only meaningful with to: "on_hold" — the date the customer asked us to ship on; the order auto-approves
+    // itself that day (see runAutoApprove).
+    autoApproveAt: v.optional(v.number()),
   },
-  handler: async (ctx, { ids, to, reason, expectedAdvanceAmount, promisedPaymentDate }) => {
+  handler: async (ctx, { ids, to, reason, expectedAdvanceAmount, promisedPaymentDate, autoApproveAt }) => {
     const me = await requirePerm(ctx, "orders.view")
     // Validate once, up front: a bad amount must not produce a half-applied batch.
     const advance = buildAdvanceFields({ reason, expectedAdvanceAmount, promisedPaymentDate })
@@ -748,7 +758,7 @@ export const changeStatus = mutation({
         continue
       }
       try {
-        await applyStatus(ctx, order, to, me.staff.name, reason, { advance: advance.fields })
+        await applyStatus(ctx, order, to, me.staff.name, reason, { advance: advance.fields, autoApproveAt })
         done++
       } catch (e) {
         errors.push(e instanceof Error ? e.message : String(e))
@@ -830,8 +840,11 @@ export const runAutoApprove = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now()
+    // On Hold is the common case now: a customer asked to ship on a specific date, the team put the order on
+    // hold and gave that date, and it should come back to Approved by itself without anyone having to remember
+    // it. Pending is kept too for any order scheduled before it was ever held.
     const due = (await ctx.db.query("orders").withIndex("by_auto_approve", (q) => q.gt("autoApproveAt", 0).lte("autoApproveAt", now)).take(200))
-      .filter((o) => o.status === "pending" && !o.deletedAt)
+      .filter((o) => (o.status === "pending" || o.status === "on_hold") && !o.deletedAt)
     for (const o of due) {
       try { await applyStatus(ctx, o, "approved", "Auto-approve", "Scheduled auto-approve") } catch (e) {
         await ctx.db.patch(o._id, { autoApproveAt: undefined })
@@ -1192,23 +1205,44 @@ export const markPrinted = mutation({
   },
 })
 
+/**
+ * What Nuport calls the "Product and Stock Checklist": select a batch of orders (usually the day's Approved
+ * orders, right before picking), and see every product they need in one summed list — picking qty, what's
+ * actually available, and the shortage. This is what lets the fulfillment team catch "the system shows this
+ * as available, why hasn't it shipped" before it turns into a missed order, instead of after it's too late.
+ */
 export const pickList = query({
   args: { ids: v.array(v.id("orders")) },
   handler: async (ctx, { ids }) => {
     const s = await currentStaff(ctx)
     if (!s) return null
-    const map = new Map<string, { sku: string; name: string; attrs?: string; imageUrl?: string; qty: number; orders: string[] }>()
+    const map = new Map<string, { sku: string; name: string; attrs?: string; imageUrl?: string; variantId?: string; qty: number; orders: string[] }>()
     for (const id of ids) {
       const o = await ctx.db.get(id)
       if (!o) continue
       for (const i of o.items) {
-        const row = map.get(i.sku) ?? { sku: i.sku, name: i.name, attrs: i.attrs, imageUrl: i.imageUrl, qty: 0, orders: [] }
+        const row = map.get(i.sku) ?? { sku: i.sku, name: i.name, attrs: i.attrs, imageUrl: i.imageUrl, variantId: i.variantId as string | undefined, qty: 0, orders: [] }
         row.qty += i.qty
         row.orders.push(invoiceLabel(o))
         map.set(i.sku, row)
       }
     }
-    return [...map.values()].sort((a, b) => a.sku.localeCompare(b.sku))
+    // Available stock per variant, summed across every warehouse — this view answers "can we physically pick
+    // this whole batch", not "which warehouse has it"; the existing per-warehouse views already answer that.
+    const neededVariants = new Set([...map.values()].map((r) => r.variantId).filter((x): x is string => !!x))
+    const available = new Map<string, number>()
+    if (neededVariants.size) {
+      for (const r of await ctx.db.query("stock").collect()) {
+        if (!neededVariants.has(r.variantId as string)) continue
+        available.set(r.variantId as string, (available.get(r.variantId as string) ?? 0) + r.available)
+      }
+    }
+    return [...map.values()]
+      .map((r) => {
+        const availableQty = r.variantId ? (available.get(r.variantId) ?? 0) : 0
+        return { ...r, availableQty, shortageQty: Math.max(0, r.qty - availableQty) }
+      })
+      .sort((a, b) => b.shortageQty - a.shortageQty || a.sku.localeCompare(b.sku))
   },
 })
 

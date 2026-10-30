@@ -382,6 +382,8 @@ export function StatusDialog({
   // advance-payment inputs, held as raw strings so the field can be empty while typing
   const [advanceAmount, setAdvanceAmount] = useState("")
   const [promiseDate, setPromiseDate] = useState("")
+  // On Hold only: the date the customer asked us to ship on — the order auto-approves itself that day.
+  const [shipOnDate, setShipOnDate] = useState("")
   /**
    * Reset only when the dialog OPENS, not on every render.
    *
@@ -393,7 +395,7 @@ export function StatusDialog({
   const optionKey = options.join("|")
   useEffect(() => {
     if (!open) return
-    setTo(initial ?? options[0]); setReason(""); setAdvanceAmount(""); setPromiseDate("")
+    setTo(initial ?? options[0]); setReason(""); setAdvanceAmount(""); setPromiseDate(""); setShipOnDate("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initial, optionKey])
   const presets = reasonPresets(to)
@@ -490,6 +492,17 @@ export function StatusDialog({
                 )}
               </div>
             )}
+            {to === "on_hold" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="ship-on-date">Ship on this date <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                <Input id="ship-on-date" type="date" value={shipOnDate} onChange={(e) => setShipOnDate(e.target.value)} data-testid="ship-on-date" />
+                <p className="text-xs text-muted-foreground">
+                  {shipOnDate
+                    ? "This order moves itself to Approved on this date — no one needs to remember to come back for it."
+                    : "If the customer asked to ship on a specific date, set it here and this order will move itself to Approved that day."}
+                </p>
+              </div>
+            )}
             {(to === "ready_to_ship" || to === "in_transit") && <p className="text-xs text-muted-foreground">Pathao orders are sent to Pathao at the step chosen in Settings (In Transit by default, like Nuport). You can also press “Push to Pathao”.</p>}
           </div>
         )}
@@ -506,6 +519,7 @@ export function StatusDialog({
                   // only sent for an advance reason, and only once the pair is complete
                   expectedAdvanceAmount: wantsAdvance ? amountValue ?? undefined : undefined,
                   promisedPaymentDate: wantsAdvance ? dateValue ?? undefined : undefined,
+                  autoApproveAt: to === "on_hold" ? dateInputToMs(shipOnDate) ?? undefined : undefined,
                 })
                 if (res.done) toast.success(`${res.done} order${res.done > 1 ? "s" : ""} moved to ${STATUS_LABEL[to]}`)
                 res.errors.slice(0, 4).forEach((e) => toast.error(e))

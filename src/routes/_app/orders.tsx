@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useAction, useMutation, useQuery } from "convex/react"
-import { AlertTriangle, ChevronDown, Clock, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
+import { AlertTriangle, ChevronDown, ClipboardList, Clock, Lock, Download, Printer, RefreshCw, Shuffle, Trash2, Truck } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -69,6 +69,7 @@ function OrdersPage() {
   const findEx = useAction(api.pathao.findExchangeParcels)
   const [findingEx, setFindingEx] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
+  const [pickOpen, setPickOpen] = useState(false)
   const syncNow = useAction(api.pathao.syncNow)
   const counts = useQuery(api.orders.counts)
   const sameNumber = useQuery(api.orders.sameNumberCount, { tab: search.tab })
@@ -285,6 +286,9 @@ function OrdersPage() {
           <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => setStatusOpen(true)}>
             <Shuffle className="size-4" /> Change status
           </Button>
+          <Button size="sm" variant="outline" disabled={selected.size === 0} onClick={() => setPickOpen(true)} data-testid="open-pick-list">
+            <ClipboardList className="size-4" /> Pick list
+          </Button>
           <Perm perm="courier.book">
             <Button
               size="sm" variant="outline" disabled={selected.size === 0 || pushing} data-testid="bulk-push-pathao"
@@ -481,6 +485,11 @@ function OrdersPage() {
                         Call again {new Date(o.followUpAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
                       </div>
                     )}
+                    {o.status === "on_hold" && (o as any).autoApproveAt && (
+                      <div className="whitespace-nowrap font-medium text-tone-blue">
+                        Ships {new Date((o as any).autoApproveAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                      </div>
+                    )}
                   </td>
                   <td className="max-w-44 p-3 text-xs">
                     {/* CX's own post-delivery work: a feedback call for anything delivered, a return call for
@@ -555,7 +564,69 @@ function OrdersPage() {
         onOpenChange={setStatusOpen}
         onDone={() => setSelected(new Set())}
       />
+      <PickListDialog ids={[...selected]} open={pickOpen} onOpenChange={setPickOpen} />
     </div>
+  )
+}
+
+/** The "Product and Stock Checklist" for a batch of selected orders, before picking: every product they need,
+ *  summed, next to what's actually available, with the shortfall called out so it can't hide in a scroll. */
+function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const rows = useQuery(api.orders.pickList, open && ids.length > 0 ? { ids } : "skip")
+  const shortages = (rows ?? []).filter((r) => r.shortageQty > 0)
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Product and Stock Checklist — {ids.length} order{ids.length === 1 ? "" : "s"}</DialogTitle>
+        </DialogHeader>
+        {rows === undefined ? (
+          <Loading />
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No products on the selected orders.</p>
+        ) : (
+          <div className="space-y-3">
+            {shortages.length > 0 && (
+              <div className="rounded-md border border-tone-red bg-tone-red-bg/60 px-3 py-2 text-sm text-tone-red">
+                {shortages.length} product{shortages.length === 1 ? " is" : "s are"} short of what this batch needs — pull the rest or hold those orders before printing invoices.
+              </div>
+            )}
+            <div className="max-h-[60vh] overflow-auto rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/60 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="p-2 font-medium">SKU</th>
+                    <th className="p-2 font-medium">Product</th>
+                    <th className="p-2 text-right font-medium">Picking Qty</th>
+                    <th className="p-2 text-right font-medium">Available Qty</th>
+                    <th className="p-2 text-right font-medium">Shortage Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.sku} className={cn("border-t align-top", r.shortageQty > 0 && "bg-tone-red-bg/40")}>
+                      <td className="p-2 font-mono text-xs">{r.sku}</td>
+                      <td className="p-2">
+                        {r.name}
+                        {r.attrs && <span className="text-muted-foreground"> · {r.attrs}</span>}
+                      </td>
+                      <td className="p-2 text-right tabular-nums">{r.qty}</td>
+                      <td className="p-2 text-right tabular-nums">{r.availableQty}</td>
+                      <td className={cn("p-2 text-right font-semibold tabular-nums", r.shortageQty > 0 ? "text-tone-red" : "text-muted-foreground")}>
+                        {r.shortageQty > 0 ? r.shortageQty : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
