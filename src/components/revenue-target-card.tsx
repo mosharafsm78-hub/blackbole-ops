@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { AlertTriangle, Check, ChevronRight, Flag, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { addDays } from "@/convex/targetMath"
-import { GROUP_SHARE, type Group, type ProductRow } from "@/convex/targetPlan"
+import { familyOf, GROUP_SHARE, type Group, type ProductRow } from "@/convex/targetPlan"
 import type { MarketingView, TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
 import { Pill } from "@/components/bits"
@@ -87,7 +87,7 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
         </section>
         <section className="rounded-xl border bg-card p-4" data-testid="target-monthly">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Monthly target — {monthLabel(p.month)}</h2>
+            <h2 className="text-sm font-semibold">Monthly target — {monthLabel(p.month)}{data.auto && <span className="ml-2 rounded bg-tone-blue/15 px-1.5 py-0.5 text-[11px] font-semibold text-tone-blue">set automatically</span>}</h2>
             <Pill tone={beaten || onPace ? "green" : "amber"}>{beaten ? "Target reached" : `${p.pct}%`}</Pill>
           </div>
           <div className="mt-2 text-3xl font-bold tabular-nums">{taka(p.target)}</div>
@@ -101,7 +101,9 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
         </section>
       </div>
 
+      <DailyMarketing data={data} />
       <SellList data={data} />
+      <Models data={data} />
       {data.marketing && <MarketingStrip m={data.marketing} />}
       {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
       <Schedule p={p} />
@@ -125,6 +127,8 @@ function SellList({ data }: { data: TargetProgress }) {
     return <li key={g}><b className="text-foreground">{title}:</b> {target} pairs across {list.length} products (sold {sum(list, (r) => r.todaySold)})</li>
   }
   const total = sum(rows, (r) => r.todayTarget ?? 0)
+  const budget = data.daily?.adBudget ?? 0
+  const worthAll = sum(rows, (r) => (r.todayTarget ?? 0) * r.price) // the budget is split by each product's share of the day's value
   return (
     <section className="rounded-xl border bg-card p-4" data-testid="target-sell-list">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -134,7 +138,7 @@ function SellList({ data }: { data: TargetProgress }) {
       <div className="mt-2 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[460px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Sell</th><th className="px-3 py-1.5 text-right font-medium">Sold</th><th className="px-3 py-1.5 text-right font-medium">To go</th><th className="px-3 py-1.5 text-right font-medium">Worth</th></tr>
+            <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Sell</th><th className="px-3 py-1.5 text-right font-medium">Sold</th><th className="px-3 py-1.5 text-right font-medium">To go</th><th className="px-3 py-1.5 text-right font-medium">Worth</th>{budget > 0 && <th className="px-3 py-1.5 text-right font-medium">Ad budget</th>}</tr>
           </thead>
           <tbody>
             {focus.map((r) => (
@@ -144,12 +148,74 @@ function SellList({ data }: { data: TargetProgress }) {
                 <td className="px-3 py-1.5 text-right tabular-nums">{r.todaySold}</td>
                 <td className={cn("px-3 py-1.5 text-right tabular-nums", r.toGo === 0 ? "text-tone-green" : "font-semibold")}>{r.toGo === 0 ? "✓" : r.toGo}</td>
                 <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{taka((r.todayTarget ?? 0) * r.price)}</td>
+                {budget > 0 && <td className="px-3 py-1.5 text-right tabular-nums">{taka(budget * (((r.todayTarget ?? 0) * r.price) / Math.max(1, worthAll)))}</td>}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
       <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{line("other", "Others")}{line("dead", "Dead stock")}</ul>
+    </section>
+  )
+}
+
+/** Today's marketing: how much to spend, the most that is safe, and how many orders to book given returns. */
+function DailyMarketing({ data }: { data: TargetProgress }) {
+  const d = data.daily
+  if (!d) return null
+  const m = data.measured
+  const over = d.adLeft < 0
+  return (
+    <section className={cn("rounded-xl border bg-card p-4", d.adsCantPay && "border-tone-amber/40")} data-testid="target-daily-marketing">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Marketing today</h2>
+        <Pill tone={over ? "red" : "green"}>{over ? `${taka(-d.adLeft)} over budget` : `${taka(d.adLeft)} left to spend`}</Pill>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Fig label="Ad budget today" value={taka(d.adBudget)} sub="to reach today's target" />
+        <Fig label="Never spend more than" value={taka(d.adMax)} sub="above this each order loses money" />
+        <Fig label="Spent so far today" value={taka(d.spentToday)} sub="from Meta" />
+        <Fig label="Orders to book today" value={String(d.ordersToBook)} sub={`${d.ordersToDeliver} must be delivered — ${Math.round(d.returnRate * 100)}% come back`} />
+      </div>
+      {d.adsCantPay && <p className="mt-2 flex items-start gap-1.5 text-xs text-tone-amber"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />Ads currently return too little to pay for this target in full — the budget is held at the safe limit. Improve the ads or the product mix before spending more.</p>}
+      {m && <p className="mt-2 text-xs text-muted-foreground">Measured from your last {m.sample} orders: {m.returnPct}% returned · courier ৳{m.delivery} a parcel · payment fee {m.payFeePct}%.</p>}
+    </section>
+  )
+}
+
+/** Stock against plan, by model (colours together) — so a big pile like the Veyron loafers is plain to see. */
+function Models({ data }: { data: TargetProgress }) {
+  const rows = data.products
+  if (!rows) return null
+  const byFamily = new Map<string, ProductRow[]>()
+  for (const r of rows) byFamily.set(familyOf(r.name), [...(byFamily.get(familyOf(r.name)) ?? []), r])
+  const list = [...byFamily.entries()]
+    .map(([name, rs]) => ({ name, colours: rs.length, stock: rs.some((r) => r.stockUnits !== null) ? sum(rs, (r) => r.stockUnits ?? 0) : null, plan: sum(rs, (r) => r.monthUnits), sold: sum(rs, (r) => r.sold), today: sum(rs, (r) => r.todayTarget ?? 0), todaySold: sum(rs, (r) => r.todaySold) }))
+    .filter((f) => f.stock !== null || f.plan > 0)
+    .sort((a, b) => (b.stock ?? 0) - (a.stock ?? 0))
+    .slice(0, 12)
+  if (list.length === 0) return null
+  return (
+    <section className="rounded-xl border bg-card p-4" data-testid="target-models">
+      <h2 className="text-sm font-semibold">By model — stock against the plan</h2>
+      <div className="mt-2 overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[520px] text-sm">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
+            <tr><th className="px-3 py-1.5 text-left font-medium">Model</th><th className="px-3 py-1.5 text-right font-medium">In stock</th><th className="px-3 py-1.5 text-right font-medium">Month plan</th><th className="px-3 py-1.5 text-right font-medium">Sold</th><th className="px-3 py-1.5 text-right font-medium">Today</th></tr>
+          </thead>
+          <tbody>
+            {list.map((f) => (
+              <tr key={f.name} className="border-t">
+                <td className="px-3 py-1.5"><div className="font-medium">{f.name}</div>{f.colours > 1 && <div className="text-[11px] text-muted-foreground">{f.colours} colours</div>}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{f.stock === null ? "pre-order" : f.stock}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{f.plan}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{f.sold}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{f.todaySold}/{f.today}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }

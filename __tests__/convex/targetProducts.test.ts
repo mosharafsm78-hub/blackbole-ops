@@ -270,3 +270,61 @@ describe("profit: running costs against the target", () => {
     await expect(asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 1, rent: 2, other: 3, returnPct: 95 })).rejects.toThrow(/percentage/)
   })
 })
+
+describe("stock-weighted plan and automation", () => {
+  it("gives a slow-selling product with a big stock pile a real share (the Veyron loafers)", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Fast Sandal", 30, "BB-FAST")
+    await addProduct("BlackBole Veyron Casual Loafer - Olive", 90, "BB-VEY")
+    await sell("BB-FAST-41", "Fast Sandal", 80, 1000, NOW - 20 * DAY)
+    await sell("BB-VEY-41", "Veyron", 20, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+    const p = await asAdmin.action(api.targets.progress, {})
+    const rows = Object.fromEntries(p.products!.map((r) => [r.key, r]))
+    expect(rows["BB-VEY"].monthUnits).toBeGreaterThan(30) // sales alone would give 20 pairs
+    expect(rows["BB-VEY"].stockUnits).toBe(90)
+  })
+
+  it("measures courier cost, payment fee and return rate from the orders, and uses them for the daily ad limit", async () => {
+    const { t, asAdmin, addProduct, sell } = await setup()
+    await addProduct("Soft Slide", 1000, "BB-SOFT")
+    // 40 delivered orders (courier 100, COD fee 2% of 1,000) and 20 returned → 33.3% returns
+    for (let i = 0; i < 40; i++) {
+      const id = await sell("BB-SOFT-41", "Soft Slide", 1, 1000, NOW - 5 * DAY)
+      await t.run((ctx) => ctx.db.patch(id, { courierCost: 100, codCost: 20 }))
+    }
+    for (let i = 0; i < 20; i++) {
+      const id = await sell("BB-SOFT-41", "Soft Slide", 1, 1000, NOW - 5 * DAY)
+      await t.run((ctx) => ctx.db.patch(id, { status: "returned", deliveredAt: undefined, statusChangedAt: NOW - 4 * DAY, courierCost: 100 }))
+    }
+    await t.run((ctx) => ctx.db.insert("settings", { key: "metaAds", value: { token: "tok", accounts: [{ id: "1", name: "Main" }] } }))
+    vi.stubGlobal("fetch", vi.fn(async () => ({ json: async () => ({ data: Array.from({ length: 10 }, (_, i) => ({ date_start: new Date(NOW + 6 * 3600000 - i * DAY).toISOString().slice(0, 10), spend: "500" })) }) }) as any))
+    await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 300000 })
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.measured).toEqual({ returnPct: 33.3, delivery: 100, payFeePct: 2, sample: 60 })
+    expect(p.profit!.returnRate).toBeCloseTo(0.333, 3)
+    const d = p.daily!
+    expect(d.adMax).toBeGreaterThan(0)
+    expect(d.adBudget).toBeLessThanOrEqual(d.adMax)
+    expect(d.ordersToBook).toBeGreaterThan(d.ordersToDeliver) // returns mean more orders must be booked
+  })
+
+  it("sets a target by itself when nobody has, never overwrites a person's, and starts next month's on the 25th", async () => {
+    const { t, asAdmin, addProduct, sell } = await setup()
+    await addProduct("Soft Slide", 5000, "BB-SOFT")
+    await sell("BB-SOFT-41", "Soft Slide", 100, 1000, NOW - 10 * DAY) // 100,000 in the last 30 days
+    await t.action(internal.targets.autoTargets, {})
+    const row = await t.run((ctx) => ctx.db.query("revenueTargets").first())
+    expect(row).toMatchObject({ month: "2026-11", amount: 120000, auto: true }) // 100,000 + 15%, rounded to 10,000
+    expect((await asAdmin.query(api.targets.getTarget, { month: "2026-11" }))!.auto).toBe(true)
+
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 500000 }) // a person takes over
+    await t.action(internal.targets.autoTargets, {})
+    expect((await asAdmin.query(api.targets.getTarget, { month: "2026-11" }))).toMatchObject({ amount: 500000, auto: false })
+
+    vi.setSystemTime(Date.parse("2026-11-25T06:00:00Z"))
+    await t.action(internal.targets.autoTargets, {})
+    expect((await asAdmin.query(api.targets.getTarget, { month: "2026-12" }))!.auto).toBe(true)
+  })
+})

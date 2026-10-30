@@ -305,3 +305,69 @@ describe("profit: per-order costs", () => {
     expect(p.contribution).toBeCloseTo(0.5 / 1.1 + 1 - 1 / 1.1 - 0.01, 3)
   })
 })
+
+import { blendWeights, dailyPlan, familyOf, measureCosts, suggestTarget } from "../../convex/targetPlan"
+
+describe("stock counts, not just sales (the Veyron case)", () => {
+  const mk = (key: string, demandRevenue: number, stockUnits: number | null): any => ({ key, name: key, price: 1000, demandRevenue, stockUnits, group: "focus" })
+
+  it("a big stock pile that sells slowly gets a real share instead of being left", () => {
+    // Fast seller: strong sales, small stock. Veyron: weak sales, 90 pairs in stock.
+    const demandOnly = 0.8 // fast seller's share if only sales counted
+    const { rows } = allocateGrouped([mk("FAST", 80000, 30), mk("VEYRON", 20000, 90)], 100000)
+    const r = Object.fromEntries(rows.map((x) => [x.key, x]))
+    expect(r.VEYRON.revenue).toBeGreaterThan(30000) // sales alone would give it 20,000
+    expect(r.FAST.revenue / 100000).toBeLessThan(demandOnly)
+    expect(r.VEYRON.units).toBeLessThanOrEqual(90)
+  })
+
+  it("blends half sales, half stock value; with no stock numbers it is sales only", () => {
+    const w = Object.fromEntries(blendWeights([mk("A", 75, 10), mk("B", 25, 30)]).map((p) => [p.key, p.demandRevenue]))
+    expect(w.A).toBeCloseTo(0.5 * 0.75 + 0.5 * 0.25, 5)
+    expect(w.B).toBeCloseTo(0.5 * 0.25 + 0.5 * 0.75, 5)
+    expect(blendWeights([mk("A", 75, null), mk("B", 25, null)]).map((p) => p.demandRevenue)).toEqual([75, 25])
+  })
+
+  it("names a model without its colour", () => {
+    expect(familyOf("BlackBole Veyron Casual Loafer - Olive")).toBe("BlackBole Veyron Casual Loafer")
+    expect(familyOf("Pro Asics Gel Nimbus")).toBe("Pro Asics Gel Nimbus")
+  })
+})
+
+describe("measured costs and the daily ad limit", () => {
+  const order = { orders: 80, revenue: 200000, courierSum: 80 * 118, courierN: 80, codSum: 4800 }
+
+  it("measures return rate, courier cost per parcel and payment fee from real orders", () => {
+    expect(measureCosts({ delivered: order, returned: { orders: 34, courierSum: 34 * 118, courierN: 34 } })).toEqual({ returnPct: 29.8, delivery: 118, payFeePct: 2.4, sample: 114 })
+  })
+
+  it("says nothing with too few orders to trust", () => {
+    expect(measureCosts({ delivered: { ...order, orders: 10 }, returned: { orders: 5, courierSum: 0, courierN: 0 } })).toBeNull()
+  })
+
+  it("budget is target ÷ MER; the maximum is the margin left after shoes, delivery, packaging and fees", () => {
+    const profit = profitPlan({ target: 1200000, grossMargin: 0.5, ratio: 1, aov: 1770, mer: 5, costs: { salary: 0, rent: 0, other: 0, delivery: 120, packaging: 57, payFeePct: 2.5, returnPct: 30 }, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    const d = dailyPlan({ dayTarget: 40000, mer: 5, profit, spentToday: 3000 })
+    const beforeAds = 0.5 - 177 / (1770 * 0.7) - 0.025
+    expect(Math.abs(d.adMax - 40000 * beforeAds)).toBeLessThan(40) // the rates are rounded to 3 decimals
+    expect(d.adBudget).toBe(8000) // 40,000 / 5, under the maximum
+    expect(d.adLeft).toBe(5000)
+    expect(d.adsCantPay).toBe(false)
+    expect(d.ordersToDeliver).toBe(23) // 40,000 / 1,770
+    expect(d.ordersToBook).toBe(33) // 23 / 0.7 — 30% come back
+  })
+
+  it("caps the budget at the maximum and warns when ads can't pay for the target", () => {
+    const profit = profitPlan({ target: 1200000, grossMargin: 0.3, ratio: 1, aov: 1770, mer: 2, costs: { salary: 0, rent: 0, other: 0, delivery: 120, packaging: 57, payFeePct: 2.5, returnPct: 30 }, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    const d = dailyPlan({ dayTarget: 40000, mer: 2, profit, spentToday: 0 })
+    expect(d.adBudget).toBe(d.adMax)
+    expect(d.adBudget).toBeLessThan(20000)
+    expect(d.adsCantPay).toBe(true)
+  })
+
+  it("suggests a target 15% above the last 30 days, capped by what stock could bring in", () => {
+    expect(suggestTarget({ trailing30Revenue: 1000000, stockCapacity: 5000000 })).toBe(1150000)
+    expect(suggestTarget({ trailing30Revenue: 1000000, stockCapacity: 900000 })).toBe(900000)
+    expect(suggestTarget({ trailing30Revenue: 0, stockCapacity: 900000 })).toBeNull()
+  })
+})

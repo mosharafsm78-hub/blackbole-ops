@@ -61,6 +61,7 @@ crons.monthly("kpi auto finalize month", { day: 1, hourUTC: 3, minuteUTC: 0 }, i
 // the Sunday just finished) against a straight-line share of the month's target. Independent of the
 // Saturday-reset sprint above: a revenue target is a calendar-month thing, not a sprint-week thing, so it
 // keeps its own Monday/Sunday cadence rather than being forced onto the sprint's Saturday boundary.
+crons.daily("auto revenue target", { hourUTC: 3, minuteUTC: 40 }, internal.targets.autoTargets, {})
 crons.weekly("kpi revenue target pace check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 20 }, internal.targets.weeklyTargetCheck, {})
 crons.daily("kpi revenue target month check", { hourUTC: 3, minuteUTC: 25 }, internal.targets.monthTargetCheck, {})
 

@@ -19,8 +19,8 @@ import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, classify, DEFAULT_COSTS, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, onPace, productRows, profitPlan, skuBase, summarizeSales,
-  type MarketingPlan, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
+  buildPlan, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
+  type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
 } from "./targetPlan"
 
 const DAY = 86400000
@@ -40,7 +40,7 @@ export const getTarget = query({
   handler: async (ctx, { month }) => {
     if (!(await currentStaff(ctx))) return null
     const row = await ctx.db.query("revenueTargets").withIndex("by_month", (q) => q.eq("month", month)).unique()
-    return row ? { month: row.month, amount: row.amount, setByName: row.setByName, updatedAt: row.updatedAt, start: row.start ?? null } : null
+    return row ? { month: row.month, amount: row.amount, setByName: row.setByName, updatedAt: row.updatedAt, start: row.start ?? null, auto: !!row.auto } : null
   },
 })
 
@@ -62,7 +62,7 @@ export const setMonthlyTarget = mutation({
     }
     // A target set before its month begins starts today, so the daily plan is live from the day it is set.
     const start = existing?.start ?? (month > dhakaMonth(Date.now()) ? dhakaDay(Date.now()) : undefined)
-    const row = { month, amount: whole, setByName: me.staff.name, updatedAt: Date.now(), start }
+    const row = { month, amount: whole, setByName: me.staff.name, updatedAt: Date.now(), start, auto: undefined }
     if (existing) await ctx.db.patch(existing._id, existing.amount === whole ? row : { ...row, plan: undefined })
     else await ctx.db.insert("revenueTargets", row)
   },
@@ -97,10 +97,11 @@ export const setMonthlyCosts = mutation({
 /** For the progress action: the costs, or null for anyone who may not see them. */
 export const costsForProgress = internalQuery({
   args: {},
-  handler: async (ctx): Promise<MonthlyCosts | null> => {
-    try { await requirePerm(ctx, "team.manage") } catch { return null }
-    const c = await getSetting<MonthlyCosts>(ctx, "monthlyCosts")
-    return c ? withDefaults(c) : null
+  handler: async (ctx): Promise<{ costs: MonthlyCosts; fixedVisible: boolean } | null> => {
+    const c = withDefaults(await getSetting<MonthlyCosts>(ctx, "monthlyCosts"))
+    try { await requirePerm(ctx, "team.manage"); return { costs: c, fixedVisible: true } } catch { /* not a manager */ }
+    // Marketing sees the per-order costs (they set the ad limit) but never salaries, rent or other fixed costs.
+    try { await requirePerm(ctx, "ads.view"); return { costs: { ...c, salary: 0, rent: 0, other: 0 }, fixedVisible: false } } catch { return null }
   },
 })
 
@@ -156,9 +157,23 @@ export const salesPage = internalQuery({
         .map((o) => ({
           at: o.deliveredAt!,
           total: o.total,
+          c: o.courierCost ?? o.courierFee ?? 0,
+          f: o.codCost ?? 0,
           items: o.items.map((i) => ({ k: skuBase(i.sku), n: i.name, q: i.qty, a: i.price * i.qty - i.discount })),
         })),
     }
+  },
+})
+
+/** Returned parcels whose status changed in [from, to): what came back, and what the courier charged for it. */
+export const returnedPage = internalQuery({
+  args: { status: v.union(v.literal("returned"), v.literal("pending_returned"), v.literal("damaged")), from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { status, from, to, cursor }): Promise<Page<{ c: number }>> => {
+    const res = await ctx.db
+      .query("orders")
+      .withIndex("by_status_changed", (q) => q.eq("status", status).gte("statusChangedAt", from).lt("statusChangedAt", to))
+      .paginate({ cursor, numItems: 300 })
+    return { isDone: res.isDone, cursor: res.continueCursor, rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ c: o.courierCost ?? o.courierFee ?? 0 })) }
   },
 })
 
@@ -234,6 +249,9 @@ type Gathered = {
   mtd: SalesSummary["mtd"]
   ratio: number
   aov?: number
+  /** Courier and payment costs on delivered orders, and how many parcels came back, over the window. */
+  ops?: { orders: number; revenue: number; courierSum: number; courierN: number; codSum: number }
+  returned?: { orders: number; courierSum: number; courierN: number }
   /** Sellable pairs per product; units null = pre-order (not capped). Null for a month that's already over. */
   stock: StockMap | null
   spend?: { at: number; byDay: Record<string, number> }
@@ -272,14 +290,25 @@ async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
   return out
 }
 
+async function returnedStats(ctx: ActionCtx, from: number, to: number) {
+  const out = { orders: 0, courierSum: 0, courierN: 0 }
+  for (const status of ["returned", "pending_returned", "damaged"] as const) {
+    const rows = await pageAll<{ c: number }>((cursor) => ctx.runQuery(internal.targets.returnedPage, { status, from, to, cursor }))
+    for (const r of rows) { out.orders++; if (r.c > 0) { out.courierSum += r.c; out.courierN++ } }
+  }
+  return out
+}
+
 async function gather(ctx: ActionCtx, month: string, start: string | undefined, now: number, current: string): Promise<Gathered> {
   const historic = month < current
   const mStart = dayStartMs(periodOf(month, start).first), mEnd = monthEndMs(month)
   const from = historic ? mStart : Math.min(mStart, now - WINDOW_DAYS * DAY)
   const to = historic ? mEnd : now + 1
-  const [rows, stock] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx)])
+  const [rows, stock, returned] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx), historic ? Promise.resolve(undefined) : returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1)])
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, stock }
+  // Real costs are measured on the same trailing window as the sales that decide the plan.
+  const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock }
 }
 
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
@@ -319,9 +348,15 @@ export type TargetProgress = {
   marketing: MarketingView | null
   /** Margin, break-even and profit. Only for people who may see salaries and ad spend, and only once costs are entered. */
   profit: ProfitPlan | null
+  /** Today's ad budget and the most that can be spent, return-adjusted order counts. For people with ads access. */
+  daily: DailyPlan | null
+  /** Return rate, courier cost and payment fee measured from real orders (null with too few orders). */
+  measured: MeasuredCosts | null
+  /** True when the target was set by the system, not a person. */
+  auto: boolean
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null })
+const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -441,23 +476,32 @@ export const progress = action({
 
     // ---- profit: shoe cost + ad budget + fixed costs against the target ----
     let profit: ProfitPlan | null = null
+    let daily: DailyPlan | null = null
+    let measured: MeasuredCosts | null = null
     if (marketing?.state === "ok" && marketing.plan.mer && data.stock && snapshot) {
-      const costs = await ctx.runQuery(internal.targets.costsForProgress, {})
-      if (costs && fixedTotal(costs) > 0) {
+      const got = await ctx.runQuery(internal.targets.costsForProgress, {})
+      if (got) {
+        // Real numbers beat typed ones: courier cost, payment fee and return rate come from the last 60 days of orders.
+        measured = data.ops && data.returned ? measureCosts({ delivered: data.ops, returned: data.returned }) : null
+        const costs: MonthlyCosts = measured ? { ...got.costs, delivery: measured.delivery || got.costs.delivery, payFeePct: measured.payFeePct || got.costs.payFeePct, returnPct: measured.returnPct } : got.costs
         const stockMap = data.stock
         const gm = mixMargin(Object.entries(snapshot.products).map(([k, p]) => ({ units: p.units, price: p.price / data.ratio, cost: stockMap[k]?.cost ?? null })))
         if (gm !== null) {
-          profit = profitPlan({
+          const full = profitPlan({
             target: row.amount, grossMargin: gm, ratio: data.ratio, aov: data.aov, mer: marketing.plan.mer, costs,
             deliveredMtd: monthPlan.delivered, spentMtd: marketing.plan.spentMtd,
             dayOfMonth: monthPlan.started ? (monthPlan.finished ? period.days : dayNo(period.first, today)) : 0,
             days: period.days,
           })
+          if (monthPlan.focus) {
+            daily = dailyPlan({ dayTarget: monthPlan.focus.target, mer: marketing.plan.mer, profit: full, spentToday: data.spend?.byDay[today] ?? 0 })
+          }
+          if (got.fixedVisible && fixedTotal(costs) > 0) profit = full
         }
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit }
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto }
   },
 })
 
@@ -528,5 +572,41 @@ export const awardTargetPoints = internalMutation({
     const recent = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", Date.now() - 40 * DAY)).collect()
     if (recent.some((e) => e.ruleKey === ruleKey && e.label.includes(dedupeKey))) return
     await awardPoints(ctx, { staffName: lead.name, ruleKey, label })
+  },
+})
+
+// ---------------------------------------------------------------------------------------------------------------
+// Automatic target: when nobody has set one, the system sets it from sales and stock
+// ---------------------------------------------------------------------------------------------------------------
+
+export const saveAutoTarget = internalMutation({
+  args: { month: v.string(), amount: v.number() },
+  handler: async (ctx, { month, amount }) => {
+    const existing = await ctx.db.query("revenueTargets").withIndex("by_month", (q) => q.eq("month", month)).unique()
+    if (existing) return // a person's target (or an earlier automatic one) is never overwritten
+    await ctx.db.insert("revenueTargets", { month, amount, setByName: "Auto (from sales and stock)", updatedAt: Date.now(), auto: true })
+  },
+})
+
+/** Daily. If this month has no target (and no early-started one covers today) it makes one; from the 25th it also
+ *  makes next month's. Target = last 30 days' delivered revenue + 15%, never above what sellable stock could bring in. */
+export const autoTargets = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const day = dhakaDay(now)
+    const current = dhakaMonth(now)
+    const next = nextMonthKey(current)
+    const hasCurrent = await ctx.runQuery(internal.targets.targetRow, { month: current })
+    const hasNext = await ctx.runQuery(internal.targets.targetRow, { month: next })
+    const nextCoversToday = !!hasNext?.start && hasNext.start <= day
+    const month = !hasCurrent && !nextCoversToday ? current : Number(day.slice(8, 10)) >= 25 && !hasNext ? next : null
+    if (!month) return
+
+    const rows = await salesRows(ctx, now - 30 * DAY, now + 1)
+    const stock = await gatherStock(ctx)
+    const capacity = Object.values(stock).reduce((s, e) => s + (e.units === null ? 0 : e.units * e.price), 0)
+    const amount = suggestTarget({ trailing30Revenue: rows.reduce((s, r) => s + r.total, 0), stockCapacity: capacity })
+    if (amount) await ctx.runMutation(internal.targets.saveAutoTarget, { month, amount })
   },
 })

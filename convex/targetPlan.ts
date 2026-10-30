@@ -27,7 +27,8 @@ const r2 = (n: number) => Math.round(n * 100) / 100
 // ------------------------------------------------------------------------------------------------ sales history
 
 export type SaleLine = { k: string; n: string; q: number; a: number }
-export type SaleRow = { at: number; total: number; items: SaleLine[] }
+/** c = courier cost paid on the parcel, f = payment (COD) fee — both from the order, 0 when not recorded. */
+export type SaleRow = { at: number; total: number; items: SaleLine[]; c?: number; f?: number }
 
 export type SalesSummary = {
   /** Delivered revenue (order totals) per Dhaka day. */
@@ -40,6 +41,8 @@ export type SalesSummary = {
   ratio: number
   /** Average order total over the window (what one order brings in), 0 with no orders. */
   aov: number
+  /** Real courier and payment costs on the delivered orders in the window. */
+  ops: { orders: number; revenue: number; courierSum: number; courierN: number; codSum: number }
 }
 
 export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs: number }): SalesSummary {
@@ -47,10 +50,14 @@ export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs:
   const trailing: SalesSummary["trailing"] = {}
   const mtd: SalesSummary["mtd"] = {}
   let totals = 0, lines = 0
+  const ops = { orders: rows.length, revenue: 0, courierSum: 0, courierN: 0, codSum: 0 }
   for (const r of rows) {
     const day = dhakaDay(r.at)
     byDay[day] = r2((byDay[day] ?? 0) + r.total)
     totals += r.total
+    ops.revenue += r.total
+    ops.codSum += r.f ?? 0
+    if ((r.c ?? 0) > 0) { ops.courierSum += r.c!; ops.courierN++ }
     const inMonth = r.at >= month.startMs && r.at < month.endMs
     for (const it of r.items) {
       lines += it.a
@@ -63,7 +70,7 @@ export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs:
     }
   }
   const ratio = lines > 0 ? Math.min(1.5, Math.max(0.5, totals / lines)) : 1
-  return { byDay, trailing, mtd, ratio, aov: rows.length > 0 ? totals / rows.length : 0 }
+  return { byDay, trailing, mtd, ratio, aov: rows.length > 0 ? totals / rows.length : 0, ops }
 }
 
 // ------------------------------------------------------------------------------------------------ allocation
@@ -134,6 +141,19 @@ export function allocateRevenue(products: ProductInput[], revenue: number): { ro
   return { rows, gap: left > 0.5 ? Math.round(left) : 0 }
 }
 
+/** How much weight stock gets next to sales when splitting a group's share. Half: sales say what customers buy,
+ *  stock says what we are holding — a big pile (like the Veyron loafers) must be worked, not left because it sells slowly. */
+export const STOCK_WEIGHT = 0.5
+
+/** Weight = (1 − STOCK_WEIGHT) × share of sales + STOCK_WEIGHT × share of stock value, within the group. */
+export function blendWeights(list: ProductInput[]): ProductInput[] {
+  const stockValue = (p: ProductInput) => (p.stockUnits === null ? 0 : p.stockUnits * p.price)
+  const demand = list.reduce((s, p) => s + Math.max(0, p.demandRevenue), 0)
+  const stock = list.reduce((s, p) => s + stockValue(p), 0)
+  if (demand <= 0 || stock <= 0) return list
+  return list.map((p) => ({ ...p, demandRevenue: ((1 - STOCK_WEIGHT) * Math.max(0, p.demandRevenue)) / demand + (STOCK_WEIGHT * stockValue(p)) / stock }))
+}
+
 /** Splits `revenue` across the three groups (focus 80% / other 12% / dead 8%, renormalised over the groups that
  *  exist), then by demand inside each. What a small group can't carry in stock is handed back to focus. */
 export function allocateGrouped(products: ProductInput[], revenue: number): { rows: Allocation[]; gap: number } {
@@ -145,7 +165,7 @@ export function allocateGrouped(products: ProductInput[], revenue: number): { ro
   let gap = 0
   for (const k of live) { // small groups first; focus last takes whatever they couldn't
     const pool = k === "focus" ? left : (Math.max(0, revenue) * GROUP_SHARE[k]) / (live.includes("focus") ? 1 : total) // small groups keep their fixed share unless there is no focus group
-    const res = allocateRevenue(products.filter((p) => g(p) === k), pool)
+    const res = allocateRevenue(blendWeights(products.filter((p) => g(p) === k)), pool)
     rows.push(...res.rows.map((r) => ({ ...r, group: k })))
     left -= pool - res.gap
     if (k === "focus") gap = res.gap
@@ -398,4 +418,76 @@ export function profitPlan(args: {
     profitMtd: Math.round(args.deliveredMtd * beforeAds - args.spentMtd - (fixed * args.dayOfMonth) / args.days),
     coverage: breakEven ? Math.round((args.target / breakEven) * 100) / 100 : null,
   }
+}
+
+
+// ------------------------------------------------------------------------------------------------ measured costs
+
+export type MeasuredCosts = { returnPct: number; delivery: number; payFeePct: number; sample: number }
+export const MIN_SAMPLE = 30 // orders needed before measured numbers replace the typed ones
+
+/** Return rate, courier cost per order and payment fee, measured from real orders. Null with too few orders. */
+export function measureCosts(a: {
+  delivered: { orders: number; revenue: number; courierSum: number; courierN: number; codSum: number }
+  returned: { orders: number; courierSum: number; courierN: number }
+}): MeasuredCosts | null {
+  const sample = a.delivered.orders + a.returned.orders
+  if (sample < MIN_SAMPLE) return null
+  const courierN = a.delivered.courierN + a.returned.courierN
+  return {
+    returnPct: Math.round((a.returned.orders / sample) * 1000) / 10,
+    delivery: courierN > 0 ? Math.round((a.delivered.courierSum + a.returned.courierSum) / courierN) : 0,
+    payFeePct: a.delivered.revenue > 0 ? Math.round((a.delivered.codSum / a.delivered.revenue) * 1000) / 10 : 0,
+    sample,
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ daily marketing
+
+export type DailyPlan = {
+  /** Orders that must be delivered to hit the day's target, and booked to allow for returns. */
+  ordersToDeliver: number
+  ordersToBook: number
+  /** Share of shipped orders expected to come back (0–1). */
+  returnRate: number
+  /** Ad spend that reaches the target at the 30-day efficiency (capped at the maximum). */
+  adBudget: number
+  /** Most that can be spent on the day's revenue before every extra taka loses money (before fixed costs). */
+  adMax: number
+  spentToday: number
+  /** Budget still to spend today; negative when over. */
+  adLeft: number
+  /** True when the efficiency needed is better than ads can actually deliver. */
+  adsCantPay: boolean
+}
+
+export function dailyPlan(a: { dayTarget: number; mer: number; profit: ProfitPlan; spentToday: number }): DailyPlan {
+  const p = a.profit
+  const beforeAds = p.contribution + p.adRate // margin left after shoes, delivery, packaging and fees
+  const adMax = Math.max(0, Math.floor(a.dayTarget * beforeAds))
+  const wanted = Math.ceil(a.dayTarget / a.mer)
+  const adBudget = Math.min(wanted, adMax)
+  const ordersToDeliver = p.aov > 0 ? Math.ceil(a.dayTarget / p.aov) : 0
+  return {
+    ordersToDeliver,
+    ordersToBook: Math.ceil(ordersToDeliver / (1 - p.returnRate)),
+    returnRate: p.returnRate,
+    adBudget, adMax,
+    spentToday: Math.round(a.spentToday),
+    adLeft: adBudget - Math.round(a.spentToday),
+    adsCantPay: wanted > adMax,
+  }
+}
+
+/** Model name without its colour/variant: "BlackBole Veyron Casual Loafer - Olive" → "BlackBole Veyron Casual Loafer". */
+export const familyOf = (name: string) => name.split(" - ")[0].trim()
+
+/** A target for a period with none set: 15% above the last 30 days' delivered revenue, never above what sellable
+ *  stock could bring in, rounded to the nearest ৳10,000. Null with no sales to base it on. */
+export function suggestTarget(a: { trailing30Revenue: number; stockCapacity: number }): number | null {
+  if (!(a.trailing30Revenue > 0)) return null
+  const wanted = a.trailing30Revenue * 1.15
+  const capped = a.stockCapacity > 0 ? Math.min(wanted, a.stockCapacity) : wanted
+  const rounded = Math.round(capped / 10000 + 1e-9) * 10000 // epsilon: 100000 × 1.15 is 114999.999… in floating point
+  return rounded > 0 ? rounded : null
 }

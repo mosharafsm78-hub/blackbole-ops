@@ -65,7 +65,7 @@ function CostsForm() {
         who manage the team can see this.
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">{field("salary", "Salaries (৳)")}{field("rent", "Office rent (৳)")}{field("other", "Other expenses (৳)")}</div>
-      <p className="mt-4 text-sm text-muted-foreground">Costs that grow with every order:</p>
+      <p className="mt-4 text-sm text-muted-foreground">Costs that grow with every order. Courier cost, payment fee and the return rate are measured from your real orders automatically once there are enough of them; these numbers are used until then.</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{field("delivery", "Delivery cost per order (৳)")}{field("packaging", "Packaging cost per order (৳)")}{field("payFeePct", "Payment fee (% of revenue)")}{field("returnPct", "Return rate (% of shipped orders)")}</div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">Total fixed: <b className="text-foreground">{taka(total)}</b> a month</span>
