@@ -20,10 +20,18 @@ async function requireManage(ctx: QueryCtx) {
   return s
 }
 
+/** Pictures can also be uploaded by anyone who manages products (the photo on a product). */
+async function requireUpload(ctx: QueryCtx) {
+  const s = await currentStaff(ctx)
+  if (!s) throw new ConvexError("You are not signed in or your access was removed.")
+  if (!canManage(s.perms) && !hasPerm(s.perms, "products.manage")) throw new ConvexError("You don't have permission for this action.")
+  return s
+}
+
 export const uploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireManage(ctx)
+    await requireUpload(ctx)
     return await ctx.storage.generateUploadUrl()
   },
 })
@@ -32,7 +40,7 @@ export const uploadUrl = mutation({
 export const add = mutation({
   args: { storageId: v.id("_storage"), name: v.string(), type: v.string(), size: v.number(), w: v.optional(v.number()), h: v.optional(v.number()) },
   handler: async (ctx, a) => {
-    await requireManage(ctx)
+    await requireUpload(ctx)
     const type = a.type.toLowerCase()
     if (!OK_TYPE.test(type)) { await ctx.storage.delete(a.storageId); throw new ConvexError("Only pictures (JPG, PNG, WebP, GIF, AVIF, SVG) and videos (MP4, WebM, MOV) can be uploaded.") }
     if (a.size > MAX_FILE_BYTES) { await ctx.storage.delete(a.storageId); throw new ConvexError("Files can be up to 50 MB.") }

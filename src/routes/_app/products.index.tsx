@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TEMPLATE_CSV, mapProductCsv, type ImportRow } from "@/lib/csv"
 import { errMsg, taka } from "@/lib/format"
+import { useUploadFiles } from "@/components/file-picker"
 import { isPreOrderSku } from "@/convex/rules"
 
 export const Route = createFileRoute("/_app/products/")({
@@ -135,6 +136,7 @@ function FragmentRows({ children }: { children: React.ReactNode }) {
 function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: () => void }) {
   const save = useMutation(api.catalog.saveProduct)
   const [f, setF] = useState<ProductForm>(initial)
+  const photo = useUploadFiles()
   const [sizes, setSizes] = useState("")
   const [baseSku, setBaseSku] = useState("")
   const [basePrice, setBasePrice] = useState(0)
@@ -160,7 +162,18 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2"><Label>Name</Label><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="BlackBole Harbor Shore Sandal - Black" /></div>
           <div className="space-y-1.5"><Label>Category</Label><Input value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })} placeholder="Sandals" /></div>
-          <div className="space-y-1.5"><Label>Image URL</Label><Input value={f.imageUrl} onChange={(e) => setF({ ...f, imageUrl: e.target.value })} placeholder="https://…" /></div>
+          <div className="space-y-1.5">
+            <Label>Photo</Label>
+            <div className="flex items-center gap-2">
+              {f.imageUrl && <img src={f.imageUrl} alt="" className="size-9 shrink-0 rounded border object-cover" />}
+              <Input value={f.imageUrl} onChange={(e) => setF({ ...f, imageUrl: e.target.value })} placeholder="Upload a photo, or paste a link (https://…)" />
+              <label className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm font-medium hover:bg-muted">
+                <Upload className="size-4" /> {photo.busy ? "Uploading…" : "Upload"}
+                <input type="file" accept="image/*" className="hidden" disabled={photo.busy > 0}
+                  onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; const [url] = await photo.upload([file]); if (url) setF((cur) => ({ ...cur, imageUrl: url })) }} />
+              </label>
+            </div>
+          </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> Active (can be sold)</label>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.preOrder} onCheckedChange={(v) => setF({ ...f, preOrder: v })} /> Pre-order product (takes long to arrive — orders go to the Pre-Order tab). SKUs starting with “PO-” count as pre-order automatically.</label>
           <div className="flex items-center gap-2 text-sm">
