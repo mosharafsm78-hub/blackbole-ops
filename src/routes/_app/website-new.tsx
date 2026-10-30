@@ -22,7 +22,7 @@ import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/website-new")({
-  validateSearch: (s: Record<string, unknown>): { from?: string } => (s.from ? { from: String(s.from) } : {}),
+  validateSearch: (s: Record<string, unknown>): { from?: string; forPo?: string } => ({ ...(s.from ? { from: String(s.from) } : {}), ...(s.forPo ? { forPo: String(s.forPo) } : {}) }),
   component: () => <WebsiteGuard><TooltipProvider delayDuration={200}><NewProduct /></TooltipProvider></WebsiteGuard>,
 })
 
@@ -61,7 +61,7 @@ function NewProduct() {
   const colls = useQuery(api.website.collections)
   const products = useQuery(api.website.products)
   const templates = useQuery(api.website.productTemplateList) ?? [""]
-  const { from } = Route.useSearch()
+  const { from, forPo } = Route.useSearch()
   const source = useQuery(api.website.product, from ? { id: from as Id<"products"> } : "skip")
   const [f, setF] = useState<Form>(empty)
   // Duplicate: start from another product (everything except SKUs, which are made new)
@@ -168,7 +168,7 @@ function NewProduct() {
       })
       markSaved(f)
       toast.success(f.published ? "Product created — live on the website in about a minute" : "Product created as a draft")
-      setTimeout(() => navigate({ to: "/website-product", search: { id } }), 0)
+      setTimeout(() => (forPo ? navigate({ to: "/purchase", search: { id: forPo, addProduct: id } }) : navigate({ to: "/website-product", search: { id } })), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
 

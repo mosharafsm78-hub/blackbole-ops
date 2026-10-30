@@ -149,6 +149,19 @@ export const importProducts = mutation({
 })
 
 /** Variant search for the create-order screen and stock-in. */
+/** All active sizes of one product (used to drop a freshly created product into a purchase). */
+export const productSizes = query({
+  args: { productId: v.id("products") },
+  handler: async (ctx, { productId }) => {
+    if (!(await currentStaff(ctx))) return []
+    const p = await ctx.db.get(productId)
+    if (!p) return []
+    const vs = await ctx.db.query("variants").withIndex("by_product", (x) => x.eq("productId", productId)).collect()
+    return vs.filter((x) => x.active).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }))
+      .map((x) => ({ _id: x._id, sku: x.sku, title: x.title, purchasePrice: x.purchasePrice, productName: p.name }))
+  },
+})
+
 export const searchVariants = query({
   args: { q: v.string(), locationId: v.optional(v.id("locations")) },
   handler: async (ctx, { q, locationId }) => {

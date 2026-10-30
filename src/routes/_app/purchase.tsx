@@ -19,7 +19,7 @@ import { dateOnly, dateTime, errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/purchase")({
-  validateSearch: (s: Record<string, unknown>) => ({ id: String(s.id ?? "new") }),
+  validateSearch: (s: Record<string, unknown>): { id: string; addProduct?: string } => ({ id: String(s.id ?? "new"), ...(s.addProduct ? { addProduct: String(s.addProduct) } : {}) }),
   component: () => (
     <Guard perm="inventory.receive">
       <PurchasePage />
@@ -41,9 +41,18 @@ function PurchasePage() {
 
 type Data = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.purchasing.getPO>>>, { missing: false }>
 
+const DRAFT_KEY = "bb-po-draft"
+type Draft = { id: string; supplierId: string; locationId: string; supplierRef: string; tracking: string; expected: string; note: string; lines: POLine[]; discount: number; shipping: number; other: number }
+
 function Editor({ data }: { data: Data | null }) {
   const can = useCan()
   const navigate = useNavigate()
+  const { id: routeId, addProduct } = Route.useSearch()
+  // Coming back from the full product form: restore what was typed on this purchase (supplier, dates, lines…)
+  const [draft] = useState<Draft | null>(() => {
+    if (!addProduct) return null
+    try { const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null; return d && d.id === routeId ? d : null } catch { return null }
+  })
   const po = data?.po
   const save = useMutation(api.purchasing.savePO)
   const setStatus = useMutation(api.purchasing.setPOStatus)
@@ -59,17 +68,17 @@ function Editor({ data }: { data: Data | null }) {
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
 
-  const [supplierId, setSupplierId] = useState<string>(po?.supplierId ?? "")
-  const [locationId, setLocationId] = useState<string>(po?.locationId ?? "")
-  const [supplierRef, setSupplierRef] = useState(po?.supplierRef ?? "")
-  const [tracking, setTracking] = useState(po?.tracking ?? "")
-  const [expected, setExpected] = useState(toDateInput(po?.expectedAt))
-  const [note, setNote] = useState(po?.note ?? "")
-  const [lines, setLines] = useState<POLine[]>(po?.items.map((i) => ({ ...i })) ?? [])
-  const [discount, setDiscount] = useState(po?.discount ?? 0)
-  const [shipping, setShipping] = useState(po?.shippingCost ?? 0)
-  const [other, setOther] = useState(po?.otherCost ?? 0)
-  const [dirty, setDirty] = useState(false)
+  const [supplierId, setSupplierId] = useState<string>(draft?.supplierId ?? po?.supplierId ?? "")
+  const [locationId, setLocationId] = useState<string>(draft?.locationId ?? po?.locationId ?? "")
+  const [supplierRef, setSupplierRef] = useState(draft?.supplierRef ?? po?.supplierRef ?? "")
+  const [tracking, setTracking] = useState(draft?.tracking ?? po?.tracking ?? "")
+  const [expected, setExpected] = useState(draft?.expected ?? toDateInput(po?.expectedAt))
+  const [note, setNote] = useState(draft?.note ?? po?.note ?? "")
+  const [lines, setLines] = useState<POLine[]>(draft?.lines ?? po?.items.map((i) => ({ ...i })) ?? [])
+  const [discount, setDiscount] = useState(draft?.discount ?? po?.discount ?? 0)
+  const [shipping, setShipping] = useState(draft?.shipping ?? po?.shippingCost ?? 0)
+  const [other, setOther] = useState(draft?.other ?? po?.otherCost ?? 0)
+  const [dirty, setDirty] = useState(!!draft)
   const [busy, setBusy] = useState(false)
   const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship">(null)
   const [preset, setPreset] = useState<Parameters<typeof ProductBuilder>[0]["preset"]>()
@@ -80,6 +89,26 @@ function Editor({ data }: { data: Data | null }) {
   const locked = status === "cancelled" || status === "received"
   const editable = can("purchases.manage") && !locked
   const touch = () => setDirty(true)
+  const goNewProduct = () => {
+    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ id: routeId, supplierId, locationId, supplierRef, tracking, expected, note, lines, discount, shipping, other } satisfies Draft)) } catch { /* private mode: lines are simply not kept */ }
+    navigate({ to: "/website-new", search: { forPo: routeId } })
+  }
+  // The product just saved in the full form: add all its sizes as lines (once)
+  const added = useQuery(api.catalog.productSizes, addProduct ? { productId: addProduct as Id<"products"> } : "skip")
+  const doneAdd = useRef(false)
+  useEffect(() => {
+    if (!addProduct || !added || doneAdd.current) return
+    doneAdd.current = true
+    try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    setLines((cur) => {
+      const next = [...cur]
+      for (const r of added) if (!next.some((x) => x.variantId === r._id)) next.push({ variantId: r._id, sku: r.sku, name: r.productName, title: r.title, orderedQty: 1, unitCost: r.purchasePrice ?? 0 })
+      return next
+    })
+    setDirty(true)
+    navigate({ to: "/purchase", search: { id: routeId }, replace: true })
+    toast.success(`${added[0]?.productName ?? "Product"} added to this purchase: set the quantity for each size`)
+  }, [added, addProduct, routeId, navigate])
   const addLines = (ls: POLine[]) => {
     setLines((cur) => {
       const next = [...cur]
@@ -195,10 +224,9 @@ function Editor({ data }: { data: Data | null }) {
               {editable && (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setDlg("search")}><Search className="size-4" /> Add existing</Button>
-                  <Button size="sm" asChild title="Opens the full product form (description, photos, prices) in a new tab. Save it there, then come back and press Add existing.">
-                    <a href="/website-new" target="_blank" rel="noreferrer"><Plus className="size-4" /> New product (full details)</a>
+                  <Button size="sm" onClick={goNewProduct} title="Opens the full product form (description, photos, prices). When you save it, you come back here with all its sizes added as lines.">
+                    <Plus className="size-4" /> New product (full details)
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => { setPreset(undefined); setDlg("builder") }}><Plus className="size-4" /> Quick new product</Button>
                   <Button size="sm" variant="outline" onClick={() => setDlg("upload")}><Upload className="size-4" /> Upload supplier list</Button>
                 </div>
               )}
