@@ -42,11 +42,11 @@ ${i.attrs ? `<div style="font-size:13px;color:#7a746b;margin-top:3px">Size / opt
 </tr></table></td></tr>`).join("")
   const giftBlock = gift ? `
 <tr><td style="padding:0 28px 8px"><table width="100%" cellpadding="0" cellspacing="0" style="background:#fff7e0;border:2px dashed #d9a400;border-radius:14px"><tr><td align="center" style="padding:20px 16px">
-<div style="font-size:12px;letter-spacing:3px;color:#8a6a00;font-weight:bold">${welcome ? "WELCOME OFFER" : "PRE-ORDER COUPON"}</div>
+<div style="font-size:12px;letter-spacing:3px;color:#8a6a00;font-weight:bold">${welcome ? "WELCOME COUPON" : "PRE-ORDER COUPON"}</div>
 <div style="font-size:34px;font-weight:bold;color:#1c1915;margin:6px 0">Tk ${gift.amount} OFF</div>
-<div style="font-size:13px;color:#5a4a00">${welcome ? "Your code" : "Your coupon code"}</div>
+<div style="font-size:13px;color:#5a4a00">Your coupon code</div>
 <div style="display:inline-block;margin-top:6px;padding:8px 18px;background:#1c1915;color:#ffd24a;font-size:18px;letter-spacing:3px;font-weight:bold;border-radius:8px">${esc(gift.code)}</div>
-<div style="font-size:12px;color:#5a4a00;margin-top:10px">${welcome ? "Added to your order automatically." : `Use this code at checkout on your pre-order to get Tk ${gift.amount} off.`}</div>
+<div style="font-size:12px;color:#5a4a00;margin-top:10px">${welcome ? `Use this code at checkout to get Tk ${gift.amount} off.` : `Use this code at checkout on your pre-order to get Tk ${gift.amount} off.`}</div>
 </td></tr></table></td></tr>` : ""
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;background:#f4f1ec;font-family:Arial,Helvetica,sans-serif;color:#1c1915">

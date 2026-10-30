@@ -139,6 +139,7 @@ describe("abandoned cart email — normal products and the Tk 50 welcome offer",
     const w = abandonedEmailContent({ customerName: "Customer", items: [], subtotal: 0, kind: "welcome", url: "https://blackbole.com" })
     expect(w.subject).toContain("50")
     expect(w.html).toContain("WELCOME50")
+    expect(w.html).toContain("Use this code at checkout to get Tk 50 off")
     expect(w.html).toContain("Start shopping")
     expect(w.html).not.toContain("pre-order")
     const r = abandonedEmailContent({ customerName: "Rafi Khan", items: [{ name: "Boot", price: 2000, qty: 1 }], subtotal: 2000, kind: "regular", url: "https://blackbole.com/cart?add=1:1" })
