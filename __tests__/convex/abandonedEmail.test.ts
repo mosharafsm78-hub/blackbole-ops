@@ -54,3 +54,19 @@ describe("abandoned cart email", () => {
     expect(logs[0]).toMatchObject({ phone: "a@b.com", channel: "email", status: "sent" })
   })
 })
+
+describe("abandoned cart email — product row", () => {
+  it("shows only published pre-order products", async () => {
+    const t = makeT()
+    const mk = (name: string, over: Record<string, unknown>) => t.run(async (ctx) => {
+      const id = await ctx.db.insert("products", { name, active: true, imageUrl: "https://x.test/a.jpg", handle: name.toLowerCase().replace(/\s+/g, "-"), createdAt: Date.now(), ...over } as any)
+      await ctx.db.insert("variants", { productId: id, sku: name, title: "42", price: 3000, purchasePrice: 1000, weightKg: 0.5, active: true } as any)
+    })
+    await mk("Pre Boot", { preOrder: true })
+    await mk("Tagged Loafer", { web: { tags: ["Pre-Order"] } })
+    await mk("Stock Sandal", {})
+    await mk("Hidden Pre", { preOrder: true, web: { published: false } })
+    const picks = await t.query(internal.abandonedEmail.picks, { exclude: [] })
+    expect(picks.map((p) => p.name).sort()).toEqual(["Pre Boot", "Tagged Loafer"])
+  })
+})

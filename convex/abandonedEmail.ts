@@ -70,7 +70,7 @@ export const sendNow = mutation({
   },
 })
 
-/** Other products to show in the email: newest published ones with a picture and a price. */
+/** Other products to show in the email: newest published PRE-ORDER ones with a picture and a price. */
 export const picks = internalQuery({
   args: { exclude: v.array(v.string()) },
   handler: async (ctx) => {
@@ -78,6 +78,8 @@ export const picks = internalQuery({
     for await (const p of ctx.db.query("products").order("desc")) {
       if (out.length >= 4) break
       if (!p.active || !p.imageUrl || !p.handle || p.web?.published === false || p.web?.archived) continue
+      // pre-order products only (the whole point of this email is to grow the pre-order model)
+      if (!p.preOrder && !((p.web?.tags as string[] | undefined) ?? []).some((t) => t.toLowerCase() === "pre-order")) continue
       const v = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).first()
       if (!v) continue
       out.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
