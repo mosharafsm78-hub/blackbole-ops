@@ -1056,6 +1056,57 @@ export const overdueDispatchCheck = internalMutation({
   },
 })
 
+/** A parcel that's out for delivery but Pathao has reported a failed attempt ("Delivery_Failed" and its
+ *  variants — same normalization pathao.ts's targetFor uses, since this reads the exact same courierStatus
+ *  field that sync already writes). Doesn't move the order's own status (Pathao keeps retrying), so there's no
+ *  status transition to hook this off of — it has to be its own scan. Gated by updatedAt, same "count from
+ *  today forward" spirit as the other checks, since updatedAt moves every time the sync touches the order. */
+export const deliveryFailedCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "in_transit").gte("createdAt", since)).collect()
+    for (const o of rows) {
+      if (o.deletedAt || !o.courierStatus) continue
+      if (o.updatedAt < CX_CALL_SLA_STARTS_AT) continue
+      const s = o.courierStatus.toLowerCase().replace(/[\s.-]+/g, "_")
+      if (!s.includes("delivery_failed")) continue
+      await raiseAccountabilityFlag(
+        ctx, o, "Delivery attempt failed",
+        `Pathao reported a failed delivery attempt (status: "${o.courierStatus}") — parcel still out, not yet resolved.`,
+        "BlackBole Ops (automatic)",
+        { ruleKey: "fulfillment.delivery_failed" },
+      )
+    }
+  },
+})
+
+// Fulfillment's own weekly "clean" award — same idea as ops.clean_week, but scoped to just the department's own
+// named misses (not every generic flag in the business), so the Fulfillment lead has something to earn by
+// keeping those specific numbers at zero for a week, not just more ways to lose points.
+const FULFILLMENT_NEGATIVE_KEYS = [
+  "fulfillment.late_dispatch", "fulfillment.overdue_dispatch", "fulfillment.wrong_item_sent",
+  "fulfillment.wrong_size_sent", "fulfillment.damaged_sent", "fulfillment.late_delivery_return", "fulfillment.delivery_failed",
+]
+
+export const weeklyFulfillmentCleanCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const owners = await ownersConf(ctx)
+    const lead = owners.byTeam["Fulfillment"]
+    if (!lead?.name) return
+    const since = Date.now() - 7 * DAY
+    const recent = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", since)).collect()
+    if (recent.some((e) => e.ruleKey === "fulfillment.clean_week")) return // already awarded this week
+    if (recent.some((e) => FULFILLMENT_NEGATIVE_KEYS.includes(e.ruleKey))) return
+    await awardPoints(ctx, {
+      staffName: lead.name, ruleKey: "fulfillment.clean_week",
+      label: "A full week with none of Fulfillment's own named misses (late dispatch, wrong item/size, damaged, late-delivery return, failed attempt)",
+    })
+  },
+})
+
 /** Every order still sitting in one status whose status hasn't changed since before the cutoff — bounded by
  *  the (status, statusChangedAt) index, so this only ever scans orders currently in that one status, never the
  *  whole orders table. */

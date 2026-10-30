@@ -50,11 +50,17 @@ crons.daily("cx overdue holds", { hourUTC: 3, minuteUTC: 11 }, internal.accounta
 // (which only fires once an order IS dispatched late): this catches one still stuck, not dispatched at all.
 // 9:12 Asia/Dhaka (UTC+6) = 03:12 UTC.
 crons.daily("fulfillment overdue dispatch", { hourUTC: 3, minuteUTC: 12 }, internal.accountability.overdueDispatchCheck, {})
+// A parcel still out for delivery with a failed-attempt status from Pathao — same daily cadence, same spirit.
+// 9:13 Asia/Dhaka (UTC+6) = 03:13 UTC.
+crons.daily("fulfillment delivery failed", { hourUTC: 3, minuteUTC: 13 }, internal.accountability.deliveryFailedCheck, {})
 
 // KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
 // weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back
 // at the Saturday–Thursday week that just finished. 9:10 Asia/Dhaka (UTC+6) = 03:10 UTC.
 crons.weekly("kpi clean week check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 10 }, internal.accountability.weeklyCleanCheck, {})
+// KPI: Fulfillment's own weekly "clean" award, scoped to just the department's own named misses. Same Saturday
+// morning as the business-wide one above. 9:11 Asia/Dhaka (UTC+6) = 03:11 UTC.
+crons.weekly("kpi fulfillment clean week check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 11 }, internal.accountability.weeklyFulfillmentCleanCheck, {})
 // KPI: Marketing's weekly ROAS-target award — same Saturday morning, looking back at the week just finished.
 // 9:15 Asia/Dhaka (UTC+6) = 03:15 UTC.
 crons.weekly("kpi roas target check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 15 }, internal.ads.weeklyRoasCheck, {})

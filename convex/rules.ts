@@ -320,6 +320,7 @@ export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Return call overdue": "Customer Care",
   "Hold overdue": "Customer Care",
   "Dispatch overdue": "Fulfillment",
+  "Delivery attempt failed": "Fulfillment",
 }
 
 /** True for any call outcome worth flagging red — an unhappy delivery, or a return whose reason was our own
