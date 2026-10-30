@@ -497,3 +497,15 @@ export function suggestTarget(a: { trailing30Revenue: number; stockCapacity: num
   const rounded = Math.round(capped / 10000 + 1e-9) * 10000 // epsilon: 100000 × 1.15 is 114999.999… in floating point
   return rounded > 0 ? rounded : null
 }
+
+// ------------------------------------------------------------------------------------------------ test products → buy
+
+export const BUY_MIN_ORDERED_7D = 5 // orders (pairs) in a week before demand counts as proven
+export const BUY_COVER_WEEKS = 3 // buy enough for this many weeks at the current pace
+
+/** For a product with test (fake) stock: has demand been proven, and if so how many pairs should be bought?
+ *  The pairs already sold on test stock are owed to customers, so they are bought first; real pairs in hand count. */
+export function buySuggestion(a: { ordered7: number; real: number }): { proven: boolean; buy: number } {
+  if (a.ordered7 < BUY_MIN_ORDERED_7D) return { proven: false, buy: 0 }
+  return { proven: true, buy: Math.max(0, Math.ceil(a.ordered7 * BUY_COVER_WEEKS) - Math.max(0, a.real)) }
+}

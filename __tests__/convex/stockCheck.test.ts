@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import schema from "../../convex/schema"
 import { api } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
+import { buySuggestion } from "../../convex/targetPlan"
 
 /**
  * Stock check: the team counts the pairs really in hand; the fake (test) part is whatever the system shows beyond
@@ -127,8 +128,69 @@ describe("the target plan reads real stock only", () => {
     expect(rows["BB-HERO"].stockUnits).toBe(30) // not 100
     expect(rows["BB-HERO"].monthUnits).toBeLessThanOrEqual(30)
     expect(rows["BB-TEST"]).toBeUndefined() // nothing in hand → no pairs planned
-    expect(p.tests).toEqual([{ key: "BB-TEST", name: "Test Loafer", fake: 50 }])
+    expect(p.tests).toEqual([
+      { key: "BB-HERO", name: "Hero Sandal", fake: 70, real: 30, ordered7: 0, proven: false, buy: 0 },
+      { key: "BB-TEST", name: "Test Loafer", fake: 50, real: 0, ordered7: 0, proven: false, buy: 0 },
+    ])
     expect(p.stockCheck).toEqual({ lines: 2, counted: 2 })
     expect(p.productInfo!.gap).toBeGreaterThan(0) // 30 real pairs can't carry ৳2 lakh
+  })
+})
+
+describe("adding test stock, and when it earns a purchase", () => {
+  it("adds pairs to the system stock and marks them fake in one step, creating the stock line for a new size", async () => {
+    const { t, asAdmin, locationId, stockRow } = await setup()
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name: "New Loafer", active: true, createdAt: NOW }))
+    const variantId = await t.run((ctx) => ctx.db.insert("variants", { productId, sku: "BB-NEW-41", title: "41", weightKg: 0.4, price: 1500, purchasePrice: 700, active: true }))
+
+    // a size with no stock yet still shows a line at the home warehouse
+    const before = (await asAdmin.query(api.stockCheck.list, { filter: "all", cursor: null }))!.products[0]
+    expect(before.lines).toEqual([expect.objectContaining({ variantId, locationId, available: 0, real: 0 })])
+
+    await asAdmin.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty: 20 }] })
+    expect(await stockRow(variantId)).toMatchObject({ available: 20, virtual: 20, countedBy: "Emon" })
+    await asAdmin.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty: 5 }] })
+    expect(await stockRow(variantId)).toMatchObject({ available: 25, virtual: 25 })
+    const logs = await t.run((ctx) => ctx.db.query("stockLogs").collect())
+    expect(logs.map((l) => [l.reason, l.change])).toEqual([["Test stock added", 20], ["Test stock added", 5]])
+    const after = (await asAdmin.query(api.stockCheck.list, { filter: "test", cursor: null }))!.products[0]
+    expect(after).toMatchObject({ system: 25, fake: 25, real: 0 })
+  })
+
+  it("rejects bad quantities and people who may not adjust stock", async () => {
+    const { t, asAdmin, asCx, locationId } = await setup()
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name: "P", active: true, createdAt: NOW }))
+    const variantId = await t.run((ctx) => ctx.db.insert("variants", { productId, sku: "BB-P-41", title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: true }))
+    for (const qty of [0, -3, 2.5]) await expect(asAdmin.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty }] })).rejects.toThrow(/whole number above zero/)
+    await expect(asCx.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty: 5 }] })).rejects.toThrow()
+  })
+
+  it("says buy once a week's orders prove demand, sized for three weeks minus what is in hand", async () => {
+    const { t, asAdmin, addProduct, sell, locationId } = await setup()
+    const { productId, variantIds } = await addProduct("Test Loafer", { "41": 40 }, "BB-TEST")
+    await addProduct("Quiet Test", { "41": 40 }, "BB-QUIET")
+    await asAdmin.mutation(api.stockCheck.markProduct, { productId, mode: "test" })
+    const quiet = (await t.run((ctx) => ctx.db.query("products").collect())).find((p) => p.name === "Quiet Test")!
+    await asAdmin.mutation(api.stockCheck.markProduct, { productId: quiet._id, mode: "test" })
+    await sell("BB-TEST-41", 8, NOW - 2 * DAY) // 8 pairs ordered this week → demand proven
+    await sell("BB-QUIET-41", 2, NOW - 3 * DAY) // only 2 → keep testing
+    await sell("BB-TEST-41", 6, NOW - 10 * DAY) // older than a week: not counted in ordered7
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    const test = p.tests.find((x) => x.key === "BB-TEST")!
+    expect(test).toMatchObject({ ordered7: 8, proven: true, buy: 24, real: 0 }) // 8 × 3 weeks
+    expect(p.tests.find((x) => x.key === "BB-QUIET")).toMatchObject({ ordered7: 2, proven: false, buy: 0 })
+    expect(p.tests[0].key).toBe("BB-TEST") // proven ones first
+    void variantIds; void locationId
+  })
+})
+
+describe("buy suggestion maths", () => {
+  it("needs 5 pairs ordered in a week; buys three weeks at that pace, less what is in hand", () => {
+    expect(buySuggestion({ ordered7: 4, real: 0 })).toEqual({ proven: false, buy: 0 })
+    expect(buySuggestion({ ordered7: 10, real: 0 })).toEqual({ proven: true, buy: 30 })
+    expect(buySuggestion({ ordered7: 10, real: 12 })).toEqual({ proven: true, buy: 18 })
+    expect(buySuggestion({ ordered7: 10, real: 50 })).toEqual({ proven: true, buy: 0 })
   })
 })

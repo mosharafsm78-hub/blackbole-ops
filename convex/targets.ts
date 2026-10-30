@@ -19,7 +19,7 @@ import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
+  buildPlan, buySuggestion, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
   type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
 } from "./targetPlan"
 
@@ -177,6 +177,18 @@ export const returnedPage = internalQuery({
   },
 })
 
+/** Orders placed in [from, to) that were not cancelled — what customers actually asked for. */
+export const orderedPage = internalQuery({
+  args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, to, cursor }): Promise<Page<{ at: number; items: { k: string; q: number }[] }>> => {
+    const res = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from).lt("createdAt", to)).paginate({ cursor, numItems: 300 })
+    return {
+      isDone: res.isDone, cursor: res.continueCursor,
+      rows: res.page.filter((o) => !o.deletedAt && o.status !== "cancelled").map((o) => ({ at: o.createdAt, items: o.items.map((i) => ({ k: skuBase(i.sku), q: i.qty })) })),
+    }
+  },
+})
+
 export const productPage = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }): Promise<Page<{ id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean }>> => {
@@ -256,6 +268,8 @@ type Gathered = {
   stock: StockMap | null
   /** How many stock lines there are and how many the team has counted. */
   stockCheck?: { lines: number; counted: number }
+  /** Pairs ordered (any status but cancelled) in the last 7 and 14 days, for products that carry test stock. */
+  testDemand?: Record<string, { u7: number; u14: number }>
   spend?: { at: number; byDay: Record<string, number> }
 }
 
@@ -312,6 +326,20 @@ async function returnedStats(ctx: ActionCtx, from: number, to: number) {
   return out
 }
 
+/** Pairs ordered recently (any status except cancelled) for the products that carry test stock: the proof of demand. */
+async function testDemand(ctx: ActionCtx, stock: StockMap, now: number) {
+  const out: Record<string, { u7: number; u14: number }> = {}
+  if (!Object.values(stock).some((e) => e.fake > 0)) return out
+  const rows = await pageAll<{ at: number; items: { k: string; q: number }[] }>((cursor) => ctx.runQuery(internal.targets.orderedPage, { from: now - 14 * DAY, to: now + 1, cursor }))
+  for (const r of rows) for (const i of r.items) {
+    if (!(stock[i.k]?.fake > 0)) continue
+    const d = (out[i.k] ??= { u7: 0, u14: 0 })
+    d.u14 += i.q
+    if (r.at >= now - 7 * DAY) d.u7 += i.q
+  }
+  return out
+}
+
 async function gather(ctx: ActionCtx, month: string, start: string | undefined, now: number, current: string): Promise<Gathered> {
   const historic = month < current
   const mStart = dayStartMs(periodOf(month, start).first), mEnd = monthEndMs(month)
@@ -321,7 +349,7 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.
   const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined }
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined }
 }
 
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
@@ -368,7 +396,7 @@ export type TargetProgress = {
   /** True when the target was set by the system, not a person. */
   auto: boolean
   /** Products with test stock only (nothing in hand): not planned, shown so they can be tested and then bought. */
-  tests: { key: string; name: string; fake: number }[]
+  tests: { key: string; name: string; fake: number; real: number; ordered7: number; proven: boolean; buy: number }[]
   /** How much of the stock the team has counted; the rest may still hide fake pairs. */
   stockCheck: { lines: number; counted: number } | null
 }
@@ -425,12 +453,18 @@ export const progress = action({
 
     // ---- the product plan ----
     let snapshot: ProductPlan | undefined
-    let tests: { key: string; name: string; fake: number }[] = []
+    let tests: TargetProgress["tests"] = []
     let products: ProductRow[] | null = null
     let productInfo: TargetProgress["productInfo"] = null
     if (data.stock) {
       const stockMap = data.stock
-      tests = Object.entries(stockMap).filter(([, e]) => e.units !== null && e.units === 0 && e.fake > 0).map(([key, e]) => ({ key, name: e.name, fake: e.fake })).sort((a, b) => b.fake - a.fake)
+      tests = Object.entries(stockMap)
+        .filter(([, e]) => e.units !== null && e.fake > 0)
+        .map(([key, e]) => {
+          const ordered7 = data.testDemand?.[key]?.u7 ?? 0
+          return { key, name: e.name, fake: e.fake, real: e.units ?? 0, ordered7, ...buySuggestion({ ordered7, real: e.units ?? 0 }) }
+        })
+        .sort((a, b) => Number(b.proven) - Number(a.proven) || b.buy - a.buy || b.fake - a.fake)
       const soldMtd = Object.fromEntries(Object.entries(data.mtd).map(([k, d]) => [k, Object.values(d).reduce((s, n) => s + n, 0)]))
       const sizeInfo: Record<string, { inStock: number; total: number } | null> = {}
       const inputs: ProductInput[] = []

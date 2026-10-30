@@ -29,14 +29,21 @@ export const list = query({
       ? ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", search.trim()))
       : ctx.db.query("products")
     const res = await base.paginate({ cursor, numItems: PAGE })
-    const locs = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
+    const allLocs = await ctx.db.query("locations").collect()
+    const locs = new Map(allLocs.map((l) => [l._id as string, l.name]))
+    const home = allLocs.find((l) => l.isDefault && l.active) ?? allLocs.find((l) => l.active && !l.noCourier) // where new test stock goes
     const out: CheckProduct[] = []
     for (const p of res.page) {
       if (p.deletedAt || !p.active) continue
       const variants = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
       const lines: CheckLine[] = []
       for (const x of variants) {
-        for (const s of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) {
+        const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+        // A size with no stock yet still gets a line at the home warehouse, so test pairs can be added to it.
+        if (home && !rows.some((s) => s.locationId === home._id)) {
+          lines.push({ variantId: x._id, locationId: home._id, locationName: home.name, title: x.title, sku: x.sku, available: 0, fake: 0, real: 0, counted: true, countedBy: null, countedAt: null })
+        }
+        for (const s of rows) {
           if (s.available <= 0 && !(s.virtual ?? 0)) continue
           lines.push({
             variantId: x._id, locationId: s.locationId, locationName: locs.get(s.locationId as string) ?? "",
@@ -46,6 +53,7 @@ export const list = query({
         }
       }
       if (lines.length === 0) continue
+      if (filter !== "all" && !lines.some((l) => l.available > 0 || l.fake > 0)) continue // empty products only show under "All"
       const system = lines.reduce((t, l) => t + l.available, 0)
       const fake = lines.reduce((t, l) => t + l.fake, 0)
       const uncounted = lines.some((l) => !l.counted && l.available > 0)
@@ -108,6 +116,25 @@ export const markProduct = mutation({
         if (s.available <= 0 && !(s.virtual ?? 0)) continue
         await setLine(ctx, me.staff.name, x._id, s.locationId, mode === "test" ? 0 : Math.max(0, s.available), mode === "test" ? "Marked as test stock — none in hand" : "Marked all real")
       }
+    }
+  },
+})
+
+/** Adds test (fake) pairs: they go into the system stock AND are marked as not in hand in one step, so a product can
+ *  be advertised and ordered before it is bought. No counting needed afterwards. */
+export const addTestStock = mutation({
+  args: { items: v.array(v.object({ variantId: v.id("variants"), locationId: v.id("locations"), qty: v.number() })) },
+  handler: async (ctx, { items }) => {
+    const me = await requirePerm(ctx, "inventory.adjust")
+    if (items.length === 0 || items.length > 100) throw new ConvexError("Add test pairs to between 1 and 100 sizes at a time.")
+    for (const i of items) {
+      if (!Number.isInteger(i.qty) || i.qty <= 0 || i.qty > 10000) throw new ConvexError("Test pairs must be a whole number above zero.")
+      const variant = await ctx.db.get(i.variantId)
+      if (!variant) throw new ConvexError("That size no longer exists.")
+      const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", i.variantId).eq("locationId", i.locationId)).unique()
+      if (row) await ctx.db.patch(row._id, { available: row.available + i.qty, virtual: (row.virtual ?? 0) + i.qty, countedAt: Date.now(), countedBy: me.staff.name })
+      else await ctx.db.insert("stock", { variantId: i.variantId, locationId: i.locationId, available: i.qty, processing: 0, inTransit: 0, returning: 0, damaged: 0, virtual: i.qty, countedAt: Date.now(), countedBy: me.staff.name })
+      await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId: i.locationId, bucket: "available", change: i.qty, reason: "Test stock added", note: "Test (fake) stock — not in hand", byName: me.staff.name, at: Date.now() })
     }
   },
 })

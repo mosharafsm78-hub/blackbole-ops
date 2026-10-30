@@ -179,11 +179,26 @@ function StockNotes({ data }: { data: TargetProgress }) {
       )}
       {data.tests.length > 0 && (
         <section className="rounded-xl border bg-card p-4" data-testid="target-tests">
-          <h2 className="text-sm font-semibold">Marketing tests — nothing in hand</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Listed for ads and orders, but not planned: there are no real pairs to deliver. When orders show the demand is real, buy it from the supplier in Purchases; once received it joins the plan by itself.</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {data.tests.slice(0, 20).map((t) => <li key={t.key} className="rounded-full border px-2.5 py-1 text-xs">{t.name} <span className="font-semibold text-tone-amber">· {t.fake} test pairs</span></li>)}
-          </ul>
+          <h2 className="text-sm font-semibold">Marketing tests — stock not in hand</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Test pairs are advertised and can be ordered, but aren't planned: there are no real pairs to deliver. A product that gets {5}+ orders in a week has proven demand — buy it from the supplier in Purchases, and it joins the plan by itself once received.</p>
+          <div className="mt-2 overflow-x-auto rounded-lg border">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="bg-muted/50 text-xs text-muted-foreground">
+                <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Test pairs</th><th className="px-3 py-1.5 text-right font-medium">In hand</th><th className="px-3 py-1.5 text-right font-medium">Ordered (7 days)</th><th className="px-3 py-1.5 text-right font-medium">Decision</th></tr>
+              </thead>
+              <tbody>
+                {data.tests.slice(0, 20).map((t) => (
+                  <tr key={t.key} className="border-t">
+                    <td className="px-3 py-1.5 font-medium">{t.name}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-tone-amber">{t.fake}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{t.real}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{t.ordered7}</td>
+                    <td className="px-3 py-1.5 text-right">{t.proven ? <span className="font-semibold text-tone-green">{t.buy > 0 ? `Buy ${t.buy} pairs` : "Enough in hand"}</span> : <span className="text-muted-foreground">Keep testing</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </div>

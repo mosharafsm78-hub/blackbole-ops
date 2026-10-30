@@ -39,6 +39,9 @@ function StockCheckPage() {
         <b className="text-foreground">How it works.</b> Type the number of pairs you can physically see for each size. The rest is test stock:
         it stays on the website and in orders exactly as before, but the target plan and the stock reports treat it as <b>not in hand</b>. When
         a purchase is received the real count rises by itself, so test stock turns real with nothing more to do.
+        <br /><b className="text-foreground">New test products:</b> type the pairs in “Add test pairs” and press the button. They are added to the stock
+        <i> and</i> marked as test in one step, with no counting needed. (Adding stock any other way, for example an Inventory adjustment, shows up
+        here as “Not counted” so it gets checked.)
       </div>
       {summary && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -81,16 +84,19 @@ type Product = NonNullable<ReturnType<typeof useQuery<typeof api.stockCheck.list
 function ProductCard({ p }: { p: Product }) {
   const save = useMutation(api.stockCheck.saveCounts)
   const mark = useMutation(api.stockCheck.markProduct)
+  const addTest = useMutation(api.stockCheck.addTestStock)
+  const [add, setAdd] = useState<Record<string, string>>({})
   const key = (l: Product["lines"][number]) => `${l.variantId}|${l.locationId}`
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const val = (l: Product["lines"][number]) => draft[key(l)] ?? String(l.real)
   const changed = p.lines.filter((l) => draft[key(l)] !== undefined && Number(draft[key(l)]) !== l.real)
+  const toAdd = p.lines.filter((l) => Number(add[key(l)]) > 0).map((l) => ({ variantId: l.variantId, locationId: l.locationId, qty: Number(add[key(l)]) }))
   const needsSave = changed.length > 0 || p.lines.some((l) => !l.counted && draft[key(l)] === undefined) // "all good" still counts as counted
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true)
-    try { await fn(); setDraft({}); toast.success(ok) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+    try { await fn(); setDraft({}); setAdd({}); toast.success(ok) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
 
   return (
@@ -109,7 +115,7 @@ function ProductCard({ p }: { p: Product }) {
       <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Test</th></tr>
+            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Test</th><th className="px-3 py-1.5 text-right font-medium">Add test pairs</th></tr>
           </thead>
           <tbody>
             {p.lines.map((l) => {
@@ -124,13 +130,20 @@ function ProductCard({ p }: { p: Product }) {
                     <Input type="number" inputMode="numeric" min={0} max={l.available} value={val(l)} onChange={(e) => setDraft({ ...draft, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Real pairs of ${p.name} size ${l.title}`} />
                   </td>
                   <td className={cn("px-3 py-1.5 text-right tabular-nums", fake > 0 && "font-semibold text-tone-amber")}>{fake}</td>
+                  <td className="px-3 py-1.5 text-right">
+                    <Input type="number" inputMode="numeric" min={0} placeholder="+" value={add[key(l)] ?? ""} onChange={(e) => setAdd({ ...add, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Test pairs to add for ${p.name} size ${l.title}`} />
+                  </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <Button
+          size="sm" variant="outline" disabled={busy || toAdd.length === 0}
+          onClick={() => void run(() => addTest({ items: toAdd }), `Added ${toAdd.reduce((t, i) => t + i.qty, 0)} test pairs to ${p.name}`)}
+        >Add test pairs</Button>
         <Button size="sm" disabled={busy || !needsSave} onClick={() => void run(() => save({ items: p.lines.map((l) => ({ variantId: l.variantId, locationId: l.locationId, real: Number(val(l)) })) }), `Saved the count for ${p.name}`)}>Save count</Button>
       </div>
     </section>
