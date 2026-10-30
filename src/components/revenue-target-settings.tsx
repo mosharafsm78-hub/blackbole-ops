@@ -39,20 +39,21 @@ export function RevenueTargetSettings() {
 function CostsForm() {
   const saved = useQuery(api.targets.getCosts)
   const save = useMutation(api.targets.setMonthlyCosts)
-  const [d, setD] = useState({ salary: "", rent: "", other: "" })
+  const [d, setD] = useState({ salary: "", rent: "", other: "", delivery: "", packaging: "", payFeePct: "", returnPct: "" })
   const [busy, setBusy] = useState(false)
-  useEffect(() => { if (saved) setD({ salary: String(saved.salary || ""), rent: String(saved.rent || ""), other: String(saved.other || "") }) }, [saved])
+  useEffect(() => { if (saved) setD({ salary: String(saved.salary || ""), rent: String(saved.rent || ""), other: String(saved.other || ""), delivery: String(saved.delivery ?? ""), packaging: String(saved.packaging ?? ""), payFeePct: String(saved.payFeePct ?? ""), returnPct: String(saved.returnPct ?? "") }) }, [saved])
   if (saved === undefined) return <Loading />
   if (saved === null) return null
   const n = (x: string) => (x.trim() === "" ? 0 : Number(x))
-  const vals = { salary: n(d.salary), rent: n(d.rent), other: n(d.other) }
+  const vals = { salary: n(d.salary), rent: n(d.rent), other: n(d.other), delivery: n(d.delivery), packaging: n(d.packaging), payFeePct: n(d.payFeePct), returnPct: n(d.returnPct) }
   const invalid = Object.values(vals).some((x) => !Number.isFinite(x) || x < 0)
-  const unchanged = vals.salary === saved.salary && vals.rent === saved.rent && vals.other === saved.other
+  const unchanged = vals.salary === saved.salary && vals.rent === saved.rent && vals.other === saved.other && vals.delivery === saved.delivery && vals.packaging === saved.packaging && vals.payFeePct === saved.payFeePct && vals.returnPct === saved.returnPct
   const total = vals.salary + vals.rent + vals.other
+  const step = (key: string) => (key === "payFeePct" || key === "returnPct" ? 0.1 : key === "delivery" || key === "packaging" ? 1 : 1000)
   const field = (key: keyof typeof d, label: string) => (
     <label className="text-xs font-medium text-muted-foreground">
       {label}
-      <Input type="number" inputMode="numeric" min={0} step={1000} value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} className="mt-1 text-right tabular-nums" disabled={busy} />
+      <Input type="number" inputMode="numeric" min={0} step={step(key)} value={d[key]} onChange={(e) => setD({ ...d, [key]: e.target.value })} className="mt-1 text-right tabular-nums" disabled={busy} />
     </label>
   )
   return (
@@ -64,6 +65,8 @@ function CostsForm() {
         who manage the team can see this.
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">{field("salary", "Salaries (৳)")}{field("rent", "Office rent (৳)")}{field("other", "Other expenses (৳)")}</div>
+      <p className="mt-4 text-sm text-muted-foreground">Costs that grow with every order:</p>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{field("delivery", "Delivery cost per order (৳)")}{field("packaging", "Packaging cost per order (৳)")}{field("payFeePct", "Payment fee (% of revenue)")}{field("returnPct", "Return rate (% of shipped orders)")}</div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">Total fixed: <b className="text-foreground">{taka(total)}</b> a month</span>
         <Button

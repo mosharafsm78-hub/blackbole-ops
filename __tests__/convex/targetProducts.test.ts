@@ -235,7 +235,8 @@ describe("profit: running costs against the target", () => {
     await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
     await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 300000 })
     const p = await asAdmin.action(api.targets.progress, {})
-    expect(p.profit).toMatchObject({ fixed: 209000, grossMargin: 0.5, adRate: 0.1, contribution: 0.4, breakEven: 522500, profitAtTarget: -89000 })
+    // the one test order is ৳1,00,000, so ৳177 delivery + packaging is 0.177% of it; payment fee 2.5% (the defaults)
+    expect(p.profit).toMatchObject({ fixed: 209000, grossMargin: 0.5, adRate: 0.1, payFeeRate: 0.025, returnRate: 0.3, orderCostRate: 0.003, contribution: 0.372, breakEven: 561117, profitAtTarget: -97259 })
   })
 
   it("shows no profit until costs are entered, and never to someone without manage rights", async () => {
@@ -253,6 +254,10 @@ describe("profit: running costs against the target", () => {
     const { asAdmin } = await setup()
     await expect(asAdmin.mutation(api.targets.setMonthlyCosts, { salary: -1, rent: 0, other: 0 })).rejects.toThrow(/zero or more/)
     await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 127000, rent: 42000, other: 40000 })
-    expect(await asAdmin.query(api.targets.getCosts, {})).toEqual({ salary: 127000, rent: 42000, other: 40000 })
+    expect(await asAdmin.query(api.targets.getCosts, {})).toEqual({ salary: 127000, rent: 42000, other: 40000, delivery: 120, packaging: 57, payFeePct: 2.5, returnPct: 30 })
+    await asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 1, rent: 2, other: 3, delivery: 130, packaging: 60, payFeePct: 2, returnPct: 25 })
+    expect(await asAdmin.query(api.targets.getCosts, {})).toEqual({ salary: 1, rent: 2, other: 3, delivery: 130, packaging: 60, payFeePct: 2, returnPct: 25 })
+    await expect(asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 1, rent: 2, other: 3, payFeePct: 250 })).rejects.toThrow(/percentage/)
+    await expect(asAdmin.mutation(api.targets.setMonthlyCosts, { salary: 1, rent: 2, other: 3, returnPct: 95 })).rejects.toThrow(/percentage/)
   })
 })

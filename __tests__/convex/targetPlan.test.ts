@@ -275,3 +275,32 @@ describe("focus / others / dead-stock groups", () => {
     expect(allocateGrouped([mk("D", "dead", 500)], 100000).rows[0].units).toBe(100)
   })
 })
+
+describe("profit: per-order costs", () => {
+  it("with 30% returns, each delivered order carries 1/0.7 shipments of delivery and packaging", () => {
+    const base = { target: 1200000, grossMargin: 0.55, ratio: 1, aov: 1770, mer: 4, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 }
+    const costs = { salary: 127000, rent: 42000, other: 40000, delivery: 120, packaging: 57, payFeePct: 2.5 }
+    const none = profitPlan({ ...base, costs })
+    const ret = profitPlan({ ...base, costs: { ...costs, returnPct: 30 } })
+    expect(ret.orderCostRate).toBeCloseTo(0.1 / 0.7, 3)
+    expect(ret.returnRate).toBe(0.3)
+    expect(ret.contribution).toBeLessThan(none.contribution)
+    expect(ret.breakEven!).toBeGreaterThan(none.breakEven!)
+  })
+
+  it("takes delivery, packaging and the payment fee off every taka before fixed costs", () => {
+    // margin 55%, no delivery-fee income (ratio 1), average order ৳1,770 → ৳177 per order = 10%, payment fee 2.5%, ads 25% (MER 4)
+    const p = profitPlan({ target: 1200000, grossMargin: 0.55, ratio: 1, aov: 1770, mer: 4, costs: { salary: 127000, rent: 42000, other: 40000, delivery: 120, packaging: 57, payFeePct: 2.5 }, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(p.orderCostRate).toBeCloseTo(0.1, 3)
+    expect(p.payFeeRate).toBe(0.025)
+    expect(p.contribution).toBeCloseTo(0.175, 3)
+    expect(p.breakEven).toBe(Math.ceil(209000 / 0.175))
+    expect(p.profitAtTarget).toBe(Math.round(1200000 * 0.175 - 209000))
+  })
+
+  it("counts the delivery fee customers pay as income against the courier", () => {
+    // ratio 1.1 → 1/11 of each order is delivery fee collected; shoes are 10/11 of it
+    const p = profitPlan({ target: 1000000, grossMargin: 0.5, ratio: 1.1, aov: 1100, mer: 100, costs: { salary: 0, rent: 0, other: 0, delivery: 0, packaging: 0, payFeePct: 0 }, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(p.contribution).toBeCloseTo(0.5 / 1.1 + 1 - 1 / 1.1 - 0.01, 3)
+  })
+})

@@ -38,6 +38,8 @@ export type SalesSummary = {
   mtd: Record<string, Record<string, number>>
   /** Order totals ÷ item-line revenue: delivery fees push it above 1, order-level discounts below. */
   ratio: number
+  /** Average order total over the window (what one order brings in), 0 with no orders. */
+  aov: number
 }
 
 export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs: number }): SalesSummary {
@@ -61,7 +63,7 @@ export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs:
     }
   }
   const ratio = lines > 0 ? Math.min(1.5, Math.max(0.5, totals / lines)) : 1
-  return { byDay, trailing, mtd, ratio }
+  return { byDay, trailing, mtd, ratio, aov: rows.length > 0 ? totals / rows.length : 0 }
 }
 
 // ------------------------------------------------------------------------------------------------ allocation
@@ -303,7 +305,18 @@ export const onPace = (args: { target: number; delivered: number; dayOfMonth: nu
 
 // ------------------------------------------------------------------------------------------------ profit
 
-export type MonthlyCosts = { salary: number; rent: number; other: number }
+export type MonthlyCosts = {
+  salary: number; rent: number; other: number
+  /** Courier cost per order (৳). */
+  delivery?: number
+  /** Packaging cost per order (৳). */
+  packaging?: number
+  /** Payment-gateway fee, % of revenue. */
+  payFeePct?: number
+  /** Share of shipped orders that come back (%). Their delivery and packaging are paid but earn nothing. */
+  returnPct?: number
+}
+export const DEFAULT_COSTS = { delivery: 120, packaging: 57, payFeePct: 2.5, returnPct: 30 }
 export const fixedTotal = (c: MonthlyCosts) => Math.max(0, c.salary) + Math.max(0, c.rent) + Math.max(0, c.other)
 
 /** Revenue-weighted gross margin (0–1) of the planned mix: Σ units×(price−cost) ÷ Σ units×price. Products with
@@ -319,8 +332,13 @@ export function mixMargin(lines: { units: number; price: number; cost: number | 
 }
 
 export type ProfitPlan = {
-  /** Share of revenue left after the shoes' purchase cost (planned product mix). */
+  /** Share of product revenue left after the shoes' purchase cost (planned product mix). */
   grossMargin: number
+  /** Per ৳1 of revenue: delivery + packaging (per order, ÷ average order), and the payment fee. */
+  orderCostRate: number
+  payFeeRate: number
+  returnRate: number
+  aov: number
   /** Ad spend per taka of revenue at the 30-day efficiency (1 ÷ MER). */
   adRate: number
   /** What each taka of revenue contributes toward fixed costs: gross margin − ad rate. */
@@ -339,6 +357,10 @@ export type ProfitPlan = {
 export function profitPlan(args: {
   target: number
   grossMargin: number
+  /** Order totals ÷ item-line revenue (delivery fees collected push it above 1). */
+  ratio?: number
+  /** Average order total. */
+  aov?: number
   mer: number
   costs: MonthlyCosts
   deliveredMtd: number
@@ -348,16 +370,31 @@ export function profitPlan(args: {
 }): ProfitPlan {
   const fixed = fixedTotal(args.costs)
   const adRate = 1 / args.mer
-  const contribution = args.grossMargin - adRate
+  // Revenue is the order total. Of each ৳1, 1/ratio is shoes (earning the margin) and the rest is delivery fee
+  // the customer paid, which is income against the courier. Per-order costs are spread over the average order.
+  const ratio = args.ratio && args.ratio > 0 ? args.ratio : 1
+  const grossRate = args.grossMargin / ratio + 1 - 1 / ratio
+  const aov = args.aov && args.aov > 0 ? args.aov : 0
+  // Returns: revenue counts delivered orders only, but delivery and packaging are paid on every order shipped.
+  // With 30% coming back, each delivered order stands for 1 / 0.7 shipped ones.
+  const returnRate = Math.min(0.9, Math.max(0, (args.costs.returnPct ?? 0) / 100))
+  const orderCostRate = aov > 0 ? (Math.max(0, args.costs.delivery ?? 0) + Math.max(0, args.costs.packaging ?? 0)) / (aov * (1 - returnRate)) : 0
+  const payFeeRate = Math.max(0, args.costs.payFeePct ?? 0) / 100
+  const beforeAds = grossRate - orderCostRate - payFeeRate
+  const contribution = beforeAds - adRate
   const breakEven = contribution > 0 ? Math.ceil(fixed / contribution) : null
   return {
     grossMargin: Math.round(args.grossMargin * 1000) / 1000,
+    orderCostRate: Math.round(orderCostRate * 1000) / 1000,
+    payFeeRate: Math.round(payFeeRate * 1000) / 1000,
+    returnRate,
+    aov: Math.round(aov),
     adRate: Math.round(adRate * 1000) / 1000,
     contribution: Math.round(contribution * 1000) / 1000,
     fixed,
     breakEven,
     profitAtTarget: Math.round(args.target * contribution - fixed),
-    profitMtd: Math.round(args.deliveredMtd * args.grossMargin - args.spentMtd - (fixed * args.dayOfMonth) / args.days),
+    profitMtd: Math.round(args.deliveredMtd * beforeAds - args.spentMtd - (fixed * args.dayOfMonth) / args.days),
     coverage: breakEven ? Math.round((args.target / breakEven) * 100) / 100 : null,
   }
 }

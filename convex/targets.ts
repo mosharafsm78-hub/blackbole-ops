@@ -19,7 +19,7 @@ import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { daysInMonth, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, monthStartMs, nextMonthKey, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, classify, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, onPace, productRows, profitPlan, skuBase, summarizeSales,
+  buildPlan, classify, DEFAULT_COSTS, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, onPace, productRows, profitPlan, skuBase, summarizeSales,
   type MarketingPlan, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
 } from "./targetPlan"
 
@@ -68,14 +68,15 @@ export const setMonthlyTarget = mutation({
 
 // ---- monthly running costs (salary, rent, other): they decide what target is needed to make a profit ----
 
-const costsArgs = { salary: v.number(), rent: v.number(), other: v.number() }
+const costsArgs = { salary: v.number(), rent: v.number(), other: v.number(), delivery: v.optional(v.number()), packaging: v.optional(v.number()), payFeePct: v.optional(v.number()), returnPct: v.optional(v.number()) }
+const withDefaults = (c: MonthlyCosts | null | undefined): MonthlyCosts => ({ salary: 0, rent: 0, other: 0, ...DEFAULT_COSTS, ...(c ?? {}) })
 
 /** Salary, rent and other running costs per month. Managers only — salaries are not for everyone's eyes. */
 export const getCosts = query({
   args: {},
   handler: async (ctx): Promise<MonthlyCosts | null> => {
     try { await requirePerm(ctx, "team.manage") } catch { return null }
-    return (await getSetting<MonthlyCosts>(ctx, "monthlyCosts")) ?? { salary: 0, rent: 0, other: 0 }
+    return withDefaults(await getSetting<MonthlyCosts>(ctx, "monthlyCosts"))
   },
 })
 
@@ -83,8 +84,11 @@ export const setMonthlyCosts = mutation({
   args: costsArgs,
   handler: async (ctx, a) => {
     await requirePerm(ctx, "team.manage")
-    for (const n of [a.salary, a.rent, a.other]) if (!Number.isFinite(n) || n < 0) throw new ConvexError("Costs must be zero or more.")
-    await setSetting(ctx, "monthlyCosts", { salary: Math.round(a.salary), rent: Math.round(a.rent), other: Math.round(a.other) })
+    const d = withDefaults(a)
+    for (const n of [d.salary, d.rent, d.other, d.delivery!, d.packaging!, d.payFeePct!, d.returnPct!]) if (!Number.isFinite(n) || n < 0) throw new ConvexError("Costs must be zero or more.")
+    if (d.payFeePct! > 30) throw new ConvexError("The payment fee is a percentage of revenue (like 2.5).")
+    if (d.returnPct! > 90) throw new ConvexError("The return rate is a percentage of shipped orders (like 30).")
+    await setSetting(ctx, "monthlyCosts", { salary: Math.round(d.salary), rent: Math.round(d.rent), other: Math.round(d.other), delivery: Math.round(d.delivery!), packaging: Math.round(d.packaging!), payFeePct: Math.round(d.payFeePct! * 100) / 100, returnPct: Math.round(d.returnPct! * 10) / 10 })
   },
 })
 
@@ -93,7 +97,8 @@ export const costsForProgress = internalQuery({
   args: {},
   handler: async (ctx): Promise<MonthlyCosts | null> => {
     try { await requirePerm(ctx, "team.manage") } catch { return null }
-    return (await getSetting<MonthlyCosts>(ctx, "monthlyCosts")) ?? null
+    const c = await getSetting<MonthlyCosts>(ctx, "monthlyCosts")
+    return c ? withDefaults(c) : null
   },
 })
 
@@ -217,6 +222,7 @@ type Gathered = {
   trailing: SalesSummary["trailing"]
   mtd: SalesSummary["mtd"]
   ratio: number
+  aov?: number
   /** Sellable pairs per product; units null = pre-order (not capped). Null for a month that's already over. */
   stock: StockMap | null
   spend?: { at: number; byDay: Record<string, number> }
@@ -262,7 +268,7 @@ async function gather(ctx: ActionCtx, month: string, now: number, current: strin
   const to = historic ? mEnd : now + 1
   const [rows, stock] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx)])
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, stock }
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, stock }
 }
 
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
@@ -425,7 +431,7 @@ export const progress = action({
         const gm = mixMargin(Object.entries(snapshot.products).map(([k, p]) => ({ units: p.units, price: p.price / data.ratio, cost: stockMap[k]?.cost ?? null })))
         if (gm !== null) {
           profit = profitPlan({
-            target: row.amount, grossMargin: gm, mer: marketing.plan.mer, costs,
+            target: row.amount, grossMargin: gm, ratio: data.ratio, aov: data.aov, mer: marketing.plan.mer, costs,
             deliveredMtd: monthPlan.delivered, spentMtd: marketing.plan.spentMtd,
             dayOfMonth: monthPlan.started ? (monthPlan.finished ? daysInMonth(m) : Number(today.slice(8, 10))) : 0,
             days: daysInMonth(m),
