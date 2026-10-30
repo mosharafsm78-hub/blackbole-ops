@@ -159,26 +159,45 @@ function SellList({ data }: { data: TargetProgress }) {
   )
 }
 
-/** Today's marketing: how much to spend, the most that is safe, and how many orders to book given returns. */
+/** Today's marketing, as three plain instructions: how many orders to book, how much to spend, what to push. */
 function DailyMarketing({ data }: { data: TargetProgress }) {
   const d = data.daily
   if (!d) return null
   const m = data.measured
   const over = d.adLeft < 0
+  const ret = Math.round(d.returnRate * 100)
+  const push = (data.products ?? []).filter((r) => r.group === "focus" && (r.todayTarget ?? 0) > 0).sort((a, b) => (b.todayTarget ?? 0) - (a.todayTarget ?? 0)).slice(0, 3)
   return (
     <section className={cn("rounded-xl border bg-card p-4", d.adsCantPay && "border-tone-amber/40")} data-testid="target-daily-marketing">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Marketing today</h2>
-        <Pill tone={over ? "red" : "green"}>{over ? `${taka(-d.adLeft)} over budget` : `${taka(d.adLeft)} left to spend`}</Pill>
+        <h2 className="text-sm font-semibold">Marketing — what to do today</h2>
+        <Pill tone={over ? "red" : "green"}>{over ? `${taka(-d.adLeft)} over today's budget` : `${taka(d.spentToday)} spent · ${taka(d.adLeft)} left`}</Pill>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Fig label="Ad budget today" value={taka(d.adBudget)} sub="to reach today's target" />
-        <Fig label="Never spend more than" value={taka(d.adMax)} sub="above this each order loses money" />
-        <Fig label="Spent so far today" value={taka(d.spentToday)} sub="from Meta" />
-        <Fig label="Orders to book today" value={String(d.ordersToBook)} sub={`${d.ordersToDeliver} must be delivered — ${Math.round(d.returnRate * 100)}% come back`} />
-      </div>
-      {d.adsCantPay && <p className="mt-2 flex items-start gap-1.5 text-xs text-tone-amber"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />Ads currently return too little to pay for this target in full — the budget is held at the safe limit. Improve the ads or the product mix before spending more.</p>}
-      {m && <p className="mt-2 text-xs text-muted-foreground">Measured from your last {m.sample} orders: {m.returnPct}% returned · courier ৳{m.delivery} a parcel · payment fee {m.payFeePct}%.</p>}
+      <ol className="mt-3 space-y-3 text-sm">
+        <li className="flex gap-3">
+          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">1</span>
+          <div>
+            <div>Bring in <b className="text-lg tabular-nums">{d.ordersToBook}</b> orders today</div>
+            <div className="text-xs text-muted-foreground">Only delivered orders count toward the target, and about {ret}% of orders come back. So {d.ordersToDeliver} must be delivered, and booking {d.ordersToBook} gets you there.</div>
+          </div>
+        </li>
+        <li className="flex gap-3">
+          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">2</span>
+          <div>
+            <div>Spend about <b className="text-lg tabular-nums">{taka(d.adBudget)}</b> on ads — never more than <b className="tabular-nums">{taka(d.adMax)}</b></div>
+            <div className="text-xs text-muted-foreground">Above {taka(d.adMax)} every extra order loses money, after shoe cost, courier, packaging, fees and returns.</div>
+          </div>
+        </li>
+        <li className="flex gap-3">
+          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">3</span>
+          <div>
+            <div>Push these products first</div>
+            <div className="text-xs text-muted-foreground">{push.length > 0 ? push.map((r) => `${r.name} (${r.todayTarget} pairs)`).join(" · ") : "See the list below."} Full list with the ad budget for each product is just below.</div>
+          </div>
+        </li>
+      </ol>
+      {d.adsCantPay && <p className="mt-3 flex items-start gap-1.5 text-xs text-tone-amber"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />Ads currently return too little to pay for this target in full, so the budget is held at the safe limit. Improve the ads or the product mix before spending more.</p>}
+      {m && <p className="mt-2 text-xs text-muted-foreground">Return rate, courier cost and payment fee are measured from your last {m.sample} orders ({m.returnPct}% returned).</p>}
     </section>
   )
 }
