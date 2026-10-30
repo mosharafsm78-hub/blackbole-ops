@@ -124,43 +124,69 @@ function ProductDetailPage() {
                   <Stat label="Processing" value={active.stock.processing} />
                   <Stat label="In transit" value={active.stock.inTransit} />
                 </div>
-                <div className="mt-1">
-                  <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Stock by warehouse
+                {/* Where this size physically sits, right under the three headline cards so the split is
+                    obvious at a glance. Every active warehouse is listed, including ones holding 0. */}
+                <div>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Stock by warehouse · size {active.title}
+                    </span>
+                    {active.warehouses.length > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {active.warehouses.length} warehouse{active.warehouses.length > 1 ? "s" : ""}
+                      </span>
+                    )}
                   </div>
                   {active.warehouses.length === 0 ? (
                     <div className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-                      No warehouse rows for this size yet.
+                      No active warehouse yet — add one under Settings → Warehouses.
                     </div>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border">
-                      <div className="min-w-[340px]">
-                        <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px] gap-x-2 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
-                          <span>Warehouse</span>
-                          <span className="text-right">Available</span>
-                          <span className="text-right">Processing</span>
-                          <span className="text-right">In transit</span>
-                        </div>
-                        {active.warehouses.map((w) => (
-                          <div
-                            key={w.locationName}
-                            className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px] gap-x-2 border-t px-3 py-2 text-sm"
-                          >
-                            <span className="truncate font-medium">{w.locationName}</span>
+                    <ul className="divide-y overflow-hidden rounded-lg border bg-background" data-testid="warehouse-stock">
+                      {active.warehouses.map((w) => (
+                        <li
+                          key={w.locationId}
+                          className="flex items-center justify-between gap-3 px-3 py-2.5"
+                          data-testid="warehouse-row"
+                        >
+                          <div className="flex min-w-0 items-center gap-2">
                             <span
                               className={cn(
-                                "text-right tabular-nums",
-                                w.available <= 0 ? "text-red-600" : "font-semibold",
+                                "size-2 shrink-0 rounded-full",
+                                w.available > 0 ? "bg-emerald-500" : w.available < 0 ? "bg-red-500" : "bg-muted-foreground/30",
+                              )}
+                              aria-hidden
+                            />
+                            <span className="truncate text-sm font-medium">{w.locationName}</span>
+                            {w.isDefault && <Pill tone="gray">Default</Pill>}
+                            {!w.active && <Pill tone="red">Inactive</Pill>}
+                          </div>
+                          <div className="flex shrink-0 items-baseline gap-3 tabular-nums">
+                            <span
+                              className={cn(
+                                "text-sm font-semibold",
+                                w.available > 0 ? "" : w.available < 0 ? "text-red-600" : "text-muted-foreground",
                               )}
                             >
                               {w.available}
                             </span>
-                            <span className="text-right tabular-nums text-muted-foreground">{w.processing}</span>
-                            <span className="text-right tabular-nums text-muted-foreground">{w.inTransit}</span>
+                            {(w.processing > 0 || w.inTransit > 0) && (
+                              <span className="text-xs text-muted-foreground">
+                                {w.processing > 0 && `${w.processing} processing`}
+                                {w.processing > 0 && w.inTransit > 0 && " · "}
+                                {w.inTransit > 0 && `${w.inTransit} in transit`}
+                              </span>
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    </div>
+                        </li>
+                      ))}
+                      {active.warehouses.length > 1 && (
+                        <li className="flex items-center justify-between gap-3 bg-muted/50 px-3 py-2 text-xs font-medium">
+                          <span>Total available</span>
+                          <span className="tabular-nums">{active.stock.available}</span>
+                        </li>
+                      )}
+                    </ul>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">
