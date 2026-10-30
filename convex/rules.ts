@@ -292,23 +292,34 @@ export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent",
  *  Fulfillment, a wrong listing goes to Marketing, and so on — this is where that routing lives, so every at-fault
  *  reason has exactly one owning department and nothing falls through the cracks.
  *
- *  The last five entries are Customer Care's own counterweight — before these, CX had no way to lose a single
- *  point, no matter how badly a call went, since nothing here ever routed to "Customer Care". "Fake / prank
- *  order" / "Duplicate order" fire from orders.ts only when the order had already been confirmed (approved) by
- *  a CX call — catching one of these BEFORE confirming it is CX doing its job right, not a miss. "Confirmation
- *  call overdue" / "Feedback call overdue" / "Return call overdue" fire from accountability.ts's daily checks
- *  when the required call hasn't been logged inside its own SLA window. */
+ *  Customer Care's own counterweight — before these, CX had no way to lose a single point, no matter how badly
+ *  a call went, since nothing here ever routed to "Customer Care". "Fake / prank order" / "Duplicate order" fire
+ *  from orders.ts only when the order had already been confirmed (approved) by a CX call — catching one of
+ *  these BEFORE confirming it is CX doing its job right, not a miss. "Confirmation call overdue" / "Feedback
+ *  call overdue" / "Return call overdue" fire from accountability.ts's daily checks when the required call
+ *  hasn't been logged inside its own SLA window.
+ *
+ *  "Customer changed mind" / "Size didn't fit" / "Other" are deliberately NOT in RETURN_AT_FAULT_REASONS above —
+ *  nobody made a packing or listing mistake. They route here anyway, by elimination: the one CX call that's
+ *  supposed to screen for a genuine, well-understood order still ended in a return, and no other department
+ *  caused it, so the outcome sits with whoever ran that call — a screening-effectiveness signal, not a claim
+ *  that CX did anything wrong on the call itself. */
 export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Wrong product sent": "Fulfillment",
   "Wrong size sent": "Fulfillment",
   "Damaged / defective": "Fulfillment",
   "Late delivery": "Fulfillment",
   "Doesn't match description": "Marketing",
+  "Customer changed mind": "Customer Care",
+  "Size didn't fit": "Customer Care",
+  "Other": "Customer Care",
   "Fake / prank order": "Customer Care",
   "Duplicate order": "Customer Care",
   "Confirmation call overdue": "Customer Care",
   "Feedback call overdue": "Customer Care",
   "Return call overdue": "Customer Care",
+  "Hold overdue": "Customer Care",
+  "Dispatch overdue": "Fulfillment",
 }
 
 /** True for any call outcome worth flagging red — an unhappy delivery, or a return whose reason was our own

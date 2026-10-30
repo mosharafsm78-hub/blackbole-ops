@@ -41,10 +41,15 @@ crons.daily("accountability daily digest", { hourUTC: 3, minuteUTC: 0 }, interna
 crons.daily("accountability business health", { hourUTC: 3, minuteUTC: 5 }, internal.accountability.businessHealthCheck, {})
 // Customer Care's own SLAs — the one department whose only accountability flags used to be the ones it raised
 // against everyone else. Checked daily so an overdue call is caught within a day, same spirit as the other
-// business-health checks above. 9:06 / 9:07 / 9:09 Asia/Dhaka (UTC+6) = 03:06 / 03:07 / 03:09 UTC.
+// business-health checks above. 9:06 / 9:07 / 9:09 / 9:11 Asia/Dhaka (UTC+6) = 03:06 / 03:07 / 03:09 / 03:11 UTC.
 crons.daily("cx overdue confirmation calls", { hourUTC: 3, minuteUTC: 6 }, internal.accountability.overdueConfirmationCallCheck, {})
 crons.daily("cx overdue feedback calls", { hourUTC: 3, minuteUTC: 7 }, internal.accountability.overdueFeedbackCallCheck, {})
 crons.daily("cx overdue return calls", { hourUTC: 3, minuteUTC: 9 }, internal.accountability.overdueReturnCallCheck, {})
+crons.daily("cx overdue holds", { hourUTC: 3, minuteUTC: 11 }, internal.accountability.overdueHoldCheck, {})
+// Fulfillment's own "confirmed but never dispatched" SLA — a stronger check than fulfillment.late_dispatch
+// (which only fires once an order IS dispatched late): this catches one still stuck, not dispatched at all.
+// 9:12 Asia/Dhaka (UTC+6) = 03:12 UTC.
+crons.daily("fulfillment overdue dispatch", { hourUTC: 3, minuteUTC: 12 }, internal.accountability.overdueDispatchCheck, {})
 
 // KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
 // weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back

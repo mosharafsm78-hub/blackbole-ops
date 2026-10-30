@@ -1003,6 +1003,59 @@ export const overdueReturnCallCheck = internalMutation({
   },
 })
 
+const HOLD_SLA_DAYS = 7 // an order shouldn't just sit On Hold indefinitely — someone owes it a resolution within this long
+const DISPATCH_SLA_DAYS = 1 // a confirmed order should be handed to the courier within this long, even if it isn't dispatched the SAME calendar day (fulfillment.late_dispatch already docks that narrower miss the moment it IS dispatched)
+
+/** Orders stuck On Hold past the SLA — nobody went back to resolve whatever it was waiting on (a promised
+ *  advance, a customer callback, stock). Bounded by statusChangedAt via by_status_changed: the moment an order
+ *  leaves "on_hold" for any other status, it naturally drops out of this scan, which is exactly right — it's
+ *  no longer sitting in hold. */
+export const overdueHoldCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const cutoff = now - HOLD_SLA_DAYS * DAY
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "on_hold").gte("statusChangedAt", since)).collect()
+    for (const o of rows) {
+      if (o.deletedAt) continue
+      if (o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff) continue
+      await raiseAccountabilityFlag(
+        ctx, o, "Hold overdue",
+        `On Hold ${Math.floor((now - o.statusChangedAt) / DAY)} day(s) — still unresolved (SLA: ${HOLD_SLA_DAYS} days).`,
+        "BlackBole Ops (automatic)",
+        { ruleKey: "cx.overdue_hold" },
+      )
+    }
+  },
+})
+
+/** Orders confirmed (approved) but never actually handed to a courier past the SLA. Bounded by approvedAt
+ *  (via by_approved), not statusChangedAt — an order can pass through processing/pre-order/ready-to-ship on
+ *  its way to in_transit, each move resetting statusChangedAt, but the clock that matters here started the
+ *  moment it was confirmed, not whichever intermediate status it's currently sitting in. */
+export const overdueDispatchCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const cutoff = now - DISPATCH_SLA_DAYS * DAY
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    const rows = await ctx.db.query("orders").withIndex("by_approved", (q) => q.gte("approvedAt", since)).collect()
+    const preDispatch = new Set<OrderStatus>(["approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"])
+    for (const o of rows) {
+      if (o.deletedAt || o.shippedAt || !o.approvedAt) continue
+      if (!preDispatch.has(o.status as OrderStatus)) continue
+      if (o.approvedAt < CX_CALL_SLA_STARTS_AT || o.approvedAt > cutoff) continue
+      await raiseAccountabilityFlag(
+        ctx, o, "Dispatch overdue",
+        `Confirmed ${Math.floor((now - o.approvedAt) / DAY)} day(s) ago — still not handed to a courier (SLA: ${DISPATCH_SLA_DAYS} day).`,
+        "BlackBole Ops (automatic)",
+        { ruleKey: "fulfillment.overdue_dispatch" },
+      )
+    }
+  },
+})
+
 /** Every order still sitting in one status whose status hasn't changed since before the cutoff — bounded by
  *  the (status, statusChangedAt) index, so this only ever scans orders currently in that one status, never the
  *  whole orders table. */

@@ -8,7 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import { raiseAccountabilityFlag, ownersConf } from "./accountability"
-import { awardPoints } from "./kpi"
+import { awardPoints, type KpiRuleKey } from "./kpi"
 import { bdDay } from "./stats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
@@ -1103,6 +1103,23 @@ export const logCsat = mutation({
   },
 })
 
+// Each real return reason gets its own named rule key (instead of the generic ops.flag_raised every reason used
+// to share) so the rule book and the kpiEvents ledger show exactly what went wrong, not just that "a flag was
+// raised" — a wrong-size pick and a late courier run look identical under the generic key but are completely
+// different misses to fix. Three reasons aren't anyone's packing/listing mistake (RETURN_AT_FAULT_REASONS in
+// rules.ts leaves them out) but still route to Customer Care by elimination — see the comment on
+// ACCOUNTABILITY_ROUTING in rules.ts for why that's a screening-outcome signal, not a fault claim.
+const RETURN_REASON_RULE_KEY: Record<string, KpiRuleKey> = {
+  "Wrong product sent": "fulfillment.wrong_item_sent",
+  "Wrong size sent": "fulfillment.wrong_size_sent",
+  "Damaged / defective": "fulfillment.damaged_sent",
+  "Late delivery": "fulfillment.late_delivery_return",
+  "Doesn't match description": "marketing.listing_mismatch",
+  "Customer changed mind": "cx.return_after_confirm",
+  "Size didn't fit": "cx.return_after_confirm",
+  "Other": "cx.return_after_confirm",
+}
+
 /** Post-return feedback call — same idea as logCsat, but for a returned/damaged order: an actual call to the
  *  customer confirming why it came back, not the category logged by setReason when the return was first
  *  raised. Its own field (`returnCsat`) so it never collides with `reason`/`reasonNote`. */
@@ -1124,7 +1141,7 @@ export const logReturnCsat = mutation({
     await ctx.db.patch(id, { returnCsat, returnCsatFollowUpAt: followUpAt, updatedAt: Date.now() })
     await logOrder(ctx, id, `Return feedback call: ${outcome}${returnCsat.note ? ` — ${returnCsat.note}` : ""}`, me.staff.name, "call", outcome)
     // Confirmed at-fault reason — the department that caused it owes a real answer, inside this system.
-    await raiseAccountabilityFlag(ctx, order, outcome, cleanNote, me.staff.name)
+    await raiseAccountabilityFlag(ctx, order, outcome, cleanNote, me.staff.name, { ruleKey: RETURN_REASON_RULE_KEY[outcome] })
   },
 })
 

@@ -17,11 +17,20 @@
 //      advance cleared, a recovery order was placed) — never a claim with nothing real behind it.
 //   3. Every department has a genuine negative counterweight, not just ways to earn points. The shared
 //      ops.flag_raised / ops.overdue_flag / ops.wrong_route dock whichever department owns a confirmed mistake,
-//      a stalled business-health signal, or a missed SLA. On top of that, each front-line department also has
-//      its own named misses — a confirmation call that turned out to be a fake/duplicate order (cx.*), a late
-//      dispatch or a late-received PO (fulfillment.*), ad spend that ran at an outright loss (marketing.*) —
-//      so chasing volume on the positive rules without keeping quality up shows up on the same board
-//      immediately, under the same department, not buried in a generic "Operations" line.
+//      a stalled business-health signal, or a missed SLA. On top of that, each front-line department has its
+//      own NAMED misses, each tied to a real field this app already writes, so chasing volume on the positive
+//      rules without keeping quality up shows up on the same board immediately, under the same department, not
+//      buried in a generic "Operations" line:
+//        - Customer Care: a confirmed order that turned out fake/duplicate (cx.bad_confirmation); a confirmation,
+//          feedback or return call that sat past its SLA (cx.overdue_*); an order left on hold past 7 days
+//          (cx.overdue_hold); a confirmed order that still came back for a reason that wasn't Fulfillment's or
+//          Marketing's doing (cx.return_after_confirm).
+//        - Fulfillment: a late dispatch or late-received PO (fulfillment.late_dispatch / .po_late); a confirmed
+//          order never dispatched at all within a day (fulfillment.overdue_dispatch); a return traced to the
+//          wrong item, wrong size/color, damage, or a late delivery (fulfillment.wrong_item_sent / .wrong_size_sent
+//          / .damaged_sent / .late_delivery_return).
+//        - Marketing: ad spend that ran at an outright loss (marketing.roas_loss); a return traced to the
+//          listing not matching the product (marketing.listing_mismatch).
 //   4. One rule, one job, one payout. No rule pays out twice for the same underlying event — awardPoints'
 //      orderId dedupe, plus the "only on a genuinely new flag" and "only once per flag" guards at each call
 //      site, enforce this.
@@ -37,9 +46,12 @@ const DAY = 86400000
 export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
   | "cx.bad_confirmation" | "cx.overdue_confirmation_call" | "cx.overdue_feedback_call" | "cx.overdue_return_call"
+  | "cx.return_after_confirm" | "cx.overdue_hold"
   | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn" | "fulfillment.po_on_time"
-  | "fulfillment.late_dispatch" | "fulfillment.po_late"
+  | "fulfillment.late_dispatch" | "fulfillment.po_late" | "fulfillment.overdue_dispatch"
+  | "fulfillment.wrong_item_sent" | "fulfillment.wrong_size_sent" | "fulfillment.damaged_sent" | "fulfillment.late_delivery_return"
   | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit" | "marketing.roas_loss"
+  | "marketing.listing_mismatch"
   | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag" | "ops.delivery_rate_hit"
 
 // Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
@@ -59,6 +71,8 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "cx.overdue_confirmation_call", label: "A new order sat unconfirmed past the 2-day SLA", points: -10, team: "Customer Care", auto: true },
   { key: "cx.overdue_feedback_call", label: "A delivered order's post-delivery feedback call sat overdue past the 3-day SLA", points: -10, team: "Customer Care", auto: true },
   { key: "cx.overdue_return_call", label: "A returned/damaged order's feedback call sat overdue past the 2-day SLA", points: -10, team: "Customer Care", auto: true },
+  { key: "cx.return_after_confirm", label: "A confirmed order still came back as a return for a reason that wasn't Fulfillment's or Marketing's mistake", points: -15, team: "Customer Care", auto: true },
+  { key: "cx.overdue_hold", label: "An order sat On Hold past the 7-day SLA with nobody resolving it", points: -10, team: "Customer Care", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
@@ -66,6 +80,11 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "fulfillment.po_on_time", label: "Purchase order fully received on or before its expected date", points: 5, team: "Fulfillment", auto: true },
   { key: "fulfillment.late_dispatch", label: "Order wasn't dispatched the same day it was approved", points: -5, team: "Fulfillment", auto: true },
   { key: "fulfillment.po_late", label: "Purchase order fully received after its expected date", points: -5, team: "Fulfillment", auto: true },
+  { key: "fulfillment.overdue_dispatch", label: "A confirmed order sat more than a day without ever being dispatched", points: -10, team: "Fulfillment", auto: true },
+  { key: "fulfillment.wrong_item_sent", label: "Wrong product sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
+  { key: "fulfillment.wrong_size_sent", label: "Wrong size or color sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
+  { key: "fulfillment.damaged_sent", label: "Damaged or defective item sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
+  { key: "fulfillment.late_delivery_return", label: "Order returned because delivery ran too late", points: -15, team: "Fulfillment", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Marketing & Content
   { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
@@ -73,6 +92,7 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "marketing.target_month_hit", label: "The month's revenue target was reached", points: 40, team: "Marketing", auto: true },
   { key: "marketing.roas_hit", label: "Ad spend hit or beat the weekly ROAS target (Settings → KPI)", points: 20, team: "Marketing", auto: true },
   { key: "marketing.roas_loss", label: "Ad spend ran at an outright loss for the week (ROAS under 1.0)", points: -15, team: "Marketing", auto: true },
+  { key: "marketing.listing_mismatch", label: "Return traced back to the listing not matching the product — the order had to be returned", points: -15, team: "Marketing", auto: true },
 
   // -------------------------------------------------------------------------------------------- Operations / leads
   { key: "ops.fast_capa", label: "Accountability flag resolved within 6 hours with a full CAPA answer", points: 15, team: "Operations", auto: true },
