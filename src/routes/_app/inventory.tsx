@@ -6,6 +6,7 @@ import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Guard, useCan } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Stat } from "@/components/bits"
+import { InventoryReport } from "@/components/inventory-report"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -56,6 +57,7 @@ function InventoryPage() {
       <Tabs defaultValue="stock">
         <TabsList className="mb-3">
           <TabsTrigger value="stock">Stock</TabsTrigger>
+          <TabsTrigger value="report">Report</TabsTrigger>
           <TabsTrigger value="logs">Movements</TabsTrigger>
         </TabsList>
         <TabsContent value="stock">
@@ -120,6 +122,9 @@ function InventoryPage() {
               {can("inventory.adjust") && loc === "all" && <p className="mt-2 text-xs text-muted-foreground">Pick a warehouse above to adjust stock.</p>}
             </>
           )}
+        </TabsContent>
+        <TabsContent value="report">
+          <InventoryReport />
         </TabsContent>
         <TabsContent value="logs">
           {!logs ? <Loading /> : logs.length === 0 ? <Empty title="No stock movements yet" /> : (
