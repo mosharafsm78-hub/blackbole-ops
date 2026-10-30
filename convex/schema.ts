@@ -607,11 +607,43 @@ export default defineSchema({
     followUpAt: v.optional(v.number()),
     closedBy: v.optional(v.string()),
     closedAt: v.optional(v.number()),
+    // ---- Phase 1 / Task 3: recovery queue controls (all optional, so every legacy row stays valid) ----
+    // Soft delete. Absent on older rows and therefore falsy — a legacy cart is naturally "active".
+    isArchived: v.optional(v.boolean()),
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.string()),
+    archiveReason: v.optional(v.string()),
+    // Free-text internal note for the team (separate from lastNote, which is the last call outcome).
+    notes: v.optional(v.string()),
+    // Discount codes assigned to this cart during recovery, e.g. ["SAVE10", "EID200"].
+    discountCodes: v.optional(v.array(v.string())),
+    // Recovery-workflow label shown in the queue (New / Contacted / Follow-up / Interested / Not interested / Recovered).
+    // A label only — it never drives stock or the tab a cart lives in; `status` still does that.
+    recoveryStatus: v.optional(v.string()),
+    editedAt: v.optional(v.number()),
+    editedBy: v.optional(v.string()),
   })
     .index("by_checkout", ["checkoutId"])
     .index("by_token", ["token"])
     .index("by_status", ["status", "shopUpdatedAt"])
-    .index("by_phone", ["phone"]),
+    .index("by_phone", ["phone"])
+    // Only rows that actually carry isArchived: true are in this index, so the Archived tab is a cheap lookup
+    // and legacy rows (no field at all) can never leak into it.
+    .index("by_archived", ["isArchived", "shopUpdatedAt"]),
+
+  // Audit trail for the abandoned-cart queue: who changed or archived a cart, when, and what changed.
+  // Append-only — nothing here is ever patched or deleted, so the history stays trustworthy.
+  checkoutAudit: defineTable({
+    checkoutId: v.id("checkouts"),
+    action: v.union(v.literal("modify"), v.literal("archive"), v.literal("unarchive")),
+    byName: v.string(),
+    at: v.number(),
+    // Field names that changed (never the values — phone/address are personal data and stay on the cart itself).
+    fields: v.optional(v.array(v.string())),
+    reason: v.optional(v.string()),
+  })
+    .index("by_checkout", ["checkoutId", "at"])
+    .index("by_at", ["at"]),
 
   // Courier-wide delivery history for a phone number (Pathao merchant network), cached
   courierChecks: defineTable({

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Copy, MessageCircle, PhoneCall, ShoppingCart, ThumbsDown, Undo2 } from "lucide-react"
+import { Copy, MessageCircle, Pencil, PhoneCall, RotateCcw, ShoppingCart, ThumbsDown, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
@@ -14,14 +14,16 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { AbandonedModifyDialog } from "@/components/abandoned-modify-dialog"
 
-type Tab = "new" | "followup" | "converted" | "ordered" | "lost"
+type Tab = "new" | "followup" | "converted" | "ordered" | "lost" | "archived"
 const TABS: { k: Tab; label: string; hint: string }[] = [
   { k: "new", label: "New — call now", hint: "Left the website without ordering. Nobody has called yet." },
   { k: "followup", label: "Follow-up", hint: "Called at least once. Due calls first." },
   { k: "converted", label: "Recovered", hint: "We made the order after calling." },
   { k: "ordered", label: "Ordered on website", hint: "The customer finished the order on the website by themselves." },
   { k: "lost", label: "Not interested", hint: "Closed — the customer does not want it." },
+  { k: "archived", label: "Archived", hint: "Hidden duplicates and invalid entries. Nothing is deleted — restore any of them." },
 ]
 
 export const Route = createFileRoute("/_app/abandoned")({
@@ -52,7 +54,9 @@ function AbandonedPage() {
   const counts = useQuery(api.checkouts.counts)
   const [callFor, setCallFor] = useState<Row | null>(null)
   const [orderFor, setOrderFor] = useState<Row | null>(null)
+  const [modifyFor, setModifyFor] = useState<Row | null>(null)
   const close = useMutation(api.checkouts.close)
+  const unarchive = useMutation(api.checkouts.unarchive)
 
   return (
     <div className="space-y-4">
@@ -75,7 +79,7 @@ function AbandonedPage() {
           >
             {t.label}
             {counts ? <span className="ml-1.5 tabular-nums opacity-80">{(() => {
-              const n = ({ new: counts.new, followup: counts.followup, converted: counts.recovered, ordered: counts.ordered, lost: counts.lost } as Record<string, number>)[t.k] ?? 0
+              const n = ({ new: counts.new, followup: counts.followup, converted: counts.recovered, ordered: counts.ordered, lost: counts.lost, archived: counts.archived } as Record<string, number>)[t.k] ?? 0
               return n >= 1000 ? "999+" : n
             })()}</span> : null}
           </button>
@@ -84,18 +88,19 @@ function AbandonedPage() {
       <p className="text-xs text-muted-foreground">{TABS.find((t) => t.k === tab)?.hint}</p>
 
       {rows === undefined || rows === null ? <Loading /> : rows.length === 0 ? (
-        <Empty title={tab === "new" ? "No new abandoned carts" : "Nothing here"}>
-          {tab === "new" ? "When a customer leaves the website checkout without ordering, they show up here after 15 minutes." : null}
+        <Empty title={tab === "new" ? "No new abandoned carts" : tab === "archived" ? "Nothing archived" : "Nothing here"}>
+          {tab === "new" ? "When a customer leaves the website checkout without ordering, they show up here after 15 minutes." : tab === "archived" ? "Carts you archive as duplicates or invalid entries are kept here." : null}
         </Empty>
       ) : (
         <div className="space-y-2">
           {rows.map((c) => (
             <CartRow
               key={c._id} c={c} tab={tab}
-              onCall={() => setCallFor(c)} onOrder={() => setOrderFor(c)}
+              onCall={() => setCallFor(c)} onOrder={() => setOrderFor(c)} onModify={() => setModifyFor(c)}
               onLost={async () => { try { await close({ id: c._id, status: "lost" }); toast.success("Moved to Not interested") } catch (e) { toast.error(errMsg(e)) } }}
               onReopen={async () => { try { await close({ id: c._id, status: "open" }); toast.success("Back in the call list") } catch (e) { toast.error(errMsg(e)) } }}
               onAlreadyOrdered={async () => { try { await close({ id: c._id, status: "ordered", orderId: c.laterOrder?.id }); toast.success("Marked as ordered") } catch (e) { toast.error(errMsg(e)) } }}
+              onRestore={async () => { try { await unarchive({ id: c._id }); toast.success("Restored to the queue") } catch (e) { toast.error(errMsg(e)) } }}
             />
           ))}
         </div>
@@ -103,6 +108,7 @@ function AbandonedPage() {
 
       {callFor && <CallDialog c={callFor} onClose={() => setCallFor(null)} onConfirmed={() => { const c = callFor; setCallFor(null); setOrderFor(c) }} />}
       {orderFor && <OrderDialog c={orderFor} onClose={() => setOrderFor(null)} />}
+      {modifyFor && <AbandonedModifyDialog cart={modifyFor} onClose={() => setModifyFor(null)} />}
     </div>
   )
 }
@@ -117,10 +123,11 @@ function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: 
   )
 }
 
-function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }: {
-  c: Row; tab: Tab; onCall: () => void; onOrder: () => void; onLost: () => void; onReopen: () => void; onAlreadyOrdered: () => void
+function CartRow({ c, tab, onCall, onOrder, onModify, onLost, onReopen, onAlreadyOrdered, onRestore }: {
+  c: Row; tab: Tab; onCall: () => void; onOrder: () => void; onModify: () => void; onLost: () => void; onReopen: () => void; onAlreadyOrdered: () => void; onRestore: () => void
 }) {
   const open = tab === "new" || tab === "followup"
+  const archived = tab === "archived"
   const due = c.followUpAt && c.followUpAt <= Date.now()
   const waText = `Assalamu Alaikum ${c.customerName || ""}, this is BlackBole. You left some items in your cart. ${c.recoveryUrl ? `You can finish your order here: ${c.recoveryUrl}` : "Shall we confirm the order for you?"}`
   return (
@@ -139,6 +146,23 @@ function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }
           <div className="mt-1 text-sm text-tone-red">No phone number{c.email ? ` · ${c.email}` : ""}</div>
         )}
         {c.address && <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.address}</div>}
+        {c.recoveryStatus && (
+          <div className="mt-1.5 inline-flex rounded bg-tone-violet/10 px-1.5 py-0.5 text-[10px] font-semibold text-tone-violet">{c.recoveryStatus}</div>
+        )}
+        {c.notes && <div className="mt-1 line-clamp-2 text-xs italic text-muted-foreground">Note: {c.notes}</div>}
+        {c.discountCodes && c.discountCodes.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {c.discountCodes.map((code) => (
+              <span key={code} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold">{code}</span>
+            ))}
+          </div>
+        )}
+        {archived && (
+          <div className="mt-1.5 text-xs text-muted-foreground">
+            Archived{c.archivedBy ? ` by ${c.archivedBy}` : ""}{c.archivedAt ? ` · ${when(c.archivedAt)}` : ""}
+            {c.archiveReason ? ` — ${c.archiveReason}` : ""}
+          </div>
+        )}
         {c.laterOrder && open && (
           <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-tone-green/10 px-2 py-1 text-xs font-medium text-tone-green">
             Ordered later: <Link to="/order" search={{ id: c.laterOrder.id }} className="underline">{c.laterOrder.invoice}</Link>
@@ -164,10 +188,13 @@ function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }
       </div>
 
       <div className="flex flex-wrap items-start gap-2 md:flex-col md:items-stretch">
-        {open ? (
+        {archived ? (
+          <Button size="sm" variant="outline" onClick={onRestore}><RotateCcw className="size-4" /> Restore</Button>
+        ) : open ? (
           <>
             <Button size="sm" onClick={onCall} disabled={!c.phone}><PhoneCall className="size-4" /> Log call</Button>
             <Button size="sm" variant="outline" className="border-tone-green text-tone-green" onClick={onOrder} disabled={!c.phone}><ShoppingCart className="size-4" /> Make order</Button>
+            <Button size="sm" variant="outline" onClick={onModify}><Pencil className="size-4" /> Modify</Button>
             {c.phone && (
               <Button size="sm" variant="outline" asChild>
                 <a href={`https://wa.me/88${c.phone}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer"><MessageCircle className="size-4 text-tone-green" /> WhatsApp</a>
@@ -179,9 +206,15 @@ function CartRow({ c, tab, onCall, onOrder, onLost, onReopen, onAlreadyOrdered }
             <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onLost}><ThumbsDown className="size-4" /> Not interested</Button>
           </>
         ) : tab === "lost" ? (
-          <Button size="sm" variant="outline" onClick={onReopen}><Undo2 className="size-4" /> Call again</Button>
+          <div className="flex flex-col gap-2">
+            <Button size="sm" variant="outline" onClick={onReopen}><Undo2 className="size-4" /> Call again</Button>
+            <Button size="sm" variant="ghost" onClick={onModify}><Pencil className="size-4" /> Modify</Button>
+          </div>
         ) : (
-          <Pill tone={tab === "converted" ? "green" : "blue"}>{tab === "converted" ? "Recovered" : "Ordered"}</Pill>
+          <div className="flex flex-col gap-2">
+            <Pill tone={tab === "converted" ? "green" : "blue"}>{tab === "converted" ? "Recovered" : "Ordered"}</Pill>
+            <Button size="sm" variant="ghost" onClick={onModify}><Pencil className="size-4" /> Modify</Button>
+          </div>
         )}
       </div>
     </div>

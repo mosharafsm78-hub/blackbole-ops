@@ -27,6 +27,9 @@ async function upsertCart(ctx: any, { completed, ...a }: any) {
     const old = await ctx.db.query("checkouts").withIndex("by_checkout", (q) => q.eq("checkoutId", a.checkoutId)).first()
     if (old) {
       if (old.status === "converted" || old.status === "ordered") return
+      // An archived cart stays archived: a later Shopify sync must not silently resurrect a record the team
+      // deliberately hid (duplicate / invalid entry). Restoring is an explicit action in the queue.
+      if (old.isArchived) return
       await ctx.db.patch(old._id, { ...a, phone: phone || old.phone, items: a.items.length ? a.items : old.items, ...(completed ? { status: "ordered", closedAt: Date.now() } : {}) })
       return
     }
@@ -233,6 +236,7 @@ export const codLead = internalMutation({
       return "added"
     }
     if (now - old.shopUpdatedAt < 5000) return "too fast"
+    if (old.isArchived) return "archived" // hidden by the team — do not reopen it behind their back
     if (old.status === "open") {
       await ctx.db.patch(old._id, { ...data, kind, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
       return "updated"
@@ -282,15 +286,29 @@ async function laterOrderFor(ctx: any, c: Doc<"checkouts">) {
 }
 
 export const list = query({
-  args: { tab: v.string() }, // new | followup | converted | ordered | lost
+  args: { tab: v.string() }, // new | followup | converted | ordered | lost | archived
   handler: async (ctx, { tab }) => {
     const s = await currentStaff(ctx)
     if (!s) return null
     const now = Date.now()
+
+    // Archived is its own list: soft-deleted carts are hidden from every working tab, so a duplicate or
+    // invalid entry stops cluttering the call queue without the record being lost.
+    if (tab === "archived") {
+      const rows = await ctx.db.query("checkouts").withIndex("by_archived", (q) => q.eq("isArchived", true)).order("desc").take(400)
+      const out: Row[] = []
+      for (const c of rows) {
+        const orderInvoice = c.orderId ? await ctx.db.get(c.orderId).then((o) => (o ? o.invoiceCode ?? `BB-${o.invoiceNo}` : null)) : null
+        out.push({ ...c, laterOrder: null, orderInvoice })
+      }
+      return out
+    }
+
     const status = tab === "new" || tab === "followup" ? "open" : tab
     const rows = await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", status)).order("desc").take(400)
     const out: Row[] = []
     for (const c of rows) {
+      if (c.isArchived) continue // legacy rows have no field at all, so this is false for them
       if (status === "open") {
         if (now - c.shopUpdatedAt < ABANDON_AFTER) continue // customer may still be paying
         const isFollow = c.callCount > 0
@@ -312,18 +330,21 @@ export const counts = query({
     const s = await currentStaff(ctx)
     if (!s) return null
     const now = Date.now()
-    const open = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "open")).take(1000)).filter((c) => now - c.shopUpdatedAt >= ABANDON_AFTER)
+    const open = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "open")).take(1000))
+      .filter((c) => !c.isArchived && now - c.shopUpdatedAt >= ABANDON_AFTER)
     const since = now - 30 * 86400000
-    const converted = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(2000)).filter((c) => (c.closedAt ?? 0) >= since)
+    const converted = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(2000))
+      .filter((c) => !c.isArchived && (c.closedAt ?? 0) >= since)
     return {
       new: open.filter((c) => c.callCount === 0).length,
       followup: open.filter((c) => c.callCount > 0).length,
       followupDue: open.filter((c) => c.followUpAt && c.followUpAt <= now).length,
       recovered30d: converted.length,
       // tab numbers (capped so the page stays light; shows 999+)
-      recovered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(1000)).length,
-      ordered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "ordered")).take(1000)).length,
-      lost: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "lost")).take(1000)).length,
+      recovered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(1000)).filter((c) => !c.isArchived).length,
+      ordered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "ordered")).take(1000)).filter((c) => !c.isArchived).length,
+      lost: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "lost")).take(1000)).filter((c) => !c.isArchived).length,
+      archived: (await ctx.db.query("checkouts").withIndex("by_archived", (q) => q.eq("isArchived", true)).take(1000)).length,
       recoveredValue30d: converted.reduce((s2, c) => s2 + c.total, 0),
     }
   },
@@ -336,6 +357,7 @@ export const logCall = mutation({
     const me = await requirePerm(ctx, "orders.view")
     const c = await ctx.db.get(id)
     if (!c) throw new ConvexError("Cart not found")
+    if (c.isArchived) throw new ConvexError("This cart is archived — restore it before logging a call")
     await ctx.db.patch(id, {
       callCount: c.callCount + 1, lastOutcome: outcome, lastNote: note?.trim() || undefined, lastCallBy: me.staff.name, lastCallAt: Date.now(),
       followUpAt: followUpAt || undefined,
@@ -349,10 +371,129 @@ export const close = mutation({
     const me = await requirePerm(ctx, "orders.view")
     const c = await ctx.db.get(id)
     if (!c) throw new ConvexError("Cart not found")
+    if (c.isArchived) throw new ConvexError("This cart is archived — restore it first")
     if (c.status === "converted" || c.status === "ordered") throw new ConvexError("This cart already became an order")
     await ctx.db.patch(id, status === "open"
       ? { status, closedBy: undefined, closedAt: undefined }
       : { status, closedBy: me.staff.name, closedAt: Date.now(), lastNote: note?.trim() || c.lastNote, followUpAt: undefined, ...(orderId ? { orderId } : {}) })
+  },
+})
+
+// ---------- Phase 1 / Task 3: recovery queue controls ----------
+
+/** Trim, collapse whitespace, cap length. Returns undefined for an empty value so the field is cleared. */
+const clean = (s: string | undefined, max: number) => {
+  const t = (s ?? "").replace(/\s+/g, " ").trim().slice(0, max)
+  return t || undefined
+}
+
+/** Discount codes: uppercase, de-duplicated, blanks dropped, capped at 10 codes of 40 chars. */
+export function cleanCodes(codes: string[] | undefined): string[] | undefined {
+  const out: string[] = []
+  for (const c of codes ?? []) {
+    const t = (c ?? "").trim().toUpperCase().slice(0, 40)
+    if (t && !out.includes(t)) out.push(t)
+    if (out.length >= 10) break
+  }
+  return out.length ? out : undefined
+}
+
+/** Inline edit of a cart from the queue. Every field is optional — the modal only sends what the agent touched,
+ *  so a legacy row missing notes / discountCodes is patched with just the new values and never rewritten wholesale. */
+export const modify = mutation({
+  args: {
+    id: v.id("checkouts"),
+    customerName: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    address: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    discountCodes: v.optional(v.array(v.string())),
+    recoveryStatus: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const c = await ctx.db.get(a.id)
+    if (!c) throw new ConvexError("Cart not found")
+    if (c.isArchived) throw new ConvexError("This cart is archived — restore it before editing")
+
+    const patch: Record<string, unknown> = {}
+    const changed: string[] = []
+    // Only called for fields the caller actually sent, so `undefined` here means "clear this field" — not
+    // "leave it alone". Patching a field to undefined removes it, which is what emptying an input should do.
+    const set = (key: string, next: unknown, prev: unknown) => {
+      if (next === prev) return
+      patch[key] = next
+      changed.push(key)
+    }
+
+    if (a.customerName !== undefined) {
+      const name = clean(a.customerName, 80)
+      if (!name) throw new ConvexError("Customer name cannot be empty")
+      set("customerName", name, c.customerName)
+    }
+    if (a.phone !== undefined) {
+      const raw = (a.phone ?? "").trim()
+      // An empty phone is allowed (some leads genuinely have none) — anything else must be a real BD mobile.
+      const phone = raw ? normalizePhone(raw) : ""
+      if (raw && !/^01[3-9]\d{8}$/.test(phone)) throw new ConvexError("Phone must be a valid 11-digit number like 01712345678")
+      set("phone", phone, c.phone)
+    }
+    if (a.address !== undefined) set("address", clean(a.address, 300) ?? "", c.address)
+    if (a.notes !== undefined) set("notes", clean(a.notes, 1000), c.notes)
+    if (a.discountCodes !== undefined) set("discountCodes", cleanCodes(a.discountCodes), c.discountCodes)
+    if (a.recoveryStatus !== undefined) set("recoveryStatus", clean(a.recoveryStatus, 40), c.recoveryStatus)
+
+    if (!changed.length) return { changed: [] as string[] }
+
+    await ctx.db.patch(a.id, { ...patch, editedAt: Date.now(), editedBy: me.staff.name })
+    await ctx.db.insert("checkoutAudit", {
+      checkoutId: a.id, action: "modify", byName: me.staff.name, at: Date.now(), fields: changed,
+    })
+    return { changed }
+  },
+})
+
+/** Soft delete. Sets isArchived: true and writes an audit row — the cart and its history are never removed,
+ *  so a duplicate/invalid entry can be hidden from the queue without losing the record. */
+export const archive = mutation({
+  args: { id: v.id("checkouts"), reason: v.optional(v.string()) },
+  handler: async (ctx, { id, reason }) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const c = await ctx.db.get(id)
+    if (!c) throw new ConvexError("Cart not found")
+    // Idempotent: archiving an already-archived cart is a no-op, not an error (double-click safe).
+    if (c.isArchived) return { alreadyArchived: true }
+    const now = Date.now()
+    const why = clean(reason, 200)
+    await ctx.db.patch(id, { isArchived: true, archivedAt: now, archivedBy: me.staff.name, archiveReason: why })
+    await ctx.db.insert("checkoutAudit", {
+      checkoutId: id, action: "archive", byName: me.staff.name, at: now, reason: why,
+    })
+    return { alreadyArchived: false }
+  },
+})
+
+/** Undo a soft delete. */
+export const unarchive = mutation({
+  args: { id: v.id("checkouts") },
+  handler: async (ctx, { id }) => {
+    const me = await requirePerm(ctx, "orders.view")
+    const c = await ctx.db.get(id)
+    if (!c) throw new ConvexError("Cart not found")
+    if (!c.isArchived) return { alreadyActive: true }
+    await ctx.db.patch(id, { isArchived: false, archivedAt: undefined, archivedBy: undefined, archiveReason: undefined })
+    await ctx.db.insert("checkoutAudit", { checkoutId: id, action: "unarchive", byName: me.staff.name, at: Date.now() })
+    return { alreadyActive: false }
+  },
+})
+
+/** Who did what to this cart, newest first. Read-only. */
+export const auditFor = query({
+  args: { id: v.id("checkouts") },
+  handler: async (ctx, { id }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    return await ctx.db.query("checkoutAudit").withIndex("by_checkout", (q) => q.eq("checkoutId", id)).order("desc").take(50)
   },
 })
 
@@ -366,6 +507,7 @@ export const convert = mutation({
     const me = await requirePerm(ctx, "orders.create")
     const c = await ctx.db.get(a.id)
     if (!c) throw new ConvexError("Cart not found")
+    if (c.isArchived) throw new ConvexError("This cart is archived — restore it first")
     if (c.orderId) throw new ConvexError("This cart already has an order")
     if (!c.items.length) throw new ConvexError("This cart has no products — make the order from “New order” instead")
     const res = await insertOrder(ctx, {
