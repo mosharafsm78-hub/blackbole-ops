@@ -102,8 +102,9 @@ async function gql(ctx: any, query: string, variables: any = {}) {
     body: JSON.stringify({ query, variables }),
   })
   const j: any = await r.json().catch(() => ({}))
-  if (r.status === 401) await ctx.runMutation(internal.shopifyStock.putToken, { token: null })
-  if (!r.ok || j.errors) throw new Error(`Shopify API ${r.status}: ${JSON.stringify(j.errors ?? j).slice(0, 300)}`)
+  // 401, or "access denied" (e.g. a permission was added after this 24h token was issued): drop the token so the next call logs in again
+  if (r.status === 401 || JSON.stringify(j.errors ?? "").includes("ACCESS_DENIED")) await ctx.runMutation(internal.shopifyStock.putToken, { token: null })
+  if (!r.ok || j.errors) throw new Error(`Shopify API ${r.status}: ${JSON.stringify(j.errors ?? j).slice(0, 600)}`)
   return j.data
 }
 
@@ -316,7 +317,8 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
         if (vr) save.push({ id: vr.id, itemId: f.itemId })
       }
     } catch (e: any) {
-      notes.push(`"${g.name}" could not be created in Shopify: ${String(e?.message ?? e).slice(0, 160)}`)
+      if (String(e?.message ?? e).includes("ACCESS_DENIED")) throw e // stale token: flush retries in a minute with a fresh one
+      notes.push(`"${g.name}" could not be created in Shopify: ${String(e?.message ?? e).slice(0, 700)}`)
     }
   }
   if (save.length) await ctx.runMutation(internal.shopifyStock.saveItemIds, { list: [...new Map(save.map((x) => [x.id, x])).values()] })
@@ -333,7 +335,7 @@ export const flush = internalAction({
         await itemIds(ctx, rows)
         const notes = await ensureProducts(ctx, rows) // new products go to Shopify by themselves
         await setQuantities(ctx, rows)
-        await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 400) : null })
+        await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 900) : null })
         await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: rows.length })
       } catch (e: any) {
         await ctx.runMutation(internal.shopifyStock.putToken, { error: `${new Date().toISOString()} ${String(e?.message ?? e)}`.slice(0, 400) })
