@@ -16,7 +16,7 @@ import {
   CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
-  buildAdvanceFields, isAdvanceReason, type AdvanceFields,
+  buildAdvanceFields, isAdvanceReason, advanceReasonCode, type AdvanceFields,
 } from "./rules"
 
 // ---------- status counters (cheap tab counts) ----------
@@ -634,6 +634,20 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // "someone found out and recorded why."
   if (reason && !opts.systemReason) { patch.reason = reason; patch.lastNote = `${STATUS_LABEL[to]}: ${reason}`; patch.lastNoteBy = byName }
   // ---- Advance-payment hold ----
+  /**
+   * Validate here, not only in `changeStatus`. This is the single choke point every caller passes through, so
+   * a new entry point (a scan screen, a sync, an auto-approve) can't smuggle in an advance reason with no
+   * amount and store a promise nobody can chase — which is exactly the state an agent would then have to
+   * unpick by hand. Throwing before any write also means a bad batch leaves no half-applied orders.
+   */
+  if (isAdvanceReason(reason) && !opts.systemReason) {
+    const checked = buildAdvanceFields({
+      reason,
+      expectedAdvanceAmount: opts.advance?.expectedAdvanceAmount,
+      promisedPaymentDate: opts.advance?.promisedPaymentDate,
+    })
+    if (!checked.ok) throw new ConvexError(`${invoiceLabel(order)}: ${checked.error}`)
+  }
   // Three distinct cases, deliberately not a single truthiness check:
   //  1. the reason IS an advance reason  → store the validated amount + date
   //  2. an ordinary reason on a hold/cancel → CLEAR both, so a re-held order can never show a previous promise
@@ -648,6 +662,19 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     patch.expectedAdvanceAmount = undefined
     patch.promisedPaymentDate = undefined
   }
+  /**
+   * Machine-readable cancel code. Set only for the two advance-driven cancels, and CLEARED on any other
+   * recoded cancel/hold reason so an order can never keep a stale `refused_advance` after its reason is
+   * corrected to something ordinary. Left alone on a move that isn't a hold/cancel, so the history survives
+   * a later approve exactly like expectedAdvanceAmount does.
+   *
+   * This lives inside applyStatus (not changeStatus) on purpose: every entry point — the status dialog, the
+   * bulk action, the scan screen, a sync, an auto-approve — funnels through here, so the ledger stays in one
+   * place and a new caller can't forget to record why the order died.
+   */
+  const cancelCode = advanceReasonCode(reason)
+  if (cancelCode) patch.cancelReason = cancelCode
+  else if (reason && !opts.systemReason && (to === "on_hold" || to === "cancelled")) patch.cancelReason = undefined
   // Leaving hold/cancel for a live status means the advance question is settled (paid, waived, or the order
   // died) — stamp it so reporting can tell a live promise from an abandoned one, without erasing the amount
   // that was actually asked for.
@@ -669,14 +696,23 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     patch.due = 0
   }
   await ctx.db.patch(order._id, patch)
+  /**
+   * The ledger line carries the money, not just the reason. "Status changed X → Cancelled — Refused advance
+   * payment" tells a reader nothing about what was asked for; the timeline is the only place a support lead
+   * can reconstruct a dispute months later, so the amount and the promised date belong in the text too.
+   */
+  const advanceNote = isAdvanceReason(reason) && opts.advance?.expectedAdvanceAmount !== undefined
+    ? ` — advance ৳${opts.advance.expectedAdvanceAmount}` +
+      (opts.advance.promisedPaymentDate ? ` due ${new Date(opts.advance.promisedPaymentDate).toISOString().slice(0, 10)}` : "")
+    : ""
   // A same-status reason edit isn't a move — decrementing and re-incrementing the same counter would be a
   // no-op at best and a drift at worst, so counters and the "Status changed" log only fire on a real move.
   if (from !== to) {
     await bumpStatusCount(ctx, from, -1)
     await bumpStatusCount(ctx, to, 1)
-    await logOrder(ctx, order._id, `Status changed ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}${reason ? ` — ${reason}` : ""}`, byName)
+    await logOrder(ctx, order._id, `Status changed ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}${reason ? ` — ${reason}` : ""}${advanceNote}`, byName)
   } else {
-    await logOrder(ctx, order._id, `${STATUS_LABEL[to]} reason set to "${reason}"`, byName)
+    await logOrder(ctx, order._id, `${STATUS_LABEL[to]} reason set to "${reason}"${advanceNote}`, byName)
   }
   if (opts.quiet) return // sync from Nuport: no notifications, webhooks or courier booking (Nuport already did those)
   await notify(ctx, "Order Status Updated.", `Sales Order ${invoiceLabel(order)} was set to ${STATUS_LABEL[to]}.`, order._id)
@@ -933,8 +969,15 @@ export const logCall = mutation({
  *  note = the customer's own words, Bangla or English, exactly as they said it — real data for later analysis
  *  (return-reason patterns, fulfillment mistakes, AI processing), kept separate from the category on purpose. */
 export const setReason = mutation({
-  args: { id: v.id("orders"), reason: v.string(), note: v.optional(v.string()) },
-  handler: async (ctx, { id, reason, note }) => {
+  args: {
+    id: v.id("orders"), reason: v.string(), note: v.optional(v.string()),
+    // Same advance block the status dialog sends. The post-hoc "Edit reason" path can record an advance
+    // reason too (a Super Admin correcting a cancel the next morning), so it must write the exact same
+    // fields — otherwise the same reason would carry the money in one dialog and not the other.
+    expectedAdvanceAmount: v.optional(v.number()),
+    promisedPaymentDate: v.optional(v.number()),
+  },
+  handler: async (ctx, { id, reason, note, expectedAdvanceAmount, promisedPaymentDate }) => {
     const me = await requirePerm(ctx, "orders.edit")
     const order = await ctx.db.get(id)
     if (!order) throw new ConvexError("Order not found")
@@ -948,6 +991,8 @@ export const setReason = mutation({
     if (isRealReason(order.reason) && order.reasonAt && !hasPerm(me.perms, "*")) {
       throw new ConvexError("This reason has already been logged — ask a Super Admin to change it.")
     }
+    const advance = buildAdvanceFields({ reason: clean, expectedAdvanceAmount, promisedPaymentDate })
+    if (!advance.ok) throw new ConvexError(advance.error)
     await ctx.db.patch(id, {
       reason: clean,
       reasonNote: cleanNote,
@@ -956,8 +1001,17 @@ export const setReason = mutation({
       lastNote: `${STATUS_LABEL[order.status as OrderStatus]}: ${clean}`,
       lastNoteBy: me.staff.name,
       updatedAt: Date.now(),
+      // advance fields travel with the reason here too, so the two dialogs can't disagree
+      ...(isAdvanceReason(clean)
+        ? { expectedAdvanceAmount: advance.fields.expectedAdvanceAmount, promisedPaymentDate: advance.fields.promisedPaymentDate, advanceClearedAt: undefined }
+        : {}),
+      cancelReason: advanceReasonCode(clean),
     })
-    await logOrder(ctx, id, `Reason set: ${clean}${cleanNote ? ` — "${cleanNote}"` : ""}`, me.staff.name)
+    const advanceNote = isAdvanceReason(clean) && advance.fields.expectedAdvanceAmount !== undefined
+      ? ` — advance ৳${advance.fields.expectedAdvanceAmount}` +
+        (advance.fields.promisedPaymentDate ? ` due ${new Date(advance.fields.promisedPaymentDate).toISOString().slice(0, 10)}` : "")
+      : ""
+    await logOrder(ctx, id, `Reason set: ${clean}${advanceNote}${cleanNote ? ` — "${cleanNote}"` : ""}`, me.staff.name)
   },
 })
 

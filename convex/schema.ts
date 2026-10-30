@@ -376,9 +376,8 @@ export default defineSchema({
     expectedAdvanceAmount: v.optional(v.number()), // whole taka the customer was asked for
     promisedPaymentDate: v.optional(v.number()), // epoch ms of the day the advance was promised for
     advanceClearedAt: v.optional(v.number()), // set when the hold is resolved, so a stale promise can't linger
-    // Machine-readable "why the order died" for the two advance-driven cancels (refused_advance /
-    // advance_failed). Optional so every order that predates this, and every cancel for an ordinary reason,
-    // stays a valid document.
+    // Machine-readable "why the order died" for the two advance-driven cancels (both map to refused_advance).
+    // Optional so every order that predates this, and every cancel for an ordinary reason, stays valid.
     cancelReason: v.optional(v.string()),
 
     // ---- Pathao money (synced from Pathao invoices) ----

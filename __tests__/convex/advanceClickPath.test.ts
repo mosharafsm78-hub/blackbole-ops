@@ -118,10 +118,10 @@ describe("agent click-path: holding an order for an advance payment", () => {
     await expect(as.mutation(api.orders.changeStatus, { ids: [orderId], to: "on_hold", reason: ADVANCE_REASON_REFUSED, expectedAdvanceAmount: 500 })).rejects.toThrow(/date/i)
 
     // nothing leaked through: still pending, still no advance data
-    const o = await t.run((ctx) => ctx.db.get(orderId))
-    expect(o!.status).toBe("pending")
-    expect(o!.expectedAdvanceAmount).toBeUndefined()
-    expect(o!.promisedPaymentDate).toBeUndefined()
+    const o = (await t.run((ctx) => ctx.db.get(orderId))) as Doc<"orders">
+    expect(o.status).toBe("pending")
+    expect(o.expectedAdvanceAmount).toBeUndefined()
+    expect(o.promisedPaymentDate).toBeUndefined()
   })
 
   it("keeps a legacy order (no advance fields at all) working through every path", async () => {
@@ -148,8 +148,8 @@ describe("agent click-path: holding an order for an advance payment", () => {
     // and it can still be held, cancelled and approved with no advance data anywhere
     expect((await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "on_hold", reason: "Customer asked to wait" })).done).toBe(1)
     expect((await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "cancelled", reason: "Out of stock" })).done).toBe(1)
-    const after = await t.run((ctx) => ctx.db.get(orderId))
-    expect(after!.status).toBe("cancelled")
-    expect(after!.expectedAdvanceAmount).toBeUndefined()
+    const after = (await t.run((ctx) => ctx.db.get(orderId)) as Doc<"orders">)
+    expect(after.status).toBe("cancelled")
+    expect(after.expectedAdvanceAmount).toBeUndefined()
   })
 })

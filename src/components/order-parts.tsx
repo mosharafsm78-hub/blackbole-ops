@@ -382,9 +382,20 @@ export function StatusDialog({
   // advance-payment inputs, held as raw strings so the field can be empty while typing
   const [advanceAmount, setAdvanceAmount] = useState("")
   const [promiseDate, setPromiseDate] = useState("")
+  /**
+   * Reset only when the dialog OPENS, not on every render.
+   *
+   * `options` is built inline by both callers (`TRANSITIONS[status].filter(...)`), so its array identity is new
+   * on every parent render. Keying this effect on it meant any live-query update while the agent was typing
+   * re-ran the reset and silently wiped the reason and the advance amount mid-edit. The joined string keeps the
+   * reset for a genuinely different set of moves without reacting to a fresh array holding the same values.
+   */
+  const optionKey = options.join("|")
   useEffect(() => {
-    if (open) { setTo(initial ?? options[0]); setReason(""); setAdvanceAmount(""); setPromiseDate("") }
-  }, [open, initial, options])
+    if (!open) return
+    setTo(initial ?? options[0]); setReason(""); setAdvanceAmount(""); setPromiseDate("")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial, optionKey])
   const presets = reasonPresets(to)
   const needReason = !!to && NEEDS_REASON.includes(to)
   const wantsAdvance = isAdvanceReason(reason)
@@ -545,10 +556,26 @@ export function ReasonDialog({
   const [reason, setLocalReason] = useState(looksLikePreset ? current! : "")
   const [note, setNote] = useState(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
   const [busy, setBusy] = useState(false)
+  // Same two advance inputs as the status dialog, and the same shared helpers — this is the second door into
+  // the same ledger, so it must record the money too rather than only the reason string.
+  const [advanceAmount, setAdvanceAmount] = useState("")
+  const [promiseDate, setPromiseDate] = useState("")
+  const wantsAdvance = isAdvanceReason(reason)
+  const pickReason = (next: string) => {
+    const cleared = resolveReasonToggle({ from: reason, to: next, amount: advanceAmount, date: promiseDate })
+    setLocalReason(next)
+    setAdvanceAmount(cleared.amount)
+    setPromiseDate(cleared.date)
+  }
+  const amountValue = parseTakaInput(advanceAmount)
+  const dateValue = dateInputToMs(promiseDate)
+  const advanceIncomplete = wantsAdvance && (amountValue === null || amountValue <= 0 || dateValue === null)
   useEffect(() => {
     if (!open) return
     setLocalReason(looksLikePreset ? current! : "")
     setNote(currentNote ?? (looksReal && !looksLikePreset ? current ?? "" : ""))
+    setAdvanceAmount("")
+    setPromiseDate("")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, current, currentNote])
 
@@ -578,11 +605,40 @@ export function ReasonDialog({
             <Label>Category <span className="font-normal text-tone-red">(required)</span></Label>
             <div className="flex flex-wrap gap-1.5">
               {presets.map((p) => (
-                <button key={p} type="button" onClick={() => setLocalReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
+                <button key={p} type="button" onClick={() => pickReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
               ))}
             </div>
-            <Input value={reason} onChange={(e) => setLocalReason(e.target.value)} placeholder="Pick one above, or type your own" />
+            <Input value={reason} onChange={(e) => pickReason(e.target.value)} placeholder="Pick one above, or type your own" data-testid="reason-input" />
           </div>
+          {wantsAdvance && (
+            <div className="space-y-3 rounded-md border border-tone-amber bg-tone-amber-bg/40 p-3" data-testid="advance-fields">
+              <div className="text-xs font-medium">Advance payment — {reason}</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="reason-advance-amount">Expected Advance Amount (BDT) <span className="font-normal text-tone-red">*</span></Label>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                    <Input
+                      id="reason-advance-amount" inputMode="numeric" className="pl-6" placeholder="e.g. 500"
+                      value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)}
+                      data-testid="advance-amount"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reason-advance-date">Promised Payment Date <span className="font-normal text-tone-red">*</span></Label>
+                  <Input
+                    id="reason-advance-date" type="date" value={promiseDate}
+                    onChange={(e) => setPromiseDate(e.target.value)}
+                    data-testid="advance-date"
+                  />
+                </div>
+              </div>
+              {advanceAmount.trim() !== "" && amountValue === null && (
+                <p className="text-xs text-tone-red" data-testid="advance-amount-error">Enter the amount in taka, digits only.</p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>What did the customer actually say? <span className="font-normal text-tone-red">(required, Bangla or English)</span></Label>
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Customer's own words, as exactly as you can — this is the real data." rows={3} />
@@ -590,9 +646,17 @@ export function ReasonDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={busy || !reason.trim() || !note.trim()} onClick={async () => {
+          <Button disabled={busy || !reason.trim() || !note.trim() || advanceIncomplete} onClick={async () => {
             setBusy(true)
-            try { await setReason({ id: orderId, reason: reason.trim(), note: note.trim() || undefined }); toast.success("Reason saved"); onOpenChange(false) }
+            try {
+              await setReason({
+                id: orderId, reason: reason.trim(), note: note.trim() || undefined,
+                // same rule as the status dialog: sent only for an advance reason, only once complete
+                expectedAdvanceAmount: wantsAdvance ? amountValue ?? undefined : undefined,
+                promisedPaymentDate: wantsAdvance ? dateValue ?? undefined : undefined,
+              })
+              toast.success("Reason saved"); onOpenChange(false)
+            }
             catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Save reason</Button>
         </DialogFooter>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED,
+  ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED, ADVANCE_REASON_FAILED,
   isAdvanceReason, reasonPresets, resolveReasonToggle,
 } from "../../convex/rules"
 
@@ -16,9 +16,13 @@ describe("modal reason chips", () => {
     expect(hold).toContain("Customer asked to wait")
   })
 
-  it("offers all three advance reasons on a cancel, since a customer can refuse one", () => {
+  it("offers both advance CANCEL chips first on a cancel, since an advance can be refused or just never arrive", () => {
     const cancel = reasonPresets("cancelled")
-    expect(cancel.slice(0, 3)).toEqual([ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED])
+    // the two chips that actually end an order come first, ahead of the generic catch-alls
+    expect(cancel.slice(0, 2)).toEqual([ADVANCE_REASON_REFUSED, ADVANCE_REASON_FAILED])
+    // and the two hold-style reasons stay available, since an agent may cancel mid-promise
+    expect(cancel).toContain(ADVANCE_REASON_AWAITING)
+    expect(cancel).toContain(ADVANCE_REASON_PROMISED)
     expect(cancel).toContain("Customer cancelled")
   })
 

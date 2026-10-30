@@ -48,11 +48,12 @@ const read = (t: ReturnType<typeof makeT>, id: Id<"orders">) => t.run((ctx) => c
 // pure helpers
 // ---------------------------------------------------------------------------
 describe("advance reason vocabulary", () => {
-  it("has exactly the three reasons the brief specifies", () => {
+  it("has exactly the four reasons the briefs specify (3 from Task 4 + the failed/expired chip)", () => {
     expect(ADVANCE_REASONS).toEqual([
       "Hold: Awaiting Advance Payment",
       "Hold: Customer Promised Advance",
       "Canceled: Refused Advance Payment",
+      "Canceled: Advance Payment Failed/Expired",
     ])
   })
 

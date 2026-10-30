@@ -304,8 +304,39 @@ export function isRealReason(reason?: string | null): boolean {
 export const ADVANCE_REASON_AWAITING = "Hold: Awaiting Advance Payment"
 export const ADVANCE_REASON_PROMISED = "Hold: Customer Promised Advance"
 export const ADVANCE_REASON_REFUSED = "Canceled: Refused Advance Payment"
+// An advance that was asked for and then never came. Distinct from "refused" (the customer said no) because
+// the follow-up differs: a refusal is final, an expiry is a cart worth one more chase.
+export const ADVANCE_REASON_FAILED = "Canceled: Advance Payment Failed/Expired"
 
-export const ADVANCE_REASONS = [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED]
+export const ADVANCE_REASONS = [
+  ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED, ADVANCE_REASON_FAILED,
+]
+
+/**
+ * Machine-readable code stored on the order alongside the human reason.
+ *
+ * Both cancel chips map to the SAME code, "refused_advance", because `cancelReason` is a coarse bucket —
+ * "this order died because of the advance payment" — while `reason` keeps the precise wording ("refused" vs
+ * "failed/expired"). That way every advance-driven cancel is found with one query, and the nuance is still on
+ * the record for anyone reading the order itself.
+ *
+ * Deliberately only the CANCEL reasons get a code: `cancelReason` answers "why did this order die", and a
+ * hold is not a death. Hold reasons keep their advance data but no cancel code.
+ */
+export const ADVANCE_CANCEL_CODES: Record<string, string> = {
+  [ADVANCE_REASON_REFUSED]: "refused_advance",
+  [ADVANCE_REASON_FAILED]: "refused_advance",
+}
+
+/** The code for a cancel-type advance reason, or undefined when the reason isn't one. */
+export function advanceReasonCode(reason?: string | null): string | undefined {
+  return reason ? ADVANCE_CANCEL_CODES[reason] : undefined
+}
+
+/** True only for the two reasons that cancel an order because of the advance. */
+export function isAdvanceCancelReason(reason?: string | null): boolean {
+  return !!advanceReasonCode(reason)
+}
 
 /** Does picking this reason mean the order is parked on an advance payment? Drives the extra two inputs. */
 export function isAdvanceReason(reason?: string | null): boolean {
@@ -332,14 +363,19 @@ export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Dupl
 export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Address unclear", "Other"]
 
 /**
- * Reason chips for a status. The three advance-payment reasons come FIRST on Hold and Cancel so they read as
- * one clear group, and each is shown exactly as it will be stored — the "Hold:"/"Canceled:" prefix included —
+ * Reason chips for a status. The advance-payment reasons come FIRST on Hold and Cancel so they read as one
+ * clear group, and each is shown exactly as it will be stored — the "Hold:"/"Canceled:" prefix included —
  * so a record can never say a bare "Advance payment pending" that reads like any other hold.
- * Return moves keep their own vocabulary and never get an advance chip.
+ *
+ * Cancel offers all four (an advance can be asked for, promised, refused, or simply never arrive); Hold
+ * offers only the two that make sense while the order is still alive. Return moves keep their own
+ * vocabulary and never get an advance chip.
  */
 export function reasonPresets(status?: OrderStatus | null): string[] {
   if (status === "on_hold") return [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ...HOLD_REASONS]
-  if (status === "cancelled") return [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED, ...CANCEL_REASONS]
+  if (status === "cancelled") {
+    return [ADVANCE_REASON_REFUSED, ADVANCE_REASON_FAILED, ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ...CANCEL_REASONS]
+  }
   if (status === "returned" || status === "pending_returned" || status === "damaged") return RETURN_REASONS
   return []
 }
