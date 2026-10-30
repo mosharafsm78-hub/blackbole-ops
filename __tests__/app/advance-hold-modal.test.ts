@@ -16,13 +16,14 @@ describe("modal reason chips", () => {
     expect(hold).toContain("Customer asked to wait")
   })
 
-  it("offers both advance CANCEL chips first on a cancel, since an advance can be refused or just never arrive", () => {
+  it("offers only the advance CANCEL chips on a cancel — the hold-style chips belong on Hold, not Cancel", () => {
     const cancel = reasonPresets("cancelled")
     // the two chips that actually end an order come first, ahead of the generic catch-alls
     expect(cancel.slice(0, 2)).toEqual([ADVANCE_REASON_REFUSED, ADVANCE_REASON_FAILED])
-    // and the two hold-style reasons stay available, since an agent may cancel mid-promise
-    expect(cancel).toContain(ADVANCE_REASON_AWAITING)
-    expect(cancel).toContain(ADVANCE_REASON_PROMISED)
+    // the two hold-style reasons ("awaiting"/"promised") don't belong here — an order still has those chips
+    // to go back on hold with if it isn't actually being cancelled
+    expect(cancel).not.toContain(ADVANCE_REASON_AWAITING)
+    expect(cancel).not.toContain(ADVANCE_REASON_PROMISED)
     expect(cancel).toContain("Customer cancelled")
   })
 
