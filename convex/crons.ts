@@ -14,6 +14,7 @@ crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tic
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
 // win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every
 // winback.REPEAT1_DAYS until they order again (does nothing before its start date or while switched off)
+crons.interval("abandoned cart emails", { minutes: 10 }, internal.abandonedEmail.run, {})
 crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
 // win-back email, tier 1: same idea, same cadence, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)
 crons.interval("win-back email sweep", { hours: 1 }, internal.winback.runEmail, {})

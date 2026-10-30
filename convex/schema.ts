@@ -676,6 +676,10 @@ export default defineSchema({
     recoveryStatus: v.optional(v.string()),
     editedAt: v.optional(v.number()),
     editedBy: v.optional(v.string()),
+    // Automatic "finish your order" email (sent once; the team can resend by hand)
+    emailSentAt: v.optional(v.number()),
+    emailCount: v.optional(v.number()),
+    emailError: v.optional(v.string()),
   })
     .index("by_checkout", ["checkoutId"])
     .index("by_token", ["token"])

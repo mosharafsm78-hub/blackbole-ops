@@ -7,6 +7,7 @@ import { action, internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { invoiceLabel } from "./lib"
 import { orderMessage } from "./outbound"
+import { abandonedEmailContent } from "./emailTemplates"
 
 const SUBJECT: Record<string, string> = {
   pending: "Your BlackBole order {invoice} is received 🎉",
@@ -37,10 +38,10 @@ function transport(email: any) {
   })
 }
 
-async function send(email: any, to: string, subject: string, text: string, hotline?: string): Promise<string | null> {
+async function send(email: any, to: string, subject: string, text: string, hotline?: string, htmlOverride?: string): Promise<string | null> {
   if (!email?.address || !email?.password) return "Email is not set up (mailbox or password missing)"
   try {
-    await transport(email).sendMail({ from: { name: email.fromName || "BlackBole", address: email.address }, to, subject, text, html: html(text, hotline) })
+    await transport(email).sendMail({ from: { name: email.fromName || "BlackBole", address: email.address }, to, subject, text, html: htmlOverride ?? html(text, hotline) })
     return null
   } catch (e) {
     return String(e instanceof Error ? e.message : e).slice(0, 200)
@@ -129,5 +130,20 @@ export const testEmail = action({
     const error = await send(email, to.trim(), "Test email from BlackBole Ops", text)
     await ctx.runMutation(internal.outbound.logSms, { phone: to.trim(), text, status: error ? "failed" : "sent", error: error ?? undefined, channel: "email" })
     return error ? { ok: false, error } : { ok: true }
+  },
+})
+
+/** "You left something behind" email for an abandoned cart (gift-box leads get the Tk 500 gift reminder). */
+export const sendAbandonedEmail = internalAction({
+  args: { checkoutId: v.id("checkouts") },
+  handler: async (ctx, { checkoutId }) => {
+    const c = await ctx.runQuery(internal.abandonedEmail.get, { checkoutId })
+    const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
+    if (!c || !c.email) return
+    const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
+    const picks = await ctx.runQuery(internal.abandonedEmail.picks, { exclude: c.items.map((i: any) => i.name) })
+    const m = abandonedEmailContent({ customerName: c.customerName, items: c.items, subtotal: c.subtotal, url: c.recoveryUrl, hotline: contact?.hotline, step: (c.emailCount ?? 0) + 1, picks: picks.filter((p: any) => !c.items.some((i: any) => i.name === p.name)) })
+    const error = await send(email, c.email, m.subject, m.text, contact?.hotline, m.html)
+    await ctx.runMutation(internal.abandonedEmail.markResult, { checkoutId, subject: m.subject, error: error ?? undefined })
   },
 })

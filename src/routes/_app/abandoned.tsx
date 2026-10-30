@@ -127,6 +127,7 @@ function CartRow({ c, tab, onCall, onOrder, onModify, onLost, onReopen, onAlread
   c: Row; tab: Tab; onCall: () => void; onOrder: () => void; onModify: () => void; onLost: () => void; onReopen: () => void; onAlreadyOrdered: () => void; onRestore: () => void
 }) {
   const open = tab === "new" || tab === "followup"
+  const sendEmail = useMutation(api.abandonedEmail.sendNow)
   const archived = tab === "archived"
   const due = c.followUpAt && c.followUpAt <= Date.now()
   const waText = `Assalamu Alaikum ${c.customerName || ""}, this is BlackBole. You left some items in your cart. ${c.recoveryUrl ? `You can finish your order here: ${c.recoveryUrl}` : "Shall we confirm the order for you?"}`
@@ -150,6 +151,12 @@ function CartRow({ c, tab, onCall, onOrder, onModify, onLost, onReopen, onAlread
             <span className="min-w-0 truncate" data-testid="cart-email">{c.email}</span>
             <a href={`mailto:${c.email}`} title="Send email" className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent"><Mail className="size-3.5" /></a>
             <button type="button" title="Copy email" className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent" onClick={() => { void navigator.clipboard?.writeText(c.email!); toast.success("Email copied") }}><Copy className="size-3.5" /></button>
+          </div>
+        )}
+        {c.email && (
+          <div className={cn("mt-1 text-xs", c.emailError ? "text-tone-red" : c.emailSentAt ? "text-tone-green" : "text-muted-foreground")} data-testid="cart-email-status">
+            {c.emailError ? `Email failed: ${c.emailError}` : c.emailSentAt ? `Email sent ${ago(c.emailSentAt)}${(c.emailCount ?? 0) > 1 ? ` (${c.emailCount} times)` : ""}` : "Email not sent yet (goes out automatically)"}
+            {open && <button type="button" className="ml-2 underline" onClick={() => void sendEmail({ id: c._id }).then(() => toast.success("Email is being sent")).catch((e) => toast.error(errMsg(e)))}>{c.emailSentAt ? "Send again" : "Send now"}</button>}
           </div>
         )}
         {c.address && <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.address}</div>}

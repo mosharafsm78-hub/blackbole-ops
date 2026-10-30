@@ -279,7 +279,7 @@ export const codLeadHttp = httpAction(async (ctx, req) => {
 
 type Row = Doc<"checkouts"> & { laterOrder: { id: Id<"orders">; invoice: string } | null; orderInvoice: string | null }
 
-async function laterOrderFor(ctx: any, c: Doc<"checkouts">) {
+export async function laterOrderFor(ctx: any, c: Doc<"checkouts">) {
   if (!c.phone) return null
   const orders: Doc<"orders">[] = await ctx.db.query("orders").withIndex("by_phone", (q: any) => q.eq("phone", c.phone)).collect()
   const o = orders.filter((x) => !x.deletedAt && x.createdAt >= c.shopCreatedAt - 3600000).sort((a, b) => a.createdAt - b.createdAt)[0]
