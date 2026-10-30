@@ -138,6 +138,71 @@ describe("consolidateDuplicateProducts", () => {
     expect(move!.fromSku).toBe("BB-HSS-NEW-39")
   })
 
+  it("uses order history to pick the canonical product when neither candidate is storefront-synced", async () => {
+    // Regression test: the exact real-world case that slipped through the `synced` fix — neither the real
+    // product nor its duplicate has `web`/`shopifyItemId` set (common for older catalogue entries), so the
+    // tie-break must fall to something else that can't be gamed by a throwaway duplicate: real order history.
+    const { as, t, locationId } = await setup()
+
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Harbor Shore Sandal",
+      active: true,
+      imageUrl: "https://example.com/hss.jpg",
+      variants: [{ sku: "BB-SH-BHSS-BLACK-44", title: "44", weightKg: 0.4, price: 1380, purchasePrice: 500, active: true }],
+    })
+    const real = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal")!
+    const realV44 = real.variants[0]
+
+    // A duplicate with MORE variants and a HIGHER price — on the old heuristic alone this would win.
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Harbor Shore Sandal",
+      active: true,
+      variants: [
+        { sku: "BB-SH-BHSS-BLACK-NEW-44", title: "44", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+        { sku: "BB-SH-BHSS-BLACK-NEW-45", title: "45", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+      ],
+    })
+    const dupe = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal" && p._id !== real._id)!
+    const dupeV44 = dupe.variants.find((v) => v.sku === "BB-SH-BHSS-BLACK-NEW-44")!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: dupeV44._id, qty: 10, unitCost: 500 }] })
+
+    // Give the REAL variant actual order history — a customer genuinely bought this one.
+    const customerId = await t.run((ctx) =>
+      ctx.db.insert("customers", { code: 1, name: "Test Customer", phone: "01700000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: 0 }),
+    )
+    await t.run((ctx) =>
+      ctx.db.insert("orders", {
+        invoiceNo: 90001,
+        status: "delivered_paid" as any,
+        source: "web",
+        customerId,
+        customerName: "Test Customer",
+        phone: "01700000000",
+        address: "Test address",
+        locationId,
+        deliveryType: "regular",
+        items: [{ variantId: realV44._id, sku: "BB-SH-BHSS-BLACK-44", name: "Harbor Shore Sandal", price: 1380, qty: 1, discount: 0, weightKg: 0.4 }],
+        subtotal: 1380,
+        discount: 0,
+        deliveryFee: 0,
+        paidAmount: 1380,
+        total: 1380,
+        due: 0,
+        callCount: 0,
+        createdByName: "Test",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        statusChangedAt: Date.now(),
+      } as any),
+    )
+
+    const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
+    const move = res.sample.find((m: any) => m.size === "44")
+    expect(move).toBeDefined()
+    expect(move!.toSku).toBe("BB-SH-BHSS-BLACK-44")
+    expect(move!.fromSku).toBe("BB-SH-BHSS-BLACK-NEW-44")
+  })
+
   it("never transfers a negative bucket off a duplicate — that's a deficit, not stock to hand over", async () => {
     const { as, locationId } = await setup()
     await as.mutation(api.catalog.saveProduct, {

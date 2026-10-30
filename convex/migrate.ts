@@ -500,6 +500,18 @@ export const consolidateDuplicateProducts = mutation({
       stockByVariant.set(r.variantId as string, arr)
     }
 
+    // The single strongest signal of "this is the real product" — stronger than price or variant count,
+    // which a bad fix script can easily reproduce or even exceed: has an actual customer order ever referenced
+    // this variant? An orphan duplicate created by a broken SKU "fix" was never customer-facing, so it has zero.
+    const orderRefsByVariant = new Map<string, number>()
+    for (const o of await ctx.db.query("orders").collect()) {
+      for (const item of o.items) {
+        if (!item.variantId) continue
+        const key = item.variantId as string
+        orderRefsByVariant.set(key, (orderRefsByVariant.get(key) ?? 0) + 1)
+      }
+    }
+
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
     const byName = new Map<string, Doc<"products">[]>()
     for (const p of products) {
@@ -526,11 +538,22 @@ export const consolidateDuplicateProducts = mutation({
         // to the storefront — `web` or `shopifyItemId` on a variant means real customers can see and buy it.
         // A throwaway duplicate created by a bad "fix" was never synced, however many sizes it happens to have.
         const synced = vs.some((v) => v.web || v.shopifyItemId) ? 1 : 0
+        // Second-strongest, un-fakeable signal: has a real customer order ever referenced one of this
+        // product's variants? An orphan duplicate created by a broken "fix" was never customer-facing,
+        // so it has zero order references, however many sizes or however high a price it was given.
+        const orderRefs = vs.reduce((sum, v) => sum + (orderRefsByVariant.get(v._id as string) ?? 0), 0)
         const liveCount = vs.filter((v) => v.active !== false).length
         const maxPrice = Math.max(0, ...vs.map((v) => v.price || 0))
-        return { p, vs, synced, liveCount, maxPrice }
+        return { p, vs, synced, orderRefs, liveCount, maxPrice }
       })
-      scored.sort((a, b) => b.synced - a.synced || b.liveCount - a.liveCount || b.maxPrice - a.maxPrice || a.p._creationTime - b.p._creationTime)
+      scored.sort(
+        (a, b) =>
+          b.synced - a.synced ||
+          b.orderRefs - a.orderRefs ||
+          b.liveCount - a.liveCount ||
+          b.maxPrice - a.maxPrice ||
+          a.p._creationTime - b.p._creationTime,
+      )
       const [canonical, ...dupes] = scored
       if (canonical.liveCount === 0) { skipped.push(`${group[0].name}: no clearly-live product in this group — left alone`); continue }
 
