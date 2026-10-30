@@ -195,7 +195,10 @@ function Editor({ data }: { data: Data | null }) {
               {editable && (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setDlg("search")}><Search className="size-4" /> Add existing</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setPreset(undefined); setDlg("builder") }}><Plus className="size-4" /> New product</Button>
+                  <Button size="sm" asChild title="Opens the full product form (description, photos, prices) in a new tab. Save it there, then come back and press Add existing.">
+                    <a href="/website-new" target="_blank" rel="noreferrer"><Plus className="size-4" /> New product (full details)</a>
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => { setPreset(undefined); setDlg("builder") }}><Plus className="size-4" /> Quick new product</Button>
                   <Button size="sm" variant="outline" onClick={() => setDlg("upload")}><Upload className="size-4" /> Upload supplier list</Button>
                 </div>
               )}
