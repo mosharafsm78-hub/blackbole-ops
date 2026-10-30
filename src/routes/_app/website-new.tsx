@@ -162,7 +162,7 @@ export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCrea
             compareAt: f.preOrder ? fp : cmp > fp ? cmp : null,
             cost: num(r.cost || f.cost), weightKg: Number(f.weight) || 0.5,
             ...(r.barcode.trim() ? { barcode: r.barcode.trim() } : {}),
-            ...(!f.preOrder && Math.floor(num(r.test)) > 0 ? { testQty: Math.floor(num(r.test)) } : {}),
+            ...(!f.preOrder && !embedded && Math.floor(num(r.test)) > 0 ? { testQty: Math.floor(num(r.test)) } : {}),
           }
         }),
         ...(f.category.trim() ? { category: f.category.trim() } : {}),
@@ -186,7 +186,7 @@ export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCrea
       <td className="py-1.5 pr-3">
         <Input value={r.sku} onChange={(e) => setRow(r, { sku: e.target.value.toUpperCase().replace(/\s+/g, "") })} className={cn("h-8 w-44 font-mono text-xs", taken.includes(r.sku) && "border-tone-red")} title={taken.includes(r.sku) ? "Already used by another product" : undefined} />
       </td>
-      {!f.preOrder && <td className="py-1.5 pr-3"><Input type="number" min={0} step={1} value={r.test} onChange={(e) => setRow(r, { test: e.target.value })} className="h-8 w-20" placeholder="0" /></td>}
+      {!f.preOrder && !embedded && <td className="py-1.5 pr-3"><Input type="number" min={0} step={1} value={r.test} onChange={(e) => setRow(r, { test: e.target.value })} className="h-8 w-20" placeholder="0" /></td>}
       <td className="py-1.5 pr-4"><Input value={r.barcode} onChange={(e) => setRow(r, { barcode: e.target.value })} className="h-8 w-32" /></td>
     </tr>
   )
@@ -237,10 +237,10 @@ export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCrea
           <Section title="Inventory">
             <label className="flex items-center gap-2 text-sm"><Checkbox checked disabled /> Track quantity</label>
             <p className="mt-1 text-xs text-muted-foreground">{f.preOrder ? "Pre-orders don't need stock." : "Stock is added in Ops through Purchases and Stock in. Until then the product shows as sold out."}</p>
-            {!f.preOrder && <p className="mt-2 rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground"><b className="text-foreground">Test (fake) pairs:</b> for a product you are only testing in marketing. They count as stock on the website and in Shopify so people can order, but Ops marks them “Test (fake) — not in hand” and keeps them out of the real stock and the target plan. {hasVariants ? "Type the pairs for each size in the Test pairs column below." : ""}</p>}
+            {!f.preOrder && !embedded && <p className="mt-2 rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground"><b className="text-foreground">Test (fake) pairs:</b> for a product you are only testing in marketing. They count as stock on the website and in Shopify so people can order, but Ops marks them “Test (fake) — not in hand” and keeps them out of the real stock and the target plan. {hasVariants ? "Type the pairs for each size in the Test pairs column below." : ""}</p>}
             {!hasVariants && (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {!f.preOrder && <Field label="Test (fake) pairs"><Input type="number" min={0} step={1} value={f.test} placeholder="0" onChange={(e) => set("test", e.target.value)} /></Field>}
+                {!f.preOrder && !embedded && <Field label="Test (fake) pairs"><Input type="number" min={0} step={1} value={f.test} placeholder="0" onChange={(e) => set("test", e.target.value)} /></Field>}
                 <Field label="SKU (Stock Keeping Unit)"><Input value={f.sku} placeholder={prefix} onChange={(e) => set("sku", e.target.value.toUpperCase().replace(/\s+/g, ""))} className={cn("font-mono text-xs", taken.includes(variants[0].sku) && "border-tone-red")} /></Field>
                 <Field label="Barcode (ISBN, UPC, GTIN, etc.)"><Input value={f.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>
               </div>
@@ -289,7 +289,7 @@ export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCrea
                 <div className="-mx-4 mt-3 overflow-x-auto border-t">
                   <table className="w-full text-sm">
                     <thead className="bg-muted/30 text-left text-xs text-muted-foreground">
-                      <tr className="border-b"><th className="py-2 pl-4 pr-3 font-medium">Variant{groupBy ? ` · grouped by ${groupBy}` : ""}</th><th className="py-2 pr-3 font-medium">{f.preOrder ? "Full price" : "Price"}</th>{!f.preOrder && <th className="py-2 pr-3 font-medium">Compare-at</th>}<th className="py-2 pr-3 font-medium">Cost</th><th className="py-2 pr-3 font-medium">SKU</th>{!f.preOrder && <th className="py-2 pr-3 font-medium" title="Counts as stock on the website, marked Test (fake) in Ops">Test pairs</th>}<th className="py-2 pr-4 font-medium">Barcode</th></tr>
+                      <tr className="border-b"><th className="py-2 pl-4 pr-3 font-medium">Variant{groupBy ? ` · grouped by ${groupBy}` : ""}</th><th className="py-2 pr-3 font-medium">{f.preOrder ? "Full price" : "Price"}</th>{!f.preOrder && <th className="py-2 pr-3 font-medium">Compare-at</th>}<th className="py-2 pr-3 font-medium">Cost</th><th className="py-2 pr-3 font-medium">SKU</th>{!f.preOrder && !embedded && <th className="py-2 pr-3 font-medium" title="Counts as stock on the website, marked Test (fake) in Ops">Test pairs</th>}<th className="py-2 pr-4 font-medium">Barcode</th></tr>
                     </thead>
                     <tbody>
                       {groupBy ? groups.map((g) => {
