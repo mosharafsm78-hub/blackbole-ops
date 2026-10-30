@@ -127,6 +127,12 @@ export default defineSchema({
     damaged: v.number(),
     wastage: v.optional(v.number()),
     expired: v.optional(v.number()),
+    // Pairs inside `available` that are NOT physically in hand — test stock kept so a product can be advertised and
+    // ordered before it is bought. Real pairs = available − virtual. A stock-in raises `available`, so it turns
+    // fake pairs real by itself. Set by the team's Stock check (convex/stockCheck.ts).
+    virtual: v.optional(v.number()),
+    countedAt: v.optional(v.number()), // when the team last counted the real pairs of this line
+    countedBy: v.optional(v.string()),
   })
     .index("by_variant_location", ["variantId", "locationId"])
     .index("by_location", ["locationId"])

@@ -33,6 +33,7 @@ import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
 import { Route as AppScanRouteImport } from './routes/_app/scan'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppStockCheckRouteImport } from './routes/_app/stock-check'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
 import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
@@ -180,6 +181,11 @@ const AppScanRoute = AppScanRouteImport.update({
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppStockCheckRoute = AppStockCheckRouteImport.update({
+  id: '/stock-check',
+  path: '/stock-check',
   getParentRoute: () => AppRoute,
 } as any)
 const AppStockInRoute = AppStockInRouteImport.update({
@@ -352,6 +358,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof AppReportsRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
+  '/stock-check': typeof AppStockCheckRoute
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
@@ -404,6 +411,7 @@ export interface FileRoutesByTo {
   '/reports': typeof AppReportsRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
+  '/stock-check': typeof AppStockCheckRoute
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
@@ -460,6 +468,7 @@ export interface FileRoutesById {
   '/_app/reports': typeof AppReportsRoute
   '/_app/scan': typeof AppScanRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/stock-check': typeof AppStockCheckRoute
   '/_app/stock-in': typeof AppStockInRoute
   '/_app/supplier': typeof AppSupplierRoute
   '/_app/suppliers': typeof AppSuppliersRoute
@@ -517,6 +526,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/scan'
     | '/settings'
+    | '/stock-check'
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
@@ -569,6 +579,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/scan'
     | '/settings'
+    | '/stock-check'
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
@@ -624,6 +635,7 @@ export interface FileRouteTypes {
     | '/_app/reports'
     | '/_app/scan'
     | '/_app/settings'
+    | '/_app/stock-check'
     | '/_app/stock-in'
     | '/_app/supplier'
     | '/_app/suppliers'
@@ -831,6 +843,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/stock-check': {
+      id: '/_app/stock-check'
+      path: '/stock-check'
+      fullPath: '/stock-check'
+      preLoaderRoute: typeof AppStockCheckRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/stock-in': {
@@ -1074,6 +1093,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppScanRoute: typeof AppScanRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppStockCheckRoute: typeof AppStockCheckRoute
   AppStockInRoute: typeof AppStockInRoute
   AppSupplierRoute: typeof AppSupplierRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
@@ -1124,6 +1144,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppScanRoute: AppScanRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppStockCheckRoute: AppStockCheckRoute,
   AppStockInRoute: AppStockInRoute,
   AppSupplierRoute: AppSupplierRoute,
   AppSuppliersRoute: AppSuppliersRoute,

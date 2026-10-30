@@ -101,6 +101,7 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
         </section>
       </div>
 
+      <StockNotes data={data} />
       <DailyMarketing data={data} />
       <SellList data={data} />
       <Models data={data} />
@@ -156,6 +157,36 @@ function SellList({ data }: { data: TargetProgress }) {
       </div>
       <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{line("other", "Others")}{line("dead", "Dead stock")}</ul>
     </section>
+  )
+}
+
+/** Real stock vs test stock: a nudge to count what is not yet counted, and the products being tested without stock. */
+function StockNotes({ data }: { data: TargetProgress }) {
+  const can = useCan()
+  const c = data.stockCheck
+  const left = c ? c.lines - c.counted : 0
+  if (left <= 0 && data.tests.length === 0) return null
+  return (
+    <div className="space-y-3" data-testid="target-stock-notes">
+      {c && left > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-tone-amber/40 bg-tone-amber-bg/40 p-3 text-xs">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-amber" />
+          <span>
+            <b>{left} of {c.lines} stock lines haven't been counted yet.</b> Until they are, some test (fake) stock may still be inside this plan as if it were in hand.{" "}
+            {can("inventory.adjust") && <Link to="/stock-check" className="font-medium text-tone-blue hover:underline">Count them in Stock check →</Link>}
+          </span>
+        </div>
+      )}
+      {data.tests.length > 0 && (
+        <section className="rounded-xl border bg-card p-4" data-testid="target-tests">
+          <h2 className="text-sm font-semibold">Marketing tests — nothing in hand</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Listed for ads and orders, but not planned: there are no real pairs to deliver. When orders show the demand is real, buy it from the supplier in Purchases; once received it joins the plan by itself.</p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {data.tests.slice(0, 20).map((t) => <li key={t.key} className="rounded-full border px-2.5 py-1 text-xs">{t.name} <span className="font-semibold text-tone-amber">· {t.fake} test pairs</span></li>)}
+          </ul>
+        </section>
+      )}
+    </div>
   )
 }
 

@@ -174,10 +174,15 @@ export function allocateGrouped(products: ProductInput[], revenue: number): { ro
 }
 
 export type PlanProduct = { name: string; units: number; price: number; group?: Group }
-export const PLAN_VERSION = 2
+export const PLAN_VERSION = 3
+/** A plan is re-made at once when total sellable stock moves by this share or more (a stock count was corrected). */
+export const STOCK_REPLAN_SHARE = 0.1
+export const stockMoved = (before: number | undefined, now: number) => before === undefined || Math.abs(now - before) > Math.max(5, before * STOCK_REPLAN_SHARE)
 export type ProductPlan = {
   /** Plan format; a saved plan of an older format is re-made. */
   v?: number
+  /** Total sellable pairs when the plan was made — a big change (stock corrected) triggers a new plan. */
+  stock?: number
   at: number
   /** The part of the target still to deliver when this plan was made. */
   revenueLeft: number
@@ -188,6 +193,7 @@ export type ProductPlan = {
 }
 
 export function buildPlan(args: { at: number; revenueLeft: number; products: ProductInput[]; soldMtd: Record<string, number> }): ProductPlan {
+  const stock = args.products.reduce((s, p) => s + (p.stockUnits ?? 0), 0)
   const { rows, gap } = allocateGrouped(args.products, args.revenueLeft)
   const out: Record<string, PlanProduct> = {}
   for (const r of rows) out[r.key] = { name: r.name, units: (args.soldMtd[r.key] ?? 0) + r.units, price: r.price, group: r.group }
@@ -195,7 +201,7 @@ export function buildPlan(args: { at: number; revenueLeft: number; products: Pro
   for (const p of args.products) {
     if (!out[p.key] && (args.soldMtd[p.key] ?? 0) > 0) out[p.key] = { name: p.name, units: args.soldMtd[p.key], price: p.price, group: p.group ?? "focus" }
   }
-  return { v: PLAN_VERSION, at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
+  return { v: PLAN_VERSION, stock, at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
 }
 
 // ------------------------------------------------------------------------------------------------ daily rows

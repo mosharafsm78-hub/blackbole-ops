@@ -114,6 +114,21 @@ describe("product plan from sales and stock", () => {
     expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.start).toBe("2026-11-10")
   })
 
+  it("re-plans at once when stock is corrected, instead of waiting a week", async () => {
+    const { t, asAdmin, addProduct, sell } = await setup()
+    const hero = await addProduct("Hero Sandal", 100, "BB-HERO") // the system says 100 pairs…
+    await sell("BB-HERO-41", "Hero Sandal", 60, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 80000 })
+    expect((await asAdmin.action(api.targets.progress, {})).products![0].monthUnits).toBe(80)
+
+    // …a stock count finds only 20 are real
+    await t.run(async (ctx) => { const s = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", hero)).first(); await ctx.db.patch(s!._id, { available: 20 }) })
+    vi.setSystemTime(NOW + 11 * 60000) // past the 10-minute data cache, far inside the 7-day replan window
+    const after = await asAdmin.action(api.targets.progress, {})
+    expect(after.products![0].monthUnits).toBe(20)
+    expect(after.productInfo!.gap).toBeGreaterThan(0) // the target can't be carried by what's really there
+  })
+
   it("makes a fresh plan when the amount changes", async () => {
     const { t, asAdmin, addProduct, sell } = await setup()
     await addProduct("Soft Slide", 1000, "BB-SOFT")

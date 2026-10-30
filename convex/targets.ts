@@ -19,7 +19,7 @@ import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
+  buildPlan, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
   type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
 } from "./targetPlan"
 
@@ -203,12 +203,12 @@ export const variantPage = internalQuery({
 
 export const stockPage = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { cursor }): Promise<Page<{ variantId: string; locationId: string; available: number }>> => {
+  handler: async (ctx, { cursor }): Promise<Page<{ variantId: string; locationId: string; available: number; virtual: number; counted: boolean }>> => {
     const res = await ctx.db.query("stock").paginate({ cursor, numItems: 1000 })
     return {
       isDone: res.isDone,
       cursor: res.continueCursor,
-      rows: res.page.map((s) => ({ variantId: s.variantId as string, locationId: s.locationId as string, available: s.available })),
+      rows: res.page.map((s) => ({ variantId: s.variantId as string, locationId: s.locationId as string, available: s.available, virtual: s.virtual ?? 0, counted: s.countedAt !== undefined })),
     }
   },
 })
@@ -240,7 +240,7 @@ const salesRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]>
 // ---------------------------------------------------------------------------------------------------------------
 
 /** units null = pre-order (not capped); cost = average purchase price per pair, null when none is recorded. */
-type StockMap = Record<string, { name: string; units: number | null; cost: number | null; price: number; sizes: number; sizesIn: number }>
+type StockMap = Record<string, { name: string; units: number | null; cost: number | null; price: number; sizes: number; sizesIn: number; fake: number }>
 
 type Gathered = {
   at: number
@@ -254,21 +254,33 @@ type Gathered = {
   returned?: { orders: number; courierSum: number; courierN: number }
   /** Sellable pairs per product; units null = pre-order (not capped). Null for a month that's already over. */
   stock: StockMap | null
+  /** How many stock lines there are and how many the team has counted. */
+  stockCheck?: { lines: number; counted: number }
   spend?: { at: number; byDay: Record<string, number> }
 }
 
-async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
+/** Sellable REAL pairs per product (system stock minus the fake/test part the team marked), plus how much of the
+ *  stock has been counted so far. */
+async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number }> {
   type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean }
   type V = { id: string; sku: string; productId: string; active: boolean; cost: number; price: number }
-  type S = { variantId: string; locationId: string; available: number }
+  type S = { variantId: string; locationId: string; available: number; virtual: number; counted: boolean }
   const sellable: string[] = await ctx.runQuery(internal.targets.sellableLocations, {})
   const products: P[] = await pageAll<P>((cursor) => ctx.runQuery(internal.targets.productPage, { cursor }))
   const variants: V[] = await pageAll<V>((cursor) => ctx.runQuery(internal.targets.variantPage, { cursor }))
   const stockRows: S[] = await pageAll<S>((cursor) => ctx.runQuery(internal.targets.stockPage, { cursor }))
   const usable = new Set(sellable)
   const prod = new Map(products.map((p) => [p.id, p] as const))
-  const unitsByVariant = new Map<string, number>()
-  for (const s of stockRows) if (usable.has(s.locationId)) unitsByVariant.set(s.variantId, (unitsByVariant.get(s.variantId) ?? 0) + s.available)
+  const unitsByVariant = new Map<string, number>() // real pairs
+  const fakeByVariant = new Map<string, number>()
+  let lines = 0, counted = 0
+  for (const s of stockRows) {
+    if (!usable.has(s.locationId)) continue
+    const fake = Math.min(Math.max(0, s.available), Math.max(0, s.virtual))
+    unitsByVariant.set(s.variantId, (unitsByVariant.get(s.variantId) ?? 0) + Math.max(0, s.available - fake))
+    fakeByVariant.set(s.variantId, (fakeByVariant.get(s.variantId) ?? 0) + fake)
+    if (s.available > 0) { lines++; if (s.counted) counted++ }
+  }
 
   const out: StockMap = {}
   const costSum: Record<string, { sum: number; n: number }> = {}
@@ -277,8 +289,9 @@ async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
     const p = prod.get(x.productId)
     if (!p || !p.active || p.deleted) continue
     const key = skuBase(x.sku)
-    const entry = (out[key] ??= { name: p.name, units: 0, cost: null, price: 0, sizes: 0, sizesIn: 0 })
+    const entry = (out[key] ??= { name: p.name, units: 0, cost: null, price: 0, sizes: 0, sizesIn: 0, fake: 0 })
     entry.sizes++
+    entry.fake += fakeByVariant.get(x.id) ?? 0
     entry.price += x.price // summed here, averaged below
     if (!p.preOrder && !/^PO-/i.test(x.sku) && (unitsByVariant.get(x.id) ?? 0) > 0) entry.sizesIn++
     if (x.cost > 0) { const c = (costSum[key] ??= { sum: 0, n: 0 }); c.sum += x.cost; c.n++ }
@@ -287,7 +300,7 @@ async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
   }
   for (const e of Object.values(out)) e.price = e.sizes > 0 ? e.price / e.sizes : 0
   for (const [k, c] of Object.entries(costSum)) out[k].cost = c.sum / c.n
-  return out
+  return { map: out, lines, counted }
 }
 
 async function returnedStats(ctx: ActionCtx, from: number, to: number) {
@@ -304,11 +317,11 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   const mStart = dayStartMs(periodOf(month, start).first), mEnd = monthEndMs(month)
   const from = historic ? mStart : Math.min(mStart, now - WINDOW_DAYS * DAY)
   const to = historic ? mEnd : now + 1
-  const [rows, stock, returned] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx), historic ? Promise.resolve(undefined) : returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1)])
+  const [rows, gotStock, returned] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx), historic ? Promise.resolve(undefined) : returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1)])
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.
   const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock }
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined }
 }
 
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
@@ -354,9 +367,13 @@ export type TargetProgress = {
   measured: MeasuredCosts | null
   /** True when the target was set by the system, not a person. */
   auto: boolean
+  /** Products with test stock only (nothing in hand): not planned, shown so they can be tested and then bought. */
+  tests: { key: string; name: string; fake: number }[]
+  /** How much of the stock the team has counted; the rest may still hide fake pairs. */
+  stockCheck: { lines: number; counted: number } | null
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false })
+const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -408,10 +425,12 @@ export const progress = action({
 
     // ---- the product plan ----
     let snapshot: ProductPlan | undefined
+    let tests: { key: string; name: string; fake: number }[] = []
     let products: ProductRow[] | null = null
     let productInfo: TargetProgress["productInfo"] = null
     if (data.stock) {
       const stockMap = data.stock
+      tests = Object.entries(stockMap).filter(([, e]) => e.units !== null && e.units === 0 && e.fake > 0).map(([key, e]) => ({ key, name: e.name, fake: e.fake })).sort((a, b) => b.fake - a.fake)
       const soldMtd = Object.fromEntries(Object.entries(data.mtd).map(([k, d]) => [k, Object.values(d).reduce((s, n) => s + n, 0)]))
       const sizeInfo: Record<string, { inStock: number; total: number } | null> = {}
       const inputs: ProductInput[] = []
@@ -435,7 +454,8 @@ export const progress = action({
         })
       }
       snapshot = row.plan as ProductPlan | undefined
-      if (!snapshot || snapshot.v !== PLAN_VERSION || now - snapshot.at > REPLAN_MS) {
+      const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
+      if (!snapshot || snapshot.v !== PLAN_VERSION || now - snapshot.at > REPLAN_MS || stockMoved(snapshot.stock, stockNow)) {
         snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, row.amount - monthPlan.delivered), products: inputs, soldMtd })
         if (m === current) await ctx.runMutation(internal.targets.savePlan, { month: m, plan: snapshot })
       }
@@ -501,7 +521,7 @@ export const progress = action({
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto }
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null }
   },
 })
 
@@ -604,7 +624,7 @@ export const autoTargets = internalAction({
     if (!month) return
 
     const rows = await salesRows(ctx, now - 30 * DAY, now + 1)
-    const stock = await gatherStock(ctx)
+    const stock = (await gatherStock(ctx)).map
     const capacity = Object.values(stock).reduce((s, e) => s + (e.units === null ? 0 : e.units * e.price), 0)
     const amount = suggestTarget({ trailing30Revenue: rows.reduce((s, r) => s + r.total, 0), stockCapacity: capacity })
     if (amount) await ctx.runMutation(internal.targets.saveAutoTarget, { month, amount })
