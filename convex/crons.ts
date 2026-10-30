@@ -50,9 +50,10 @@ crons.daily("cx overdue holds", { hourUTC: 3, minuteUTC: 11 }, internal.accounta
 // (which only fires once an order IS dispatched late): this catches one still stuck, not dispatched at all.
 // 9:12 Asia/Dhaka (UTC+6) = 03:12 UTC.
 crons.daily("fulfillment overdue dispatch", { hourUTC: 3, minuteUTC: 12 }, internal.accountability.overdueDispatchCheck, {})
-// A parcel still out for delivery with a failed-attempt status from Pathao — same daily cadence, same spirit.
-// 9:13 Asia/Dhaka (UTC+6) = 03:13 UTC.
-crons.daily("fulfillment delivery failed", { hourUTC: 3, minuteUTC: 13 }, internal.accountability.deliveryFailedCheck, {})
+// A parcel still out for delivery with a failed-attempt status from Pathao — routed to Customer Care (the
+// customer wasn't reachable/ready, not something Fulfillment still controls once it's handed off). Same daily
+// cadence, same spirit. 9:13 Asia/Dhaka (UTC+6) = 03:13 UTC.
+crons.daily("cx delivery failed", { hourUTC: 3, minuteUTC: 13 }, internal.accountability.deliveryFailedCheck, {})
 
 // KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
 // weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back

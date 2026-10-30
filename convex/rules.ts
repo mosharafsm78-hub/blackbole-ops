@@ -320,7 +320,10 @@ export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Return call overdue": "Customer Care",
   "Hold overdue": "Customer Care",
   "Dispatch overdue": "Fulfillment",
-  "Delivery attempt failed": "Fulfillment",
+  // A failed courier attempt is the customer not being reachable or ready for the parcel, not something
+  // Fulfillment controls once it's already handed off to the courier — Customer Care owns the relationship
+  // with the customer, so a failed attempt routes there, not to Fulfillment.
+  "Delivery attempt failed": "Customer Care",
 }
 
 /** True for any call outcome worth flagging red — an unhappy delivery, or a return whose reason was our own

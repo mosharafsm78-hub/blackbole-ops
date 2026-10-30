@@ -46,11 +46,11 @@ const DAY = 86400000
 export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
   | "cx.bad_confirmation" | "cx.overdue_confirmation_call" | "cx.overdue_feedback_call" | "cx.overdue_return_call"
-  | "cx.return_after_confirm" | "cx.overdue_hold"
+  | "cx.return_after_confirm" | "cx.overdue_hold" | "cx.delivery_failed"
   | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn" | "fulfillment.po_on_time"
   | "fulfillment.late_dispatch" | "fulfillment.po_late" | "fulfillment.overdue_dispatch"
   | "fulfillment.wrong_item_sent" | "fulfillment.wrong_size_sent" | "fulfillment.damaged_sent" | "fulfillment.late_delivery_return"
-  | "fulfillment.delivery_failed" | "fulfillment.clean_week"
+  | "fulfillment.clean_week"
   | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit" | "marketing.roas_loss"
   | "marketing.listing_mismatch"
   | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag" | "ops.delivery_rate_hit"
@@ -74,6 +74,7 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "cx.overdue_return_call", label: "A returned/damaged order's feedback call sat overdue past the 2-day SLA", points: -10, team: "Customer Care", auto: true },
   { key: "cx.return_after_confirm", label: "A confirmed order still came back as a return for a reason that wasn't Fulfillment's or Marketing's mistake", points: -15, team: "Customer Care", auto: true },
   { key: "cx.overdue_hold", label: "An order sat On Hold past the 7-day SLA with nobody resolving it", points: -10, team: "Customer Care", auto: true },
+  { key: "cx.delivery_failed", label: "Courier reported a failed delivery attempt — customer wasn't reachable or ready for it", points: -5, team: "Customer Care", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
@@ -83,7 +84,6 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "fulfillment.wrong_size_sent", label: "Wrong size or color sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
   { key: "fulfillment.damaged_sent", label: "Damaged or defective item sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
   { key: "fulfillment.late_delivery_return", label: "Order returned because delivery ran too late", points: -15, team: "Fulfillment", auto: true },
-  { key: "fulfillment.delivery_failed", label: "Courier reported a failed delivery attempt on a parcel still out", points: -5, team: "Fulfillment", auto: true },
   { key: "fulfillment.clean_week", label: "A full week with none of Fulfillment's own named misses", points: 15, team: "Fulfillment", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Purchasing (Saju, not Fulfillment)

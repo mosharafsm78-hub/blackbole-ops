@@ -1060,7 +1060,11 @@ export const overdueDispatchCheck = internalMutation({
  *  variants — same normalization pathao.ts's targetFor uses, since this reads the exact same courierStatus
  *  field that sync already writes). Doesn't move the order's own status (Pathao keeps retrying), so there's no
  *  status transition to hook this off of — it has to be its own scan. Gated by updatedAt, same "count from
- *  today forward" spirit as the other checks, since updatedAt moves every time the sync touches the order. */
+ *  today forward" spirit as the other checks, since updatedAt moves every time the sync touches the order.
+ *
+ *  Routes to Customer Care, not Fulfillment: once a parcel is handed to the courier, Fulfillment has no more
+ *  control over whether the customer answers the phone or is home for it — that's the relationship Customer
+ *  Care owns (the same confirmation call that's supposed to set real delivery expectations). */
 export const deliveryFailedCheck = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -1076,7 +1080,7 @@ export const deliveryFailedCheck = internalMutation({
         ctx, o, "Delivery attempt failed",
         `Pathao reported a failed delivery attempt (status: "${o.courierStatus}") — parcel still out, not yet resolved.`,
         "BlackBole Ops (automatic)",
-        { ruleKey: "fulfillment.delivery_failed" },
+        { ruleKey: "cx.delivery_failed" },
       )
     }
   },
@@ -1087,7 +1091,7 @@ export const deliveryFailedCheck = internalMutation({
 // keeping those specific numbers at zero for a week, not just more ways to lose points.
 const FULFILLMENT_NEGATIVE_KEYS = [
   "fulfillment.late_dispatch", "fulfillment.overdue_dispatch", "fulfillment.wrong_item_sent",
-  "fulfillment.wrong_size_sent", "fulfillment.damaged_sent", "fulfillment.late_delivery_return", "fulfillment.delivery_failed",
+  "fulfillment.wrong_size_sent", "fulfillment.damaged_sent", "fulfillment.late_delivery_return",
 ]
 
 export const weeklyFulfillmentCleanCheck = internalMutation({
