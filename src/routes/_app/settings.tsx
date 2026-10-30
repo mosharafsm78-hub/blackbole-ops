@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils"
 import { AutoCallSettings } from "@/components/auto-call-settings"
 import { WinBackSettings } from "@/components/win-back-settings"
 import { AccountabilitySettings } from "@/components/accountability-settings"
+import { KpiRulesSettings } from "@/components/kpi-rules-settings"
 
 export const Route = createFileRoute("/_app/settings")({
   component: () => (
@@ -56,6 +57,7 @@ function SettingsPage() {
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
           <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
           <TabsTrigger value="accountability" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Accountability</TabsTrigger>
+          <TabsTrigger value="kpi" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}KPI</TabsTrigger>
           <TabsTrigger value="general">General</TabsTrigger>
         </TabsList>
         <TabsContent value="shopify"><ShopifyTab /></TabsContent>
@@ -67,6 +69,7 @@ function SettingsPage() {
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="roles"><RolesTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="accountability"><AccountabilitySettings /></TabsContent>}
+        {can("team.manage") && <TabsContent value="kpi"><KpiRulesSettings /></TabsContent>}
         <TabsContent value="general"><GeneralTab /></TabsContent>
       </Tabs>
     </div>
