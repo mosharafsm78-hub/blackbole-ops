@@ -15,7 +15,7 @@ import {
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
-  CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
+  ACCOUNTABILITY_ROUTING, CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
   buildAdvanceFields, isAdvanceReason, advanceReasonCode, type AdvanceFields,
@@ -677,6 +677,14 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   const cancelCode = advanceReasonCode(reason)
   if (cancelCode) patch.cancelReason = cancelCode
   else if (reason && !opts.systemReason && (to === "on_hold" || to === "cancelled")) patch.cancelReason = undefined
+  // A confirmed order (someone already earned cx.order_confirmed for it, back when it first went Pending →
+  // Approved) that turns out to be fake or a duplicate is a screening miss on that confirmation call itself —
+  // not Fulfillment's or Marketing's doing. Gated on order.approvedAt so this only fires once the order was
+  // actually confirmed: catching a fake/duplicate order BEFORE ever confirming it (straight from Pending) is
+  // Customer Care doing its job right, not a mistake to flag.
+  if (to === "cancelled" && reason && !opts.systemReason && order.approvedAt && ACCOUNTABILITY_ROUTING[reason] === "Customer Care") {
+    await raiseAccountabilityFlag(ctx, order, reason, undefined, byName)
+  }
   // Leaving hold/cancel for a live status means the advance question is settled (paid, waived, or the order
   // died) — stamp it so reporting can tell a live promise from an abandoned one, without erasing the amount
   // that was actually asked for.

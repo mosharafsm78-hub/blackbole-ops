@@ -9,7 +9,7 @@ import { mutation, internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { currentStaff, requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
 import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
-import { bdDay, statsFromDays, type DayRow } from "./stats"
+import { bdDay, dayStart, statsFromDays, type DayRow } from "./stats"
 import { awardPoints } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
 
@@ -907,6 +907,70 @@ export const businessHealth = query({
     const status = score >= 80 ? "Healthy" : score >= 60 ? "At Risk" : "Needs Attention"
 
     return { score, status, capReason, pillars, asOf: now }
+  },
+})
+
+// ---------------------------------------------------------------------------------------------------------
+// CX call SLAs — Customer Care's own counterweight. Before this, ACCOUNTABILITY_ROUTING never had a
+// "Customer Care" entry at all: ops.flag_raised only ever landed on Fulfillment or Marketing, so a CX agent
+// could rack up every reward rule in the book with nothing on the other side of the ledger, no matter how
+// badly a call got dropped. These two checks close that gap the exact same way every other department's SLA
+// already works — a real per-order accountability flag, through the same opsFlags/ops.flag_raised machinery,
+// docking whoever Settings → Accountability names as Customer Care's lead.
+//
+// Both are gated on CX_CALL_SLA_STARTS_AT so turning this on doesn't suddenly flood the queue with flags for
+// calls that were already old news before the feature existed — only orders that cross into the relevant
+// status from here on are ever counted.
+const CX_CALL_SLA_STARTS_AT = dayStart("2026-10-31")
+const FEEDBACK_CALL_SLA_DAYS = 3 // a delivered order should get its post-delivery feedback call within this long
+const RETURN_CALL_SLA_DAYS = 2 // a returned/damaged order should get its return feedback call within this long
+const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach delivered or returned
+
+/** Delivered orders with no post-delivery feedback call (`csat`) logged inside the SLA window. Bounded by
+ *  createdAt (not statusChangedAt), on purpose: a delivered_due order that later moves to delivered_paid days
+ *  later, when the due cash is actually collected, would otherwise drop out of a statusChangedAt-bounded scan
+ *  the moment its due got paid — exactly when it's most overdue on the feedback call. */
+export const overdueFeedbackCallCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const cutoff = now - FEEDBACK_CALL_SLA_DAYS * DAY
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    for (const status of ["delivered_due", "delivered_paid"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", status).gte("createdAt", since)).collect()
+      for (const o of rows) {
+        if (o.deletedAt || o.csat || !o.deliveredAt) continue
+        if (o.deliveredAt < CX_CALL_SLA_STARTS_AT || o.deliveredAt > cutoff) continue
+        await raiseAccountabilityFlag(
+          ctx, o, "Feedback call overdue",
+          `Delivered ${Math.floor((now - o.deliveredAt) / DAY)} day(s) ago — no post-delivery feedback call logged yet (SLA: ${FEEDBACK_CALL_SLA_DAYS} days).`,
+          "BlackBole Ops (automatic)",
+        )
+      }
+    }
+  },
+})
+
+/** Returned/damaged orders with no return feedback call (`returnCsat`) logged inside the SLA window. Same
+ *  createdAt-bounded shape as the feedback-call check above, for the same reason. */
+export const overdueReturnCallCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const cutoff = now - RETURN_CALL_SLA_DAYS * DAY
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    for (const status of ["pending_returned", "returned", "damaged"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", status).gte("createdAt", since)).collect()
+      for (const o of rows) {
+        if (o.deletedAt || o.returnCsat) continue
+        if (o.statusChangedAt === undefined || o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff) continue
+        await raiseAccountabilityFlag(
+          ctx, o, "Return call overdue",
+          `In a returned/damaged status ${Math.floor((now - o.statusChangedAt) / DAY)} day(s) — no return feedback call logged yet (SLA: ${RETURN_CALL_SLA_DAYS} days).`,
+          "BlackBole Ops (automatic)",
+        )
+      }
+    }
   },
 })
 

@@ -39,6 +39,11 @@ crons.daily("accountability daily digest", { hourUTC: 3, minuteUTC: 0 }, interna
 // flag against the owning department (Marketing for sales, Fulfillment for returns) even when no one logged a
 // call. 9:05 Asia/Dhaka (UTC+6) = 03:05 UTC.
 crons.daily("accountability business health", { hourUTC: 3, minuteUTC: 5 }, internal.accountability.businessHealthCheck, {})
+// Customer Care's own SLAs — the one department whose only accountability flags used to be the ones it raised
+// against everyone else. Checked daily so an overdue call is caught within a day, same spirit as the other
+// business-health checks above. 9:07 / 9:09 Asia/Dhaka (UTC+6) = 03:07 / 03:09 UTC.
+crons.daily("cx overdue feedback calls", { hourUTC: 3, minuteUTC: 7 }, internal.accountability.overdueFeedbackCallCheck, {})
+crons.daily("cx overdue return calls", { hourUTC: 3, minuteUTC: 9 }, internal.accountability.overdueReturnCallCheck, {})
 
 // KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
 // weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back

@@ -48,6 +48,10 @@ function Dashboard() {
   const counts = useQuery(api.orders.counts)
   const urgency = useQuery(api.orders.urgency)
   const flagCounts = useQuery(api.accountability.openCounts)
+  // The real Business Health score — same one Pulse shows, same five pillars, independent of the date-range
+  // picker above (it's always the trailing week). One number, read from one place, so the dashboard and Pulse
+  // can never disagree about how healthy the business is right now.
+  const health = useQuery(api.accountability.businessHealth, {})
   // Hidden admin check (?check=1): old count vs daily scoreboard for 7/30/90/365 days
   const compare = useAction(api.dashboard.compareStats)
   const [check, setCheck] = useState<any>(null)
@@ -64,10 +68,10 @@ function Dashboard() {
   const n = data?.now, p = data?.prev, pa = data?.pathao, m = data?.money
   const label = RANGES.find((r) => r.key === range)!.label.toLowerCase()
 
-  // health signal: delivery % from Pathao when available, else our own
+  // delivery/return gauges below still read straight from Pathao (or our own orders) for this page's own
+  // date range — unrelated to the Business Health score above, which is always the trailing week.
   const deliveryPct = pa?.total?.count ? pa.delivered.pct : n?.deliveryRate ?? null
   const returnPct = pa?.total?.count ? pa.returned.pct : n && n.delivered + n.returned ? pct(n.returned, n.delivered + n.returned) : null
-  const health = deliveryPct === null ? null : deliveryPct >= 80 ? { t: "Healthy", c: "text-tone-green", bg: "bg-tone-green-bg" } : deliveryPct >= 65 ? { t: "Watch returns", c: "text-tone-amber", bg: "bg-tone-amber-bg" } : { t: "High returns — act", c: "text-tone-red", bg: "bg-tone-red-bg" }
 
   if (check) return <pre className="whitespace-pre-wrap p-4 text-xs" data-testid="stats-check">{JSON.stringify(check, null, 1)}</pre>
   return (
@@ -79,7 +83,18 @@ function Dashboard() {
           <p className="mt-0.5 text-sm text-muted-foreground">Sales, deliveries, returns and money — {label === "today" ? "today" : `last ${label}`}, compared with the {label === "today" ? "day" : "period"} before.</p>
         </div>
         <div className="flex items-center gap-3">
-          {health && <span className={cn("rounded-full px-3 py-1 text-sm font-semibold", health.bg, health.c)}>● {health.t}</span>}
+          {health && (
+            <Link
+              to="/pulse"
+              className={cn(
+                "rounded-full px-3 py-1 text-sm font-semibold",
+                health.score >= 80 ? "bg-tone-green-bg text-tone-green" : health.score >= 60 ? "bg-tone-amber-bg text-tone-amber" : "bg-tone-red-bg text-tone-red",
+              )}
+              title={health.capReason ?? undefined}
+            >
+              ● Business health {health.score}% · {health.status}
+            </Link>
+          )}
           <div className="flex rounded-lg border bg-card p-1">
             {RANGES.map((r) => (
               <button key={r.key} type="button" onClick={() => setRange(r.key)}
