@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { ArrowLeft, Pencil, Printer, Wallet } from "lucide-react"
+import { ArrowLeft, Pencil, Printer, RotateCcw, Wallet } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import type { Id } from "@/convex/_generated/dataModel"
+import type { Doc, Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
-import { Loading, PageHeader, Stat } from "@/components/bits"
-import { POStatus, SlipLink, SupplierDialog, SupplierPayDialog, poCode } from "@/components/purchase-parts"
+import { Loading, PageHeader, Pill, Stat } from "@/components/bits"
+import { POStatus, ResolveReturnDialog, SR_STATUS_TONE, SlipLink, SupplierDialog, SupplierPayDialog, SupplierReturnDialog, poCode, srCode } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { dateOnly, errMsg, taka } from "@/lib/format"
+import { dateOnly, errMsg, taka, type Tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/supplier")({
@@ -31,8 +31,12 @@ function SupplierPage() {
   const can = useCan()
   const navigate = useNavigate()
   const st = useQuery(api.purchasing.supplierStatement, { id: id as Id<"suppliers"> })
+  const returns = useQuery(api.supplierReturns.listForSupplier, { supplierId: id as Id<"suppliers"> }) ?? []
   const [pay, setPay] = useState(false)
   const [edit, setEdit] = useState(false)
+  const [returning, setReturning] = useState(false)
+  const [resolving, setResolving] = useState<Doc<"supplierReturns"> | null>(null)
+  const markSent = useMutation(api.supplierReturns.markSent)
   if (st === undefined) return <Loading />
   if (st === null) return <p className="text-sm text-muted-foreground">Supplier not found.</p>
   const sp = st.supplier
@@ -43,6 +47,7 @@ function SupplierPage() {
         <div className="no-print flex flex-wrap gap-2">
           {<Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setEdit(true)}><Pencil className="size-4" /> Edit</Button></Perm>}
           <Button size="sm" variant="outline" onClick={() => window.print()}><Printer className="size-4" /> Print statement</Button>
+          {<Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setReturning(true)}><RotateCcw className="size-4" /> Return to supplier</Button></Perm>}
           {<Perm perm="purchases.pay"><Button size="sm" onClick={() => setPay(true)}><Wallet className="size-4" /> Pay supplier</Button></Perm>}
         </div>
       </PageHeader>
@@ -98,8 +103,32 @@ function SupplierPage() {
         )}
       </section>
 
+      {returns.length > 0 && (
+        <section className="no-print rounded-lg border bg-card">
+          <h2 className="border-b p-3 text-sm font-semibold">Returns to this supplier</h2>
+          <table className="w-full text-sm">
+            <tbody className="divide-y">
+              {returns.map((r) => (
+                <tr key={r._id}>
+                  <td className="p-3 font-semibold text-tone-blue">{srCode(r.code)}</td>
+                  <td className="p-3 text-xs whitespace-nowrap">{dateOnly(r.createdAt)}</td>
+                  <td className="p-3">{r.reason}<div className="text-xs text-muted-foreground">{r.items.reduce((t, i) => t + i.qty, 0)} units · {taka(r.totalValue)}</div></td>
+                  <td className="p-3"><Pill tone={(SR_STATUS_TONE[r.status] ?? "gray") as Tone}>{r.status === "resolved" ? `Resolved — ${r.resolution}` : r.status}</Pill></td>
+                  <td className="p-3 text-right">
+                    {r.status === "pending" && <Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => markSent({ id: r._id }).catch((e) => toast.error(errMsg(e)))}>Mark sent</Button></Perm>}
+                    {r.status !== "resolved" && <Perm perm="purchases.manage"><Button size="sm" className="ml-2" onClick={() => setResolving(r)}>Resolve</Button></Perm>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
       <SupplierPayDialog supplierId={sp._id} open={pay} onOpenChange={setPay} />
       <SupplierDialog supplier={sp} open={edit} onOpenChange={setEdit} />
+      <SupplierReturnDialog supplierId={sp._id} open={returning} onOpenChange={setReturning} />
+      <ResolveReturnDialog ret={resolving} open={!!resolving} onOpenChange={(o) => !o && setResolving(null)} />
     </div>
   )
 }

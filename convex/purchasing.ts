@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values"
-import { query } from "./_generated/server"
+import { query, type MutationCtx } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { hasPerm } from "./rules"
@@ -64,6 +64,54 @@ export const supplierStatement = query({
   },
 })
 
+/** Shared by paySupplier and supplier-return resolutions (a refund/credit note is applied to the account the
+ *  same way cash would be): clears the previous due first, then — a preferred PO before anything else, if one
+ *  is given, since a credit note from a return is usually tied to the specific purchase the goods came from —
+ *  the oldest remaining unpaid purchases. Anything left over sits as advance. */
+export async function creditSupplierAccount(
+  ctx: MutationCtx,
+  supplierId: Id<"suppliers">,
+  amount: number,
+  base: { method: string; reference?: string; note?: string; slipId?: Id<"_storage">; slipName?: string; byName: string; preferPoId?: Id<"purchaseOrders"> },
+): Promise<string[]> {
+  const sp = await ctx.db.get(supplierId)
+  if (!sp) throw new ConvexError("Supplier not found")
+  const acc = await supplierAccount(ctx, sp)
+  const now = Date.now()
+  let left = amount
+  const row = { supplierId, method: base.method, reference: base.reference, note: base.note, slipId: base.slipId, slipName: base.slipName, byName: base.byName, at: now }
+  const applied: string[] = []
+
+  const applyToPo = async (po: Doc<"purchaseOrders">) => {
+    if (left <= 0 || po.due <= 0) return
+    const x = Math.min(left, po.due)
+    await ctx.db.insert("supplierPayments", { ...row, poId: po._id, amount: x })
+    await ctx.db.patch(po._id, { paid: po.paid + x, due: Math.max(0, po.due - x), updatedAt: now })
+    left -= x
+    applied.push(`PO-${String(po.code).padStart(4, "0")} ${x}`)
+  }
+
+  if (acc.openingLeft > 0) {
+    const x = Math.min(left, acc.openingLeft)
+    await ctx.db.insert("supplierPayments", { ...row, amount: x })
+    left -= x
+    applied.push(`previous due ${x}`)
+  }
+  if (base.preferPoId) {
+    const preferred = acc.pos.find((p) => p._id === base.preferPoId)
+    if (preferred) await applyToPo(preferred)
+  }
+  for (const po of acc.pos.filter((p) => p.due > 0).sort((x, y) => (x.orderedAt ?? x.createdAt) - (y.orderedAt ?? y.createdAt))) {
+    if (left <= 0) break
+    await applyToPo(po)
+  }
+  if (left > 0) {
+    await ctx.db.insert("supplierPayments", { ...row, amount: left })
+    applied.push(`advance ${left}`)
+  }
+  return applied
+}
+
 /** Pay a supplier any amount: clears the previous due first, then the oldest unpaid purchases. Extra stays as advance. */
 export const paySupplier = mutation({
   args: { id: v.id("suppliers"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()), slipId: v.optional(v.id("_storage")), slipName: v.optional(v.string()) },
@@ -71,31 +119,7 @@ export const paySupplier = mutation({
     const me = await requirePerm(ctx, "purchases.pay")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")
     if (!a.slipId) throw new ConvexError("Attach the payment slip (bank slip / bKash screenshot / receipt)")
-    const sp = await ctx.db.get(a.id)
-    if (!sp) throw new ConvexError("Supplier not found")
-    const acc = await supplierAccount(ctx, sp)
-    const now = Date.now()
-    let left = a.amount
-    const base = { supplierId: a.id, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: now }
-    const applied: string[] = []
-    if (acc.openingLeft > 0) {
-      const x = Math.min(left, acc.openingLeft)
-      await ctx.db.insert("supplierPayments", { ...base, amount: x })
-      left -= x
-      applied.push(`previous due ${x}`)
-    }
-    for (const po of acc.pos.filter((p) => p.due > 0).sort((x, y) => (x.orderedAt ?? x.createdAt) - (y.orderedAt ?? y.createdAt))) {
-      if (left <= 0) break
-      const x = Math.min(left, po.due)
-      await ctx.db.insert("supplierPayments", { ...base, poId: po._id, amount: x })
-      await ctx.db.patch(po._id, { paid: po.paid + x, due: Math.max(0, po.due - x), updatedAt: now })
-      left -= x
-      applied.push(`PO-${String(po.code).padStart(4, "0")} ${x}`)
-    }
-    if (left > 0) {
-      await ctx.db.insert("supplierPayments", { ...base, amount: left })
-      applied.push(`advance ${left}`)
-    }
+    const applied = await creditSupplierAccount(ctx, a.id, a.amount, { method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name })
     return { applied }
   },
 })

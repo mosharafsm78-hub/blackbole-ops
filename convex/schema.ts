@@ -215,6 +215,44 @@ export default defineSchema({
     .index("by_po", ["poId"])
     .index("by_supplier", ["supplierId"]),
 
+  // "Product goes back out" — goods we received that turn out damaged/wrong/expired and get physically sent
+  // back to the supplier. The mirror image of receipts: stock leaves a bucket (usually Damaged, sometimes
+  // Available if it was never actually usable) the moment this is created, because the goods are no longer
+  // in the warehouse — resolving it later (refund/credit/replacement/rejected) is a separate, paperwork step
+  // that never re-touches stock.
+  supplierReturns: defineTable({
+    code: v.number(), // SR-0001
+    supplierId: v.id("suppliers"),
+    supplierName: v.string(),
+    locationId: v.id("locations"),
+    poId: v.optional(v.id("purchaseOrders")), // which purchase these goods originally came in on, if known
+    items: v.array(v.object({
+      variantId: v.id("variants"),
+      sku: v.string(),
+      name: v.string(),
+      title: v.string(),
+      qty: v.number(),
+      unitCost: v.number(),
+      bucket: v.string(), // which stock bucket this came out of — "damaged" or "available"
+    })),
+    totalValue: v.number(),
+    reason: v.string(), // why it's going back: not in good condition, wrong item sent, expired, etc.
+    note: v.optional(v.string()),
+    status: v.string(), // "pending" (created, not yet sent) | "sent" (physically on its way back) | "resolved"
+    sentAt: v.optional(v.number()),
+    resolution: v.optional(v.string()), // "refunded" | "credited" | "replaced" | "rejected"
+    resolutionNote: v.optional(v.string()),
+    creditedAmount: v.optional(v.number()), // taka actually credited against what we owe this supplier, if any
+    resolvedAt: v.optional(v.number()),
+    resolvedByName: v.optional(v.string()),
+    files: v.array(v.object({ storageId: v.id("_storage"), name: v.string(), type: v.string(), at: v.number() })),
+    createdBy: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_supplier", ["supplierId", "createdAt"])
+    .index("by_po", ["poId"])
+    .index("by_status", ["status", "createdAt"]),
+
   // "Product come in" — goods received into a warehouse
   receipts: defineTable({
     code: v.number(),

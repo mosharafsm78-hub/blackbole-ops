@@ -582,7 +582,7 @@ function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open
         </DialogHeader>
         {rows === undefined ? (
           <Loading />
-        ) : rows.length === 0 ? (
+        ) : rows === null || rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">No products on the selected orders.</p>
         ) : (
           <div className="space-y-3">

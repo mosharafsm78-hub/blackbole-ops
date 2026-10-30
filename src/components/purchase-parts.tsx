@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useConvex, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import type { Id } from "@/convex/_generated/dataModel"
+import type { Doc, Id } from "@/convex/_generated/dataModel"
 import { CATEGORY_CODES, SUPPLIER_PAY_METHODS, makeSku, modelCode } from "@/convex/rules"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -504,6 +504,147 @@ export function SupplierPayDialog({ supplierId, open, onOpenChange }: { supplier
               onOpenChange(false)
             } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Save payment</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export const srCode = (n: number) => `SR-${String(n).padStart(4, "0")}`
+const SR_REASONS = ["Arrived damaged / not in good condition", "Wrong product sent", "Wrong size/variant sent", "Expired", "Short-shipped", "Other"]
+export const SR_STATUS_TONE: Record<string, string> = { pending: "amber", sent: "blue", resolved: "green" }
+
+/** Return goods to the supplier they came from — the mirror of receiving: pick a purchase, pick which lines
+ *  and how much (almost always out of Damaged), and stock leaves the warehouse the moment this is saved. */
+export function SupplierReturnDialog({ supplierId, open, onOpenChange }: { supplierId: Id<"suppliers">; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const pos = useQuery(api.purchasing.listPOs, open ? { supplierId } : "skip") ?? []
+  const eligible = useMemo(() => pos.filter((p) => p.receivedUnits + p.damagedUnits > 0), [pos])
+  const [poId, setPoId] = useState<string>("")
+  const po = eligible.find((p) => p._id === poId)
+  const levels = useQuery(api.supplierReturns.poStockLevels, po ? { poId: po._id } : "skip")
+  const [lines, setLines] = useState<Record<string, { qty: number; bucket: "damaged" | "available" }>>({})
+  const [reason, setReason] = useState(SR_REASONS[0])
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  const create = useMutation(api.supplierReturns.create)
+  useEffect(() => { if (open) { setPoId(""); setLines({}); setReason(SR_REASONS[0]); setNote("") } }, [open])
+  useEffect(() => { setLines({}) }, [poId])
+
+  const items = Object.entries(lines).filter(([, l]) => l.qty > 0).map(([variantId, l]) => ({ variantId: variantId as Id<"variants">, qty: l.qty, bucket: l.bucket }))
+  const totalQty = items.reduce((t, i) => t + i.qty, 0)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Return goods to supplier</DialogTitle>
+          <DialogDescription>Pick the purchase these came in on, then how much of each is going back — out of Damaged stock, or Available if it was never actually usable. Stock leaves the moment you save this.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Which purchase</Label>
+            <Select value={poId || undefined} onValueChange={setPoId}>
+              <SelectTrigger className="w-full"><SelectValue placeholder={eligible.length ? "Choose a purchase" : "This supplier has no received purchases yet"} /></SelectTrigger>
+              <SelectContent>{eligible.map((p) => <SelectItem key={p._id} value={p._id}>{poCode(p.code)} — {p.locationName} — {p.damagedUnits} damaged, {p.receivedUnits} received</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+
+          {po && (
+            <div className="rounded-md border">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                  <tr><th className="p-2 font-medium">Product</th><th className="p-2 text-right font-medium">Damaged</th><th className="p-2 text-right font-medium">Available</th><th className="p-2 font-medium">From</th><th className="p-2 text-right font-medium">Qty to return</th></tr>
+                </thead>
+                <tbody className="divide-y">
+                  {po.items.map((i) => {
+                    const lvl = levels?.[i.variantId as string]
+                    const line = lines[i.variantId as string] ?? { qty: 0, bucket: "damaged" as const }
+                    const cap = lvl ? lvl[line.bucket] : 0
+                    return (
+                      <tr key={i.variantId}>
+                        <td className="p-2">{i.name} <span className="text-muted-foreground">· {i.title}</span></td>
+                        <td className="p-2 text-right tabular-nums">{lvl?.damaged ?? "…"}</td>
+                        <td className="p-2 text-right tabular-nums">{lvl?.available ?? "…"}</td>
+                        <td className="p-2">
+                          <Select value={line.bucket} onValueChange={(v) => setLines((s) => ({ ...s, [i.variantId as string]: { qty: Math.min(line.qty, (levels?.[i.variantId as string]?.[v as "damaged" | "available"]) ?? 0), bucket: v as "damaged" | "available" } }))}>
+                            <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="damaged">Damaged</SelectItem><SelectItem value="available">Available</SelectItem></SelectContent>
+                          </Select>
+                        </td>
+                        <td className="p-2 text-right">
+                          <Input type="number" className="h-8 w-20 text-right" min={0} max={cap} value={line.qty || ""}
+                            onChange={(e) => setLines((s) => ({ ...s, [i.variantId as string]: { ...line, qty: Math.max(0, Math.min(cap, Number(e.target.value) || 0)) } }))} />
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Reason</Label><PickOrType value={reason} options={SR_REASONS} onChange={setReason} /></div>
+            <div className="space-y-1.5"><Label>Note (optional)</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button disabled={busy || !po || !reason.trim() || totalQty === 0} onClick={async () => {
+            if (!po) return
+            setBusy(true)
+            try {
+              const r = await create({ supplierId, locationId: po.locationId, poId: po._id, reason: reason.trim(), note: note || undefined, items })
+              toast.success(`${srCode(r.code)} created — ${totalQty} unit${totalQty === 1 ? "" : "s"} sent back`)
+              onOpenChange(false)
+            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Send back ({totalQty} unit{totalQty === 1 ? "" : "s"})</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const SR_RESOLUTIONS: { value: string; label: string; needsAmount?: boolean }[] = [
+  { value: "credited", label: "Credit note (reduces what we owe them)", needsAmount: true },
+  { value: "refunded", label: "Refunded (cash back)", needsAmount: true },
+  { value: "replaced", label: "Replaced with good units" },
+  { value: "rejected", label: "Supplier rejected the return" },
+]
+
+export function ResolveReturnDialog({ ret, open, onOpenChange }: { ret: Doc<"supplierReturns"> | null; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const resolve = useMutation(api.supplierReturns.resolve)
+  const [resolution, setResolution] = useState("credited")
+  const [amount, setAmount] = useState(0)
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (open && ret) { setResolution("credited"); setAmount(ret.totalValue); setNote("") } }, [open, ret])
+  if (!ret) return null
+  const needsAmount = SR_RESOLUTIONS.find((r) => r.value === resolution)?.needsAmount
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Resolve {srCode(ret.code)}</DialogTitle>
+          <DialogDescription>{ret.supplierName} — {ret.items.reduce((t, i) => t + i.qty, 0)} units, valued {taka(ret.totalValue)} at cost. What did the supplier actually do about it?</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5"><Label>What happened</Label>
+            <Select value={resolution} onValueChange={setResolution}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>{SR_RESOLUTIONS.map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          {needsAmount && <div className="space-y-1.5"><Label>Amount {resolution === "refunded" ? "refunded" : "credited"}</Label><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></div>}
+          <div className="space-y-1.5"><Label>Note (optional)</Label><Textarea value={note} onChange={(e) => setNote(e.target.value)} /></div>
+        </div>
+        <DialogFooter>
+          <Button disabled={busy || (needsAmount && amount <= 0)} onClick={async () => {
+            setBusy(true)
+            try {
+              await resolve({ id: ret._id, resolution: resolution as "credited" | "refunded" | "replaced" | "rejected", resolutionNote: note || undefined, creditedAmount: needsAmount ? amount : undefined })
+              toast.success(`${srCode(ret.code)} resolved`)
+              onOpenChange(false)
+            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
