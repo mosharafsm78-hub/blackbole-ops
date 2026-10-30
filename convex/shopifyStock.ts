@@ -224,6 +224,105 @@ async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string;
   return ok.length
 }
 
+// ---------- products → Shopify ----------
+// A product that has stock in Ops (a received purchase, a stock-in, test pairs) but is not in Shopify yet is
+// created there automatically, matched by SKU from then on. Product with some sizes already in Shopify gets the new sizes added.
+
+/** The products behind these variants, with all their active sizes. */
+export const productGroups = internalQuery({
+  args: { variantIds: v.array(v.id("variants")) },
+  handler: async (ctx, { variantIds }) => {
+    const seen = new Set<string>()
+    const out: { name: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
+    for (const id of variantIds) {
+      const vr = await ctx.db.get(id)
+      if (!vr || seen.has(vr.productId)) continue
+      seen.add(vr.productId)
+      const p = await ctx.db.get(vr.productId)
+      if (!p || p.deletedAt || !p.active) continue
+      const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
+      const image = p.imageUrl ?? vs.find((x) => x.imageUrl)?.imageUrl ?? ""
+      out.push({
+        name: p.name, description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
+        variants: vs.map((x) => ({ id: x._id as string, sku: x.sku, title: x.title, price: x.price, cost: x.purchasePrice })),
+      })
+    }
+    return out
+  },
+})
+
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+/** "Black / 42" → options. Same shape for every size, else one plain option. */
+function optionsOf(titles: string[]) {
+  const parts = titles.map((t) => t.split("/").map((x) => x.trim()).filter(Boolean))
+  const n = parts[0]?.length ?? 0
+  if (n < 1 || n > 3 || parts.some((x) => x.length !== n)) return { names: ["Size"], values: titles.map((t) => [t.trim() || "Default"]) }
+  const names = n === 1 ? ["Size"] : n === 2 ? ["Color", "Size"] : ["Option 1", "Option 2", "Option 3"].slice(0, n)
+  return { names, values: parts }
+}
+
+async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; itemId?: string; shopLoc: string; qty: number }[]): Promise<string[]> {
+  const notes: string[] = []
+  const missing = [...new Set(rows.filter((r) => !r.itemId).map((r) => r.variantId))]
+  if (!missing.length) return notes
+  const groups = await ctx.runQuery(internal.shopifyStock.productGroups, { variantIds: missing })
+  const save: { id: any; itemId: string }[] = []
+  for (const g of groups) {
+    try {
+      const ids = g.variants.map((x: any) => x.id)
+      const qrows = await ctx.runQuery(internal.shopifyStock.targets, { variantIds: ids })
+      if (!qrows.some((r: any) => r.qty > 0)) continue // nothing in hand yet: no product on the website
+      const bad = g.variants.find((x: any) => !(x.price > 0))
+      if (bad) { notes.push(`"${g.name}" is not in Shopify yet: set a selling price on ${bad.sku}`); continue }
+      // which of its sizes are already in Shopify?
+      const q = g.variants.map((x: any) => `sku:"${x.sku.replace(/"/g, "")}"`).join(" OR ")
+      const res = await gql(ctx, `query($q: String!) { productVariants(first: 250, query: $q) { nodes { sku product { id } inventoryItem { id } } } }`, { q })
+      const have = new Map<string, { productId: string; itemId: string }>()
+      for (const n of res.productVariants.nodes) if (n.sku) have.set(n.sku, { productId: n.product.id, itemId: n.inventoryItem.id })
+      const opts = optionsOf(g.variants.map((x: any) => x.title))
+      const stockOf = (id: string) => [...new Map(qrows.filter((r: any) => r.variantId === id).map((r: any) => [r.shopLoc, { locationId: r.shopLoc, name: "available", quantity: r.qty }])).values()]
+      const variantInput = (x: any, i: number) => ({
+        optionValues: opts.names.map((name, k) => ({ optionName: name, name: opts.values[i][k] })),
+        sku: x.sku, price: String(x.price),
+        inventoryItem: { sku: x.sku, tracked: true, ...(x.cost > 0 ? { cost: String(x.cost) } : {}) },
+        inventoryQuantities: stockOf(x.id),
+      })
+      const found: { sku: string; itemId: string }[] = []
+      const todo = g.variants.map((x: any, i: number) => ({ x, i })).filter(({ x }: any) => !have.has(x.sku))
+      if (!have.size) {
+        const r = await gql(ctx, `mutation($input: ProductSetInput!) { productSet(input: $input, synchronous: true) { product { id variants(first: 100) { nodes { sku inventoryItem { id } } } } userErrors { field message } } }`, {
+          input: {
+            title: g.name, vendor: "BlackBole", descriptionHtml: g.description ? `<p>${esc(g.description)}</p>` : "",
+            status: g.hasImage ? "ACTIVE" : "DRAFT", // no photo yet → draft, so nothing half-finished goes live
+            productOptions: opts.names.map((name, k) => ({ name, values: [...new Set(opts.values.map((v) => v[k]))].map((n) => ({ name: n })) })),
+            variants: g.variants.map((x: any, i: number) => variantInput(x, i)),
+            ...(g.hasImage ? { files: [{ originalSource: g.image, contentType: "IMAGE" }] } : {}),
+          },
+        })
+        const errs = r.productSet.userErrors
+        if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; "))
+        for (const n of r.productSet.product.variants.nodes) found.push({ sku: n.sku, itemId: n.inventoryItem.id })
+      } else if (todo.length) {
+        const productId = [...have.values()][0].productId
+        const r = await gql(ctx, `mutation($id: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkCreate(productId: $id, variants: $v) { productVariants { sku inventoryItem { id } } userErrors { field message } } }`, { id: productId, v: todo.map(({ x, i }: any) => variantInput(x, i)) })
+        const errs = r.productVariantsBulkCreate.userErrors
+        if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; "))
+        for (const n of r.productVariantsBulkCreate.productVariants) found.push({ sku: n.sku, itemId: n.inventoryItem.id })
+      }
+      for (const f of found) {
+        for (const r of rows) if (r.sku === f.sku && !r.itemId) r.itemId = f.itemId
+        const vr = g.variants.find((x: any) => x.sku === f.sku) // every size of the product, not only the one that changed
+        if (vr) save.push({ id: vr.id, itemId: f.itemId })
+      }
+    } catch (e: any) {
+      notes.push(`"${g.name}" could not be created in Shopify: ${String(e?.message ?? e).slice(0, 160)}`)
+    }
+  }
+  if (save.length) await ctx.runMutation(internal.shopifyStock.saveItemIds, { list: [...new Map(save.map((x) => [x.id, x])).values()] })
+  return notes
+}
+
 export const flush = internalAction({
   args: {},
   handler: async (ctx) => {
@@ -232,8 +331,9 @@ export const flush = internalAction({
       try {
         const rows = await ctx.runQuery(internal.shopifyStock.targets, { variantIds: ids })
         await itemIds(ctx, rows)
+        const notes = await ensureProducts(ctx, rows) // new products go to Shopify by themselves
         await setQuantities(ctx, rows)
-        await ctx.runMutation(internal.shopifyStock.putToken, { error: null })
+        await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 400) : null })
         await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: rows.length })
       } catch (e: any) {
         await ctx.runMutation(internal.shopifyStock.putToken, { error: `${new Date().toISOString()} ${String(e?.message ?? e)}`.slice(0, 400) })
