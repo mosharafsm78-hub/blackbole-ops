@@ -317,7 +317,7 @@ function Editor({ data }: { data: Data | null }) {
         </DialogContent>
       </Dialog>
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[96vw] overflow-y-auto sm:max-w-6xl">
           <DialogHeader className="sr-only"><DialogTitle>New product</DialogTitle><DialogDescription>Full product details</DialogDescription></DialogHeader>
           {newOpen && <TooltipProvider delayDuration={200}><NewProduct embedded onCreated={(pid) => { setNewOpen(false); setNewProductId(pid) }} /></TooltipProvider>}
         </DialogContent>
