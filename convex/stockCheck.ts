@@ -23,8 +23,10 @@ export type CheckProduct = { productId: Id<"products">; name: string; preOrder: 
 /** A page of products with their size lines: system stock, counted real pairs and the fake remainder. */
 export const list = query({
   args: { search: v.optional(v.string()), filter: v.union(v.literal("all"), v.literal("uncounted"), v.literal("test")), cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { search, filter, cursor }) => {
+  handler: async (ctx, { search, filter: chosen, cursor }) => {
     if (!(await currentStaff(ctx))) return null
+    // Looking for a particular product must always find it (a brand-new one has no stock yet), whatever tab is open.
+    const filter = search?.trim() ? "all" : chosen
     const base = search?.trim()
       ? ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", search.trim()))
       : ctx.db.query("products")

@@ -157,6 +157,16 @@ describe("adding test stock, and when it earns a purchase", () => {
     expect(after).toMatchObject({ system: 25, fake: 25, real: 0 })
   })
 
+  it("a search finds a brand-new product with no stock, even on the 'not counted' tab", async () => {
+    const { t, asAdmin } = await setup()
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name: "Test product", active: true, createdAt: NOW }))
+    await t.run((ctx) => ctx.db.insert("variants", { productId, sku: "BB-TESTP-41", title: "41", weightKg: 0.4, price: 1500, purchasePrice: 700, active: true }))
+    expect((await asAdmin.query(api.stockCheck.list, { filter: "uncounted", cursor: null }))!.products).toHaveLength(0) // browsing: empty products stay out of the way
+    const found = await asAdmin.query(api.stockCheck.list, { filter: "uncounted", search: "test", cursor: null })
+    expect(found!.products.map((p) => p.name)).toEqual(["Test product"])
+    expect(found!.products[0].lines[0]).toMatchObject({ title: "41", available: 0 })
+  })
+
   it("rejects bad quantities and people who may not adjust stock", async () => {
     const { t, asAdmin, asCx, locationId } = await setup()
     const productId = await t.run((ctx) => ctx.db.insert("products", { name: "P", active: true, createdAt: NOW }))
