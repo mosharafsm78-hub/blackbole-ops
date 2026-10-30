@@ -1,9 +1,9 @@
 // Automatic "finish your order" email for abandoned carts that left an email address.
 import { v } from "convex/values"
-import { internalAction, internalQuery } from "./_generated/server"
+import { internalAction, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
-import { requirePerm } from "./lib"
+import { currentStaff, requirePerm } from "./lib"
 import { ABANDON_AFTER, laterOrderFor } from "./checkouts"
 
 const BD_OFFSET = 6 * 3600000
@@ -135,5 +135,26 @@ export const productUrl = internalQuery({
       if (p?.handle) return `https://blackbole.com/products/${p.handle}`
     }
     return null
+  },
+})
+
+/** Numbers for the strip at the top of the Abandoned carts page. */
+export const stats = query({
+  args: {},
+  handler: async (ctx) => {
+    if (!(await currentStaff(ctx))) return null
+    const dayStart = Math.floor((Date.now() + BD_OFFSET) / 86400000) * 86400000 - BD_OFFSET
+    let carts = 0, emails = 0, today = 0, failed = 0, won = 0, waiting = 0
+    for (const status of ["open", "ordered", "converted", "lost"]) {
+      for (const c of await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", status)).order("desc").take(1500)) {
+        if (!c.emailSentAt) { if (status === "open" && !c.isArchived && validEmail(c.email)) waiting++; continue }
+        carts++
+        emails += c.emailCount ?? 0
+        if (c.emailSentAt >= dayStart) today++
+        if (c.emailError) failed++
+        if (status === "ordered" || status === "converted") won++
+      }
+    }
+    return { carts, emails, today, failed, won, waiting }
   },
 })

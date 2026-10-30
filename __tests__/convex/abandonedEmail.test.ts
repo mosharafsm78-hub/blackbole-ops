@@ -148,3 +148,18 @@ describe("abandoned cart email — normal products and the Tk 50 welcome offer",
     expect(r.html.toLowerCase()).not.toContain("pre-order")
   })
 })
+
+describe("abandoned cart email — numbers for the page", () => {
+  it("counts emails sent, sent today, waiting, failed and orders after an email", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "care@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation((await import("../../convex/_generated/api")).api.team.claim, { name: "Care" })
+    await cart(t, { emailSentAt: Date.now() - 1000, emailCount: 2 })
+    await cart(t, { emailSentAt: Date.now() - 3 * 24 * H, emailCount: 1, status: "converted" })
+    await cart(t, { emailSentAt: Date.now() - 3 * 24 * H, emailCount: 0, emailError: "x" })
+    await cart(t, {})
+    const st = await as.query((await import("../../convex/_generated/api")).api.abandonedEmail.stats, {})
+    expect(st).toMatchObject({ carts: 3, emails: 3, today: 1, failed: 1, won: 1, waiting: 1 })
+  })
+})

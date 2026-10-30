@@ -52,6 +52,7 @@ function AbandonedPage() {
   const navigate = useNavigate({ from: Route.fullPath })
   const rows = useQuery(api.checkouts.list, { tab })
   const counts = useQuery(api.checkouts.counts)
+  const emailStats = useQuery(api.abandonedEmail.stats)
   const [callFor, setCallFor] = useState<Row | null>(null)
   const [orderFor, setOrderFor] = useState<Row | null>(null)
   const [modifyFor, setModifyFor] = useState<Row | null>(null)
@@ -70,6 +71,16 @@ function AbandonedPage() {
         <Kpi label="Follow-ups due" value={counts ? String(counts.followupDue) : "…"} tone="amber" sub={counts ? `${counts.followup} in follow-up` : undefined} />
         <Kpi label="Recovered (30 days)" value={counts ? taka(counts.recoveredValue30d) : "…"} tone="green" sub={counts ? `${counts.recovered30d} orders won back` : undefined} />
       </div>
+
+      {emailStats && (
+        <div className="grid gap-3 rounded-xl border bg-card p-3 sm:grid-cols-5" data-testid="email-stats">
+          <div><div className="text-xs text-muted-foreground">Automatic emails sent</div><div className="text-xl font-semibold tabular-nums">{emailStats.emails}</div><div className="text-xs text-muted-foreground">to {emailStats.carts} customers</div></div>
+          <div><div className="text-xs text-muted-foreground">Sent today</div><div className="text-xl font-semibold tabular-nums">{emailStats.today}</div></div>
+          <div><div className="text-xs text-muted-foreground">Waiting to be sent</div><div className="text-xl font-semibold tabular-nums">{emailStats.waiting}</div></div>
+          <div><div className="text-xs text-muted-foreground">Ordered after an email</div><div className="text-xl font-semibold tabular-nums text-tone-green">{emailStats.won}</div></div>
+          <div><div className="text-xs text-muted-foreground">Failed</div><div className={cn("text-xl font-semibold tabular-nums", emailStats.failed > 0 && "text-tone-red")}>{emailStats.failed}</div></div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 rounded-xl border bg-card p-2">
         {TABS.map((t) => (
