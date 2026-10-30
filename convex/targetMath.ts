@@ -41,6 +41,21 @@ export function prevMonthKey(month: string) {
   return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`
 }
 
+const dayIdx = (day: string) => Math.round(Date.parse(`${day}T00:00:00Z`) / DAY)
+export const addDays = (day: string, n: number) => new Date((dayIdx(day) + n) * DAY).toISOString().slice(0, 10)
+/** First instant of a Dhaka calendar day, as epoch ms. */
+export const dayStartMs = (day: string) => Date.parse(`${day}T00:00:00Z`) - BD
+/** 1 for the first day of a period, 2 for the next, … */
+export const dayNo = (first: string, day: string) => dayIdx(day) - dayIdx(first) + 1
+
+/** A target's period: the month, or — when the target was set before the month began — from the day it was set. */
+export function periodOf(month: string, start?: string | null) {
+  const mFirst = `${month}-01`
+  const last = `${month}-${String(daysInMonth(month)).padStart(2, "0")}`
+  const first = start && start < mFirst ? start : mFirst
+  return { first, last, days: dayNo(first, last) }
+}
+
 /** Adds up delivered order rows into a { "YYYY-MM-DD": taka } map by their Dhaka delivery day. */
 export function sumDeliveredByDay(rows: { at: number; total: number }[]) {
   const out: Record<string, number> = {}
@@ -67,12 +82,18 @@ export type MonthPlan = {
   remaining: number
   /** Share of the month's target delivered so far, 0–100+ (can pass 100 when beaten). */
   pct: number
+  /** First and last day of the period (the month, or from the day the target was set). */
+  start: string
+  end: string
+  /** Length of the period in days. */
   daysInMonth: number
   /** Days left INCLUDING today; 0 once the month is over (or 0 before it starts: see `started`). */
   daysLeft: number
   started: boolean
   finished: boolean
   today: { day: string; target: number; delivered: number; toGo: number } | null
+  /** The day the plan is about right now: today, or day 1 before the month has started. Null once it's over. */
+  focus: { day: string; target: number; delivered: number; toGo: number; upcoming: boolean } | null
   /** What each remaining day AFTER today must deliver to still land the month; 0 when nothing is left to ask. */
   perDayFromTomorrow: number
   days: DayPlan[]
@@ -83,18 +104,16 @@ export type MonthPlan = {
  * `deliveredByDay` holds delivered revenue per Dhaka day. Targets are whole taka, rounded UP so that hitting
  * every day's target always meets the month.
  */
-export function planMonth(args: { month: string; target: number; deliveredByDay: Record<string, number>; today: string }): MonthPlan {
+export function planMonth(args: { month: string; target: number; deliveredByDay: Record<string, number>; today: string; start?: string | null }): MonthPlan {
   const { month, target, deliveredByDay, today } = args
-  const n = daysInMonth(month)
-  const first = `${month}-01`
-  const last = `${month}-${String(n).padStart(2, "0")}`
+  const { first, last, days: n } = periodOf(month, args.start)
   const started = today >= first
   const finished = today > last
 
   const days: DayPlan[] = []
   let cumulative = 0
   for (let i = 1; i <= n; i++) {
-    const day = `${month}-${String(i).padStart(2, "0")}`
+    const day = addDays(first, i - 1)
     if (day > today) break
     const left = n - i + 1 // days left at the start of this day, itself included
     const need = Math.max(0, target - cumulative)
@@ -107,13 +126,19 @@ export function planMonth(args: { month: string; target: number; deliveredByDay:
   const delivered = Math.round(Object.entries(deliveredByDay).filter(([d]) => d >= first && d <= last).reduce((s, [, v]) => s + v, 0) * 100) / 100
   const remaining = Math.max(0, target - delivered)
   const todayRow = days.find((d) => d.isToday) ?? null
-  const daysLeft = !started ? n : finished ? 0 : n - Number(today.slice(8, 10)) + 1
+  const daysLeft = !started ? n : finished ? 0 : n - dayNo(first, today) + 1
   const afterToday = started ? Math.max(0, daysLeft - 1) : 0
 
   return {
     month, target, delivered, remaining,
+    start: first, end: last,
     pct: target > 0 ? Math.round((delivered / target) * 1000) / 10 : 0,
     daysInMonth: n, daysLeft, started, finished,
+    focus: todayRow
+      ? { day: todayRow.day, target: todayRow.target, delivered: todayRow.delivered, toGo: Math.max(0, todayRow.target - todayRow.delivered), upcoming: false }
+      : !started
+        ? { day: first, target: Math.ceil(target / n), delivered: 0, toGo: Math.ceil(target / n), upcoming: true }
+        : null,
     today: todayRow ? { day: todayRow.day, target: todayRow.target, delivered: todayRow.delivered, toGo: Math.max(0, todayRow.target - todayRow.delivered) } : null,
     perDayFromTomorrow: afterToday > 0 ? Math.ceil(remaining / afterToday) : 0,
     days,

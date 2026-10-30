@@ -112,10 +112,11 @@ describe("per-product daily targets re-balance", () => {
     expect(r.perDayAfterToday).toBe(0)
   })
 
-  it("has no daily target before the month starts", () => {
-    const r = row(20, {}, "2026-11-20", 30, { started: false })
-    expect(r.todayTarget).toBeNull()
-    expect(r.toGo).toBe(0)
+  it("before the month starts, shows day 1's share so the daily plan is visible ahead of time", () => {
+    const r = row(20, {}, "2026-10-31", 30, { started: false })
+    expect(r.todayTarget).toBe(1) // ceil(20 / 30)
+    expect(r.toGo).toBe(1)
+    expect(row(90, {}, "2026-10-31", 30, { started: false }).todayTarget).toBe(3)
   })
 
   it("counts pairs the current stock cannot cover, and spots overstock from days of cover", () => {

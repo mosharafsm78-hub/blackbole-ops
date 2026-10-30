@@ -17,7 +17,7 @@ import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
-import { daysInMonth, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, monthStartMs, nextMonthKey, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
+import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
   buildPlan, classify, DEFAULT_COSTS, PLAN_VERSION, fixedTotal, marketingPlan, mixMargin, onPace, productRows, profitPlan, skuBase, summarizeSales,
   type MarketingPlan, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
@@ -40,7 +40,7 @@ export const getTarget = query({
   handler: async (ctx, { month }) => {
     if (!(await currentStaff(ctx))) return null
     const row = await ctx.db.query("revenueTargets").withIndex("by_month", (q) => q.eq("month", month)).unique()
-    return row ? { month: row.month, amount: row.amount, setByName: row.setByName, updatedAt: row.updatedAt } : null
+    return row ? { month: row.month, amount: row.amount, setByName: row.setByName, updatedAt: row.updatedAt, start: row.start ?? null } : null
   },
 })
 
@@ -60,7 +60,9 @@ export const setMonthlyTarget = mutation({
       if (existing) await ctx.db.delete(existing._id)
       return
     }
-    const row = { month, amount: whole, setByName: me.staff.name, updatedAt: Date.now() }
+    // A target set before its month begins starts today, so the daily plan is live from the day it is set.
+    const start = existing?.start ?? (month > dhakaMonth(Date.now()) ? dhakaDay(Date.now()) : undefined)
+    const row = { month, amount: whole, setByName: me.staff.name, updatedAt: Date.now(), start }
     if (existing) await ctx.db.patch(existing._id, existing.amount === whole ? row : { ...row, plan: undefined })
     else await ctx.db.insert("revenueTargets", row)
   },
@@ -113,6 +115,15 @@ export const access = internalQuery({
 export const targetRow = internalQuery({
   args: { month: v.string() },
   handler: async (ctx, { month }) => await ctx.db.query("revenueTargets").withIndex("by_month", (q) => q.eq("month", month)).unique(),
+})
+
+/** A target entered for a coming month before it had a start day begins today (once). */
+export const backfillStart = internalMutation({
+  args: { month: v.string(), day: v.string() },
+  handler: async (ctx, { month, day }) => {
+    const row = await ctx.db.query("revenueTargets").withIndex("by_month", (q) => q.eq("month", month)).unique()
+    if (row && !row.start && `${month}-01` > day) await ctx.db.patch(row._id, { start: day, plan: undefined })
+  },
 })
 
 export const savePlan = internalMutation({
@@ -261,9 +272,9 @@ async function gatherStock(ctx: ActionCtx): Promise<StockMap> {
   return out
 }
 
-async function gather(ctx: ActionCtx, month: string, now: number, current: string): Promise<Gathered> {
+async function gather(ctx: ActionCtx, month: string, start: string | undefined, now: number, current: string): Promise<Gathered> {
   const historic = month < current
-  const mStart = monthStartMs(month), mEnd = monthEndMs(month)
+  const mStart = dayStartMs(periodOf(month, start).first), mEnd = monthEndMs(month)
   const from = historic ? mStart : Math.min(mStart, now - WINDOW_DAYS * DAY)
   const to = historic ? mEnd : now + 1
   const [rows, stock] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx)])
@@ -329,6 +340,12 @@ export const progress = action({
       if (next) { row = next; m = next.month }
     }
     if (!row) return EMPTY(m, now)
+    if (!row.start && m > current) { // entered before this feature: it starts today
+      const day = dhakaDay(now)
+      await ctx.runMutation(internal.targets.backfillStart, { month: m, day })
+      row = { ...row, start: day, plan: undefined }
+    }
+    const period = periodOf(m, row.start)
 
     // Whether this person may see ad spend at all (the same permission as the Ads page).
     let conf: any = null
@@ -338,21 +355,21 @@ export const progress = action({
     const wantSpend = adsConfigured && m >= current
 
     // ---- gathered data (cached a few minutes, shared) ----
-    const key = `target-data:${m}`
+    const key = `target-data:${m}:${period.first}`
     const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
     let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
     let dirty = false
-    if (!data) { data = await gather(ctx, m, now, current); dirty = true }
+    if (!data) { data = await gather(ctx, m, row.start, now, current); dirty = true }
     let spendFailed = false
     if (wantSpend && (!data.spend || now - data.spend.at > SPEND_MS)) {
-      const byDay = await fetchSpend(conf, Math.min(monthStartMs(current), now - 30 * DAY), now)
+      const byDay = await fetchSpend(conf, Math.min(dayStartMs(period.first), now - 30 * DAY), now)
       if (byDay) { data.spend = { at: now, byDay }; dirty = true } else spendFailed = !data.spend
     }
     if (dirty) await ctx.runMutation(internal.dashboard.writeCache, { key, value: data })
 
     // ---- the month, by day ----
     const today = dhakaDay(now)
-    const monthPlan = planMonth({ month: m, target: row.amount, deliveredByDay: data.byDay, today })
+    const monthPlan = planMonth({ month: m, target: row.amount, deliveredByDay: data.byDay, today, start: row.start })
 
     // ---- the product plan ----
     let snapshot: ProductPlan | undefined
@@ -406,7 +423,7 @@ export const progress = action({
       else if (!data.spend || spendFailed) marketing = { state: "error" }
       else {
         const from30 = dhakaDay(now - 30 * DAY)
-        const monthFirst = `${m}-01`
+        const monthFirst = period.first
         marketing = {
           state: "ok",
           plan: marketingPlan({
@@ -415,8 +432,8 @@ export const progress = action({
             spentMtd: sumDays(data.spend.byDay, monthFirst, today),
             trailingRevenue: sumDays(data.byDay, from30, today),
             trailingSpend: sumDays(data.spend.byDay, from30, today),
-            dayOfMonth: monthPlan.started ? (monthPlan.finished ? daysInMonth(m) : Number(today.slice(8, 10))) : 0,
-            days: daysInMonth(m),
+            dayOfMonth: monthPlan.started ? (monthPlan.finished ? period.days : dayNo(period.first, today)) : 0,
+            days: period.days,
           }),
         }
       }
@@ -433,8 +450,8 @@ export const progress = action({
           profit = profitPlan({
             target: row.amount, grossMargin: gm, ratio: data.ratio, aov: data.aov, mer: marketing.plan.mer, costs,
             deliveredMtd: monthPlan.delivered, spentMtd: marketing.plan.spentMtd,
-            dayOfMonth: monthPlan.started ? (monthPlan.finished ? daysInMonth(m) : Number(today.slice(8, 10))) : 0,
-            days: daysInMonth(m),
+            dayOfMonth: monthPlan.started ? (monthPlan.finished ? period.days : dayNo(period.first, today)) : 0,
+            days: period.days,
           })
         }
       }
@@ -450,23 +467,29 @@ export const progress = action({
 
 const taka = (n: number) => `৳${Math.round(n).toLocaleString("en-IN")}`
 
-async function deliveredByDayFor(ctx: ActionCtx, month: string) {
-  const rows = await salesRows(ctx, monthStartMs(month), monthEndMs(month))
-  return summarizeSales(rows, { startMs: monthStartMs(month), endMs: monthEndMs(month) }).byDay
+async function deliveredByDayFor(ctx: ActionCtx, month: string, first: string) {
+  const rows = await salesRows(ctx, dayStartMs(first), monthEndMs(month))
+  return summarizeSales(rows, { startMs: dayStartMs(first), endMs: monthEndMs(month) }).byDay
 }
 
-/** Monday morning: was the week that just ended on pace for the month's target? (Straight-line share of the
- *  target by that Sunday.) Credits Marketing's lead, like the weekly ROAS rule. */
+/** Monday morning: was the week that just ended on pace for the target? (Straight-line share of the target by
+ *  that Sunday.) Credits Marketing's lead, like the weekly ROAS rule. */
 export const weeklyTargetCheck = internalAction({
   args: {},
   handler: async (ctx) => {
     const sunday = dhakaDay(Date.now() - DAY) // the cron runs Monday morning Dhaka time
-    const month = sunday.slice(0, 7)
-    const row = await ctx.runQuery(internal.targets.targetRow, { month })
+    // The target whose period contains that Sunday: this month's, or next month's if it started early.
+    let month = sunday.slice(0, 7)
+    let row = await ctx.runQuery(internal.targets.targetRow, { month })
+    if (!row || periodOf(month, row.start).first > sunday) {
+      const next = await ctx.runQuery(internal.targets.targetRow, { month: nextMonthKey(month) })
+      if (next && next.start && next.start <= sunday) { row = next; month = next.month }
+    }
     if (!row) return
-    const delivered = sumDays(await deliveredByDayFor(ctx, month), `${month}-01`, sunday)
-    const dayOfMonth = Number(sunday.slice(8, 10))
-    if (!onPace({ target: row.amount, delivered, dayOfMonth, days: daysInMonth(month) })) return
+    const { first, days } = periodOf(month, row.start)
+    if (sunday < first) return
+    const delivered = sumDays(await deliveredByDayFor(ctx, month, first), first, sunday)
+    if (!onPace({ target: row.amount, delivered, dayOfMonth: dayNo(first, sunday), days })) return
     await ctx.runMutation(internal.targets.awardTargetPoints, {
       ruleKey: "marketing.target_week_pace",
       dedupeKey: sunday,
@@ -484,7 +507,8 @@ export const monthTargetCheck = internalAction({
     const month = prevMonthKey(dhakaMonth(now))
     const row = await ctx.runQuery(internal.targets.targetRow, { month })
     if (!row) return
-    const delivered = sumDays(await deliveredByDayFor(ctx, month), `${month}-01`, `${month}-31`)
+    const { first, last } = periodOf(month, row.start)
+    const delivered = sumDays(await deliveredByDayFor(ctx, month, first), first, last)
     if (delivered < row.amount) return
     await ctx.runMutation(internal.targets.awardTargetPoints, {
       ruleKey: "marketing.target_month_hit",

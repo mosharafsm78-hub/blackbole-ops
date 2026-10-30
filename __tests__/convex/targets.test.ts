@@ -21,6 +21,31 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe("daily allocation maths", () => {
+  it("before the month starts, the focus is day 1 with its even share", () => {
+    const p = planMonth({ month: "2026-11", target: 1200000, deliveredByDay: {}, today: "2026-10-31" })
+    expect(p.today).toBeNull()
+    expect(p.focus).toEqual({ day: "2026-11-01", target: 40000, delivered: 0, toGo: 40000, upcoming: true })
+  })
+
+  it("during the month, the focus is today", () => {
+    const p = planMonth({ month: "2026-11", target: 30000, deliveredByDay: { "2026-11-01": 400 }, today: "2026-11-01" })
+    expect(p.focus).toEqual({ day: "2026-11-01", target: 1000, delivered: 400, toGo: 600, upcoming: false })
+    expect(planMonth({ month: "2026-10", target: 1, deliveredByDay: {}, today: "2026-11-02" }).focus).toBeNull()
+  })
+
+  it("a period that starts before the month (31 Oct → 30 Nov) is 31 days, split evenly from the first day", () => {
+    const p = planMonth({ month: "2026-11", target: 1200000, deliveredByDay: { "2026-10-31": 20000 }, today: "2026-10-31", start: "2026-10-31" })
+    expect(p.start).toBe("2026-10-31")
+    expect(p.daysInMonth).toBe(31)
+    expect(p.started).toBe(true)
+    expect(p.today).toEqual({ day: "2026-10-31", target: Math.ceil(1200000 / 31), delivered: 20000, toGo: Math.ceil(1200000 / 31) - 20000 })
+    const next = planMonth({ month: "2026-11", target: 1200000, deliveredByDay: { "2026-10-31": 20000 }, today: "2026-11-01", start: "2026-10-31" })
+    expect(next.delivered).toBe(20000) // October 31 counts toward it
+    expect(next.days).toHaveLength(2)
+    expect(next.today!.target).toBe(Math.ceil(1180000 / 30))
+    expect(next.daysLeft).toBe(30)
+  })
+
   it("starts as an even split on day 1", () => {
     const p = planMonth({ month: "2026-11", target: 30000, deliveredByDay: {}, today: "2026-11-01" })
     expect(p.today).toEqual({ day: "2026-11-01", target: 1000, delivered: 0, toGo: 1000 })
@@ -166,6 +191,15 @@ describe("setting the target", () => {
     await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 3000000 })
     const row = await asAdmin.query(api.targets.getTarget, { month: "2026-11" })
     expect(row).toMatchObject({ month: "2026-11", amount: 3000000, setByName: "Emon" })
+  })
+
+  it("remembers the day a future month's target was set as its start, and keeps it when the amount changes", async () => {
+    const { asAdmin, t } = await setup()
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-12", amount: 500000 })
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-12", amount: 600000 })
+    expect((await asAdmin.query(api.targets.getTarget, { month: "2026-12" }))!.start).toBe("2026-11-10")
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+    expect((await asAdmin.query(api.targets.getTarget, { month: "2026-11" }))!.start).toBeNull() // this month: no early start
   })
 
   it("updates in place rather than adding a second row, and 0 clears it", async () => {

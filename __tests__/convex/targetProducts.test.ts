@@ -106,6 +106,14 @@ describe("product plan from sales and stock", () => {
     expect(r2.perDayAfterToday).toBe(Math.ceil(208 / 20))
   })
 
+  it("a future-month target entered before starts existed begins today instead of waiting for the 1st", async () => {
+    const { t, asAdmin } = await setup()
+    await t.run((ctx) => ctx.db.insert("revenueTargets", { month: "2026-12", amount: 310000, setByName: "Emon", updatedAt: NOW }))
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.plan).toMatchObject({ start: "2026-11-10", started: true })
+    expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.start).toBe("2026-11-10")
+  })
+
   it("makes a fresh plan when the amount changes", async () => {
     const { t, asAdmin, addProduct, sell } = await setup()
     await addProduct("Soft Slide", 1000, "BB-SOFT")
@@ -117,15 +125,16 @@ describe("product plan from sales and stock", () => {
     expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.plan).toBeUndefined()
   })
 
-  it("previews next month when only next month has a target", async () => {
+  it("a target set before its month begins starts today and runs to the end of that month", async () => {
     const { asAdmin, addProduct, sell } = await setup()
     await addProduct("Soft Slide", 1000, "BB-SOFT")
     await sell("BB-SOFT-41", "Soft Slide", 40, 1000, NOW - 20 * DAY)
     await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-12", amount: 100000 })
     const p = await asAdmin.action(api.targets.progress, {})
     expect(p.month).toBe("2026-12")
-    expect(p.plan!.started).toBe(false)
-    expect(p.products![0].todayTarget).toBeNull()
+    expect(p.plan).toMatchObject({ start: "2026-11-10", end: "2026-12-31", daysInMonth: 52, started: true, daysLeft: 52 })
+    expect(p.plan!.today!.target).toBe(Math.ceil(100000 / 52))
+    expect(p.products![0].todayTarget).toBe(Math.ceil(p.products![0].monthUnits / 52))
   })
 })
 

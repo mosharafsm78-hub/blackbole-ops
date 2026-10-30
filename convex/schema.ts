@@ -1013,6 +1013,8 @@ export default defineSchema({
     amount: v.number(), // whole taka for the month
     setByName: v.string(),
     updatedAt: v.number(),
+    /** First day of the period when the target was set before its month began (e.g. "2026-10-31"). */
+    start: v.optional(v.string()),
     /** Pairs-per-product plan for the month (targetPlan.ts ProductPlan), re-made weekly. */
     plan: v.optional(v.any()),
   }).index("by_month", ["month"]),

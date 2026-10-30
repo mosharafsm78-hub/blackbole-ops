@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { AlertTriangle, Check, ChevronRight, Flag, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
-import { daysInMonth } from "@/convex/targetMath"
+import { addDays } from "@/convex/targetMath"
 import { GROUP_SHARE, type Group, type ProductRow } from "@/convex/targetPlan"
 import type { MarketingView, TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
@@ -39,17 +39,17 @@ export function RevenueTargetCard() {
   }
 
   const p = data.plan
-  const t = p.today
+  const t = p.focus
   const beaten = p.remaining === 0
-  const onPace = p.pct >= (p.days.length / daysInMonth(p.month)) * 100
+  const onPace = p.pct >= (p.days.length / p.daysInMonth) * 100
   return (
     <section className="rounded-xl border bg-card p-4" data-testid="revenue-target-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Flag className="size-4 text-tone-blue" />Target — {monthLabel(p.month)}</h2>
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><Flag className="size-4 text-tone-blue" />Target — {dayLabel(p.start)} to {dayLabel(p.end)}</h2>
         <Link to="/target" className="inline-flex items-center gap-0.5 text-xs font-medium text-tone-blue hover:underline">Full plan <ChevronRight className="size-3.5" /></Link>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        <Fig label="Today's target" value={t ? taka(t.target) : "—"} sub={t ? (t.toGo > 0 ? `${taka(t.delivered)} done · ${taka(t.toGo)} to go` : `${taka(t.delivered)} delivered ✓`) : p.finished ? "month is over" : "starts 1st"} tone={t && t.toGo === 0 ? "green" : undefined} />
+        <Fig label={t?.upcoming ? `Target for ${dayLabel(t.day)}` : "Today's target"} value={t ? taka(t.target) : "—"} sub={t ? (t.toGo > 0 ? `${taka(t.delivered)} done · ${taka(t.toGo)} to go` : `${taka(t.delivered)} delivered ✓`) : "period is over"} tone={t && t.toGo === 0 ? "green" : undefined} />
         <Fig label="This month" value={taka(p.delivered)} sub={`of ${taka(p.target)} · ${beaten ? "reached" : `${p.pct}%`}`} />
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.min(100, p.pct)} aria-valuemin={0} aria-valuemax={100}>
@@ -62,21 +62,23 @@ export function RevenueTargetCard() {
 /** The Target page: daily and monthly target on top, then profit, marketing budget, the product plan and the day log. */
 export function TargetPlanView({ data }: { data: TargetProgress }) {
   const p = data.plan!
-  const t = p.today
+  const t = p.focus
   const beaten = p.remaining === 0
-  const onPace = p.pct >= (p.days.length / daysInMonth(p.month)) * 100
+  const onPace = p.pct >= (p.days.length / p.daysInMonth) * 100
   return (
     <div className="space-y-4" data-testid="target-page">
-      {!p.started && <p className="text-xs text-muted-foreground">Preview — {monthLabel(p.month)} starts on {dayLabel(`${p.month}-01`)}. Delivered orders only; worked out from sales and stock.</p>}
+      <p className="text-xs text-muted-foreground">
+        {dayLabel(p.start)} → {dayLabel(p.end)} · {p.daysInMonth} days · delivered orders only · a missed day moves to the days after it
+      </p>
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-xl border bg-card p-4" data-testid="target-daily">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Daily target</h2>
-            {t && <Pill tone={t.toGo === 0 ? "green" : "amber"}>{t.toGo === 0 ? "Done for today" : `${taka(t.toGo)} to go`}</Pill>}
+            <h2 className="text-sm font-semibold">{t?.upcoming ? `Daily target — starts ${dayLabel(t.day)}` : `Today's target — ${t ? dayLabel(t.day) : ""}`}</h2>
+            {t && !t.upcoming && <Pill tone={t.toGo === 0 ? "green" : "amber"}>{t.toGo === 0 ? "Done for today" : `${taka(t.toGo)} to go`}</Pill>}
           </div>
           <div className="mt-2 text-3xl font-bold tabular-nums">{t ? taka(t.target) : "—"}</div>
           <p className="text-xs text-muted-foreground">
-            {t ? `${taka(t.delivered)} delivered today. A missed day moves to the days after it.` : p.finished ? "The month is over." : "The month hasn't started."}
+            {t ? (t.upcoming ? "Each day's share of the month." : `${taka(t.delivered)} delivered so far today.`) : "The period is over."}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Fig label="Each day after today" value={p.perDayFromTomorrow > 0 ? taka(p.perDayFromTomorrow) : "—"} sub={p.perDayFromTomorrow > 0 ? "to still land the month" : beaten ? "nothing more needed" : "no days left"} />
@@ -94,40 +96,96 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Fig label="Delivered so far" value={taka(p.delivered)} sub="delivered orders only" />
-            <Fig label="Still to deliver" value={taka(p.remaining)} sub={p.finished ? "month is over" : `${p.daysLeft} day${p.daysLeft === 1 ? "" : "s"} left`} />
+            <Fig label="Still to deliver" value={taka(p.remaining)} sub={p.finished ? "period is over" : `${p.daysLeft} day${p.daysLeft === 1 ? "" : "s"} left`} />
           </div>
         </section>
       </div>
 
-      {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
+      <SellList data={data} />
       {data.marketing && <MarketingStrip m={data.marketing} />}
+      {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
+      <Schedule p={p} />
       <ProductPlan data={data} />
-
-      {p.days.length > 0 && (
-        <details className="group rounded-xl border bg-card p-4">
-          <summary className="cursor-pointer select-none text-sm font-semibold">Day by day</summary>
-          <div className="mt-2 overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[320px] text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr><th className="px-3 py-1.5 text-left font-medium">Day</th><th className="px-3 py-1.5 text-right font-medium">Target</th><th className="px-3 py-1.5 text-right font-medium">Delivered</th><th className="w-10 px-3 py-1.5" /></tr>
-              </thead>
-              <tbody>
-                {[...p.days].reverse().map((d) => (
-                  <tr key={d.day} className={cn("border-t", d.isToday && "bg-tone-blue-bg/40")}>
-                    <td className="px-3 py-1.5">{dayLabel(d.day)}{d.isToday && <span className="ml-1.5 text-[11px] font-semibold text-tone-blue">today</span>}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{taka(d.target)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums font-medium">{taka(d.delivered)}</td>
-                    <td className="px-3 py-1.5 text-center">
-                      {d.hit ? <Check className="inline size-4 text-tone-green" aria-label="Hit" /> : d.isToday ? null : <X className="inline size-4 text-tone-red" aria-label="Missed" />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      )}
     </div>
+  )
+}
+
+/** The daily sheet: what to sell today, in pairs — the focus products carry it, the rest is a one-line total. */
+function SellList({ data }: { data: TargetProgress }) {
+  const rows = data.products
+  const p = data.plan!
+  if (!rows || rows.length === 0) return null
+  const day = p.focus ? dayLabel(p.focus.day) : ""
+  const focus = rows.filter((r) => r.group === "focus" && (r.todayTarget ?? 0) > 0).sort((a, b) => (b.todayTarget ?? 0) - (a.todayTarget ?? 0))
+  const rest = (g: Group) => rows.filter((r) => r.group === g)
+  const line = (g: Group, title: string) => {
+    const list = rest(g)
+    if (list.length === 0) return null
+    const target = sum(list, (r) => r.todayTarget ?? 0)
+    return <li key={g}><b className="text-foreground">{title}:</b> {target} pairs across {list.length} products (sold {sum(list, (r) => r.todaySold)})</li>
+  }
+  const total = sum(rows, (r) => r.todayTarget ?? 0)
+  return (
+    <section className="rounded-xl border bg-card p-4" data-testid="target-sell-list">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Sell today ({day}) — pairs per product</h2>
+        <span className="text-xs text-muted-foreground">{total} pairs in all · focus products carry it</span>
+      </div>
+      <div className="mt-2 overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[460px] text-sm">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
+            <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Sell</th><th className="px-3 py-1.5 text-right font-medium">Sold</th><th className="px-3 py-1.5 text-right font-medium">To go</th><th className="px-3 py-1.5 text-right font-medium">Worth</th></tr>
+          </thead>
+          <tbody>
+            {focus.map((r) => (
+              <tr key={r.key} className="border-t">
+                <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                <td className="px-3 py-1.5 text-right text-base font-bold tabular-nums">{r.todayTarget}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{r.todaySold}</td>
+                <td className={cn("px-3 py-1.5 text-right tabular-nums", r.toGo === 0 ? "text-tone-green" : "font-semibold")}>{r.toGo === 0 ? "✓" : r.toGo}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{taka((r.todayTarget ?? 0) * r.price)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{line("other", "Others")}{line("dead", "Dead stock")}</ul>
+    </section>
+  )
+}
+
+const weekday = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { weekday: "short", timeZone: "UTC" })
+
+/** Every day of the period: past days with what was delivered, today highlighted, coming days with their share. */
+function Schedule({ p }: { p: NonNullable<TargetProgress["plan"]> }) {
+  const rows: { day: string; target: number; delivered: number | null; hit: boolean; isToday: boolean }[] = p.days.map((d) => ({ day: d.day, target: d.target, delivered: d.delivered, hit: d.hit, isToday: d.isToday }))
+  const lastShown = p.days.length > 0 ? p.days[p.days.length - 1].day : addDays(p.start, -1)
+  // Coming days: what each must deliver to still land the month (from tomorrow), or the even share before the start.
+  const future = p.started ? p.perDayFromTomorrow : Math.ceil(p.target / p.daysInMonth)
+  for (let day = addDays(lastShown, 1); day <= p.end; day = addDays(day, 1)) rows.push({ day, target: future, delivered: null, hit: false, isToday: false })
+  return (
+    <details open className="rounded-xl border bg-card p-4" data-testid="target-schedule">
+      <summary className="cursor-pointer select-none text-sm font-semibold">Day by day — every day of the month</summary>
+      <div className="mt-2 max-h-[420px] overflow-auto rounded-lg border">
+        <table className="w-full min-w-[360px] text-sm">
+          <thead className="sticky top-0 bg-muted text-xs text-muted-foreground">
+            <tr><th className="px-3 py-1.5 text-left font-medium">Day</th><th className="px-3 py-1.5 text-right font-medium">Target</th><th className="px-3 py-1.5 text-right font-medium">Delivered</th><th className="w-10 px-3 py-1.5" /></tr>
+          </thead>
+          <tbody>
+            {rows.map((d) => (
+              <tr key={d.day} className={cn("border-t", d.isToday && "bg-tone-blue-bg/40", d.delivered === null && "text-muted-foreground")}>
+                <td className="px-3 py-1.5">{weekday(d.day)} {dayLabel(d.day)}{d.isToday && <span className="ml-1.5 text-[11px] font-semibold text-tone-blue">today</span>}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{taka(d.target)}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums font-medium">{d.delivered === null ? "" : taka(d.delivered)}</td>
+                <td className="px-3 py-1.5 text-center">
+                  {d.delivered === null ? null : d.hit ? <Check className="inline size-4 text-tone-green" aria-label="Hit" /> : d.isToday ? null : <X className="inline size-4 text-tone-red" aria-label="Missed" />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
   )
 }
 

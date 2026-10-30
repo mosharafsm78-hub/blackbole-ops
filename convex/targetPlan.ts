@@ -222,7 +222,8 @@ export function productRows(args: {
     const todaySold = byDay[args.today] ?? 0
     const left = Math.max(0, p.units - sold)
     const atDayStart = Math.max(0, p.units - (sold - todaySold))
-    const todayTarget = args.started && args.daysLeft > 0 ? Math.ceil(atDayStart / args.daysLeft) : null
+    // Before the month starts this is day 1's share (daysLeft is the whole month then).
+    const todayTarget = args.daysLeft > 0 ? Math.ceil(atDayStart / args.daysLeft) : null
     const stock = args.stockUnits[key] ?? null
     const perDay = (args.trailingUnits[key] ?? 0) / Math.max(1, args.trailingDays)
     const coverDays = stock !== null && perDay > 0 ? Math.round(stock / perDay) : null
@@ -231,7 +232,7 @@ export function productRows(args: {
       key, name: p.name, price: p.price, monthUnits: p.units, sold, left,
       todayTarget, todaySold,
       toGo: todayTarget === null ? 0 : Math.max(0, todayTarget - todaySold),
-      perDayAfterToday: args.started && args.daysLeft > 1 ? Math.ceil(left / (args.daysLeft - 1)) : 0,
+      perDayAfterToday: args.daysLeft > 1 ? Math.ceil(left / (args.started ? args.daysLeft - 1 : args.daysLeft)) : 0,
       stockUnits: stock, coverDays,
       stockShort: stock === null ? 0 : Math.max(0, left - stock),
       overstock: coverDays !== null && coverDays > 90,
