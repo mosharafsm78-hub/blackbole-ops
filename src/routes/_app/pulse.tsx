@@ -166,12 +166,22 @@ function RecentFeed() {
  *  just leads. There is no "award points" button anywhere in this app anymore: every row below fires on its
  *  own, off a real event the system already records, the moment that event happens. This is the one place
  *  that promise is made visible, so nobody has to take it on faith. */
+// ops.flag_raised and ops.overdue_flag are deliberately ONE shared rule, not four separate ones — they fire
+// against whichever department actually owns the mistake or the overdue flag, resolved at the moment it
+// happens (see Settings → Accountability), not hardcoded per team. DEFAULT_RULES tags them "Operations" because
+// that's where they're configured, but every front-line department is really on the hook for them. Shown once
+// under Operations for configuring, and copied into each front-line section below so it's not invisible there.
+const SHARED_PENALTY_KEYS = ["ops.flag_raised", "ops.overdue_flag"]
+const FRONT_LINE_TEAMS = ["Customer Care", "Fulfillment", "Marketing"]
+
 function RuleBook() {
   const rules = useQuery(api.kpi.listRules, {})
   const [open, setOpen] = useState(false)
   if (rules === undefined) return null
   const byTeam = new Map<string, typeof rules>()
   for (const r of rules) byTeam.set(r.team, [...(byTeam.get(r.team) ?? []), r])
+  const sharedPenalties = rules.filter((r) => SHARED_PENALTY_KEYS.includes(r.key))
+  for (const team of FRONT_LINE_TEAMS) if (byTeam.has(team)) byTeam.set(team, [...byTeam.get(team)!, ...sharedPenalties])
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -190,21 +200,39 @@ function RuleBook() {
       </p>
       {open && (
         <div className="mt-3 space-y-4">
-          {[...byTeam.entries()].map(([team, rows]) => (
-            <div key={team}>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{team}</h3>
-              <div className="mt-1.5 space-y-1">
-                {rows.map((r) => (
-                  <div key={r.key} className="flex items-center justify-between gap-3 text-sm">
-                    <span className={cn(!r.active && "text-muted-foreground line-through")}>{r.label}</span>
-                    <span className={cn("shrink-0 font-semibold tabular-nums", r.points < 0 ? "text-tone-red" : "text-tone-green")}>
-                      {r.points > 0 ? "+" : ""}{r.points}
-                    </span>
-                  </div>
-                ))}
+          {[...byTeam.entries()].map(([team, rows]) => {
+            const sharedCount = FRONT_LINE_TEAMS.includes(team) ? sharedPenalties.length : 0
+            const ownRows = sharedCount ? rows.slice(0, -sharedCount) : rows
+            const sharedRows = sharedCount ? rows.slice(-sharedCount) : []
+            return (
+              <div key={team}>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{team}</h3>
+                <div className="mt-1.5 space-y-1">
+                  {ownRows.map((r) => (
+                    <div key={r.key} className="flex items-center justify-between gap-3 text-sm">
+                      <span className={cn(!r.active && "text-muted-foreground line-through")}>{r.label}</span>
+                      <span className={cn("shrink-0 font-semibold tabular-nums", r.points < 0 ? "text-tone-red" : "text-tone-green")}>
+                        {r.points > 0 ? "+" : ""}{r.points}
+                      </span>
+                    </div>
+                  ))}
+                  {sharedRows.length > 0 && (
+                    <>
+                      <p className="pt-1 text-[11px] text-muted-foreground">Also on the hook for (shared across every department):</p>
+                      {sharedRows.map((r) => (
+                        <div key={`${team}-${r.key}`} className="flex items-center justify-between gap-3 text-sm">
+                          <span className={cn(!r.active && "text-muted-foreground line-through")}>{r.label}</span>
+                          <span className={cn("shrink-0 font-semibold tabular-nums", r.points < 0 ? "text-tone-red" : "text-tone-green")}>
+                            {r.points > 0 ? "+" : ""}{r.points}
+                          </span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

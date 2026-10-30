@@ -100,9 +100,15 @@ export const weeklyRoasCheck = internalAction({
     const totalValue = Object.values(revenue).reduce((s, d) => s + d.value, 0)
     const roas = totalValue / totalSpend
     const target = (await ctx.runQuery(internal.ads.roasTargetQuery, {})) ?? 2.0
-    if (roas < target) return
-
-    await ctx.runMutation(internal.ads.awardRoasHit, { roas: Math.round(roas * 100) / 100, target })
+    if (roas >= target) {
+      await ctx.runMutation(internal.ads.awardRoasHit, { roas: Math.round(roas * 100) / 100, target })
+      return
+    }
+    // An outright loss (spend that didn't even come back as revenue), not merely missing the target — missing
+    // the target by itself isn't penalized, since a target can be ambitious without a miss being a real fault.
+    if (roas < 1.0) {
+      await ctx.runMutation(internal.ads.awardRoasLoss, { roas: Math.round(roas * 100) / 100 })
+    }
   },
 })
 
@@ -123,5 +129,19 @@ export const awardRoasHit = internalMutation({
     const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", Date.now() - 6 * DAY)).collect()
     if (already.some((e) => e.ruleKey === "marketing.roas_hit")) return
     await awardPoints(ctx, { staffName: lead.name, ruleKey: "marketing.roas_hit", label: `Hit the weekly ROAS target (${roas.toFixed(2)}x vs ${target}x target)` })
+  },
+})
+
+export const awardRoasLoss = internalMutation({
+  args: { roas: v.number() },
+  handler: async (ctx, { roas }) => {
+    const owners = await ownersConf(ctx)
+    const lead = owners.byTeam["Marketing"]
+    if (!lead?.name) return
+    // Same weekly idempotency pattern as awardRoasHit — a cron that fires twice in the same week can't
+    // double-dock it either.
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", Date.now() - 6 * DAY)).collect()
+    if (already.some((e) => e.ruleKey === "marketing.roas_loss")) return
+    await awardPoints(ctx, { staffName: lead.name, ruleKey: "marketing.roas_loss", label: `Ad spend ran at an outright loss for the week (${roas.toFixed(2)}x ROAS)` })
   },
 })

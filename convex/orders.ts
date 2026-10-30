@@ -683,7 +683,7 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // actually confirmed: catching a fake/duplicate order BEFORE ever confirming it (straight from Pending) is
   // Customer Care doing its job right, not a mistake to flag.
   if (to === "cancelled" && reason && !opts.systemReason && order.approvedAt && ACCOUNTABILITY_ROUTING[reason] === "Customer Care") {
-    await raiseAccountabilityFlag(ctx, order, reason, undefined, byName)
+    await raiseAccountabilityFlag(ctx, order, reason, undefined, byName, { ruleKey: "cx.bad_confirmation" })
   }
   // Leaving hold/cancel for a live status means the advance question is settled (paid, waived, or the order
   // died) — stamp it so reporting can tell a live promise from an abandoned one, without erasing the amount
@@ -718,6 +718,11 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     // dispatched at 7am the next morning is a normal, good turnaround, not a miss.
     if (order.approvedAt && bdDay(order.approvedAt) === bdDay(now)) {
       await awardPoints(ctx, { staffName: byName, ruleKey: "fulfillment.same_day_dispatch", label: `Dispatched ${invoiceLabel(order)} same day as approval`, orderId: order._id })
+    } else if (order.approvedAt) {
+      // Mirrors same_day_dispatch above: approved on one calendar day, not actually handed to the courier
+      // until a later one. Only fires when we know the order WAS approved (so this is a real miss, not a
+      // dispatch with no approval timestamp to compare against).
+      await awardPoints(ctx, { staffName: byName, ruleKey: "fulfillment.late_dispatch", label: `${invoiceLabel(order)} wasn't dispatched the same day it was approved`, orderId: order._id })
     }
   }
   if (isDelivered(to) && !order.deliveredAt) {

@@ -434,8 +434,14 @@ export const receivePO = mutation({
     // Cycle-time credit, the moment the WHOLE purchase is fully received (never fires again after this — a
     // fully-received PO has nothing left to receive, so receivePO can't be called again for it). `po.status`
     // is the pre-patch status, so this only fires on the one call that actually completes it.
-    if (done && po.status !== "received" && po.expectedAt !== undefined && Date.now() <= po.expectedAt) {
-      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.po_on_time", label: `${poLabel} fully received on or before its expected date` })
+    if (done && po.status !== "received" && po.expectedAt !== undefined) {
+      if (Date.now() <= po.expectedAt) {
+        await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.po_on_time", label: `${poLabel} fully received on or before its expected date` })
+      } else {
+        // Mirrors po_on_time above: the complement case, same gating (done, not already received, has an
+        // expected date to compare against) so this fires exactly once per PO, same as the on-time award.
+        await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.po_late", label: `${poLabel} fully received after its expected date` })
+      }
     }
     return { code, receiptId }
   },

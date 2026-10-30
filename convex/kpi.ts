@@ -15,11 +15,13 @@
 //   2. Positive rules reward either a leading behavior (the work actually happened — a feedback call was made,
 //      a parcel went out same-day) or a verified outcome that required the customer to follow through (an
 //      advance cleared, a recovery order was placed) — never a claim with nothing real behind it.
-//   3. Every department has a genuine negative counterweight, not just ways to earn points: ops.flag_raised and
-//      ops.overdue_flag dock whichever department actually owns a confirmed mistake or a stalled business-
-//      health signal (sales down, return ratio up, orders stuck) the moment it's raised — so chasing volume on
-//      the positive rules without keeping quality up shows up on the same board immediately, not in a separate
-//      report nobody reads.
+//   3. Every department has a genuine negative counterweight, not just ways to earn points. The shared
+//      ops.flag_raised / ops.overdue_flag / ops.wrong_route dock whichever department owns a confirmed mistake,
+//      a stalled business-health signal, or a missed SLA. On top of that, each front-line department also has
+//      its own named misses — a confirmation call that turned out to be a fake/duplicate order (cx.*), a late
+//      dispatch or a late-received PO (fulfillment.*), ad spend that ran at an outright loss (marketing.*) —
+//      so chasing volume on the positive rules without keeping quality up shows up on the same board
+//      immediately, under the same department, not buried in a generic "Operations" line.
 //   4. One rule, one job, one payout. No rule pays out twice for the same underlying event — awardPoints'
 //      orderId dedupe, plus the "only on a genuinely new flag" and "only once per flag" guards at each call
 //      site, enforce this.
@@ -34,8 +36,10 @@ const DAY = 86400000
 
 export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
+  | "cx.bad_confirmation" | "cx.overdue_confirmation_call" | "cx.overdue_feedback_call" | "cx.overdue_return_call"
   | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn" | "fulfillment.po_on_time"
-  | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit"
+  | "fulfillment.late_dispatch" | "fulfillment.po_late"
+  | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit" | "marketing.roas_loss"
   | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag" | "ops.delivery_rate_hit"
 
 // Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
@@ -51,17 +55,24 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "cx.order_confirmed", label: "Confirmed a new order over the phone (Pending → Approved)", points: 5, team: "Customer Care", auto: true },
   { key: "cx.recovery_win", label: "Won a customer back with a fresh order after our own mistake caused a return", points: 25, team: "Customer Care", auto: true },
   { key: "cx.feedback_logged", label: "Completed a post-delivery feedback call through to a real outcome", points: 3, team: "Customer Care", auto: true },
+  { key: "cx.bad_confirmation", label: "An order you confirmed turned out fake or a duplicate and had to be cancelled", points: -15, team: "Customer Care", auto: true },
+  { key: "cx.overdue_confirmation_call", label: "A new order sat unconfirmed past the 2-day SLA", points: -10, team: "Customer Care", auto: true },
+  { key: "cx.overdue_feedback_call", label: "A delivered order's post-delivery feedback call sat overdue past the 3-day SLA", points: -10, team: "Customer Care", auto: true },
+  { key: "cx.overdue_return_call", label: "A returned/damaged order's feedback call sat overdue past the 2-day SLA", points: -10, team: "Customer Care", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
   { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero damaged units", points: 4, team: "Fulfillment", auto: true },
   { key: "fulfillment.po_on_time", label: "Purchase order fully received on or before its expected date", points: 5, team: "Fulfillment", auto: true },
+  { key: "fulfillment.late_dispatch", label: "Order wasn't dispatched the same day it was approved", points: -5, team: "Fulfillment", auto: true },
+  { key: "fulfillment.po_late", label: "Purchase order fully received after its expected date", points: -5, team: "Fulfillment", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Marketing & Content
   { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
   { key: "marketing.target_week_pace", label: "Delivered revenue was on pace for the monthly target at the end of the week", points: 15, team: "Marketing", auto: true },
   { key: "marketing.target_month_hit", label: "The month's revenue target was reached", points: 40, team: "Marketing", auto: true },
   { key: "marketing.roas_hit", label: "Ad spend hit or beat the weekly ROAS target (Settings → KPI)", points: 20, team: "Marketing", auto: true },
+  { key: "marketing.roas_loss", label: "Ad spend ran at an outright loss for the week (ROAS under 1.0)", points: -15, team: "Marketing", auto: true },
 
   // -------------------------------------------------------------------------------------------- Operations / leads
   { key: "ops.fast_capa", label: "Accountability flag resolved within 6 hours with a full CAPA answer", points: 15, team: "Operations", auto: true },

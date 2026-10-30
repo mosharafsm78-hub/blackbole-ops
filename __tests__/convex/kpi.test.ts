@@ -148,8 +148,9 @@ describe("advance payment clearing", () => {
     await asRafi.mutation(api.orders.changeStatus, { ids: [order2], to: "in_transit" })
 
     board = await as.query(api.kpi.leaderboard, {})
-    // +5 for the second cx.order_confirmed only — no second same_day_dispatch
-    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(15)
+    // +5 for the second cx.order_confirmed, -5 for fulfillment.late_dispatch (dispatched a later calendar day
+    // than approval) — no second same_day_dispatch
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(10)
   })
 })
 

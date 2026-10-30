@@ -292,12 +292,12 @@ export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent",
  *  Fulfillment, a wrong listing goes to Marketing, and so on — this is where that routing lives, so every at-fault
  *  reason has exactly one owning department and nothing falls through the cracks.
  *
- *  The last four entries are Customer Care's own counterweight — before these, CX had no way to lose a single
+ *  The last five entries are Customer Care's own counterweight — before these, CX had no way to lose a single
  *  point, no matter how badly a call went, since nothing here ever routed to "Customer Care". "Fake / prank
  *  order" / "Duplicate order" fire from orders.ts only when the order had already been confirmed (approved) by
- *  a CX call — catching one of these BEFORE confirming it is CX doing its job right, not a miss. "Feedback call
- *  overdue" / "Return call overdue" fire from accountability.ts's daily checks when the required post-delivery
- *  or post-return call hasn't been logged inside its SLA window. */
+ *  a CX call — catching one of these BEFORE confirming it is CX doing its job right, not a miss. "Confirmation
+ *  call overdue" / "Feedback call overdue" / "Return call overdue" fire from accountability.ts's daily checks
+ *  when the required call hasn't been logged inside its own SLA window. */
 export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Wrong product sent": "Fulfillment",
   "Wrong size sent": "Fulfillment",
@@ -306,6 +306,7 @@ export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Doesn't match description": "Marketing",
   "Fake / prank order": "Customer Care",
   "Duplicate order": "Customer Care",
+  "Confirmation call overdue": "Customer Care",
   "Feedback call overdue": "Customer Care",
   "Return call overdue": "Customer Care",
 }

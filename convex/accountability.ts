@@ -10,7 +10,7 @@ import { internal } from "./_generated/api"
 import { currentStaff, requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
 import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
 import { bdDay, dayStart, statsFromDays, type DayRow } from "./stats"
-import { awardPoints } from "./kpi"
+import { awardPoints, type KpiRuleKey } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
 
 const DAY = 86400000
@@ -30,7 +30,7 @@ export async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
  *  department — if one's already open for this order (e.g. the call was re-logged by a Super Admin), it's
  *  reused rather than duplicated, so a department never sees the same order twice in its queue. Looks up the
  *  named owner for that team (Settings → Accountability) and emails them right away, on top of the in-app flag. */
-export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orders">, outcome: string, note: string | undefined, byName: string) {
+export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orders">, outcome: string, note: string | undefined, byName: string, opts: { ruleKey?: KpiRuleKey } = {}) {
   const team = ACCOUNTABILITY_ROUTING[outcome]
   if (!team) return // not an at-fault reason with an owning department (e.g. "Customer changed mind")
   const owners = await ownersConf(ctx)
@@ -44,8 +44,10 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
   } else {
     flagId = await ctx.db.insert("opsFlags", { orderId: order._id, productNames, reason: outcome, team, note, status: "open", raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
     // Only on a genuinely new flag — reusing/patching an already-open flag for this order (the "existing"
-    // branch above) must not dock the department twice for the same underlying mistake.
-    if (owner?.name) await awardPoints(ctx, { staffName: owner.name, ruleKey: "ops.flag_raised", label: `Accountability flag: ${outcome}`, orderId: order._id })
+    // branch above) must not dock the department twice for the same underlying mistake. Callers that have
+    // their own named rule for this specific kind of miss (cx.bad_confirmation, say) pass it via opts.ruleKey
+    // so it shows up as its own line in the rule book, under its own department, instead of the generic one.
+    if (owner?.name) await awardPoints(ctx, { staffName: owner.name, ruleKey: opts.ruleKey ?? "ops.flag_raised", label: `Accountability flag: ${outcome}`, orderId: order._id })
   }
   await logOrder(ctx, order._id, `Accountability: ${outcome} — flagged to ${owner ? `${owner.name} (${team})` : team}`, byName)
   await notify(ctx, `${owner?.name ?? team}: ${outcome}`, `${invoiceLabel(order)} needs a response from ${owner?.name ?? team} before this can close out.`, order._id, "accountability")
@@ -914,17 +916,42 @@ export const businessHealth = query({
 // CX call SLAs — Customer Care's own counterweight. Before this, ACCOUNTABILITY_ROUTING never had a
 // "Customer Care" entry at all: ops.flag_raised only ever landed on Fulfillment or Marketing, so a CX agent
 // could rack up every reward rule in the book with nothing on the other side of the ledger, no matter how
-// badly a call got dropped. These two checks close that gap the exact same way every other department's SLA
-// already works — a real per-order accountability flag, through the same opsFlags/ops.flag_raised machinery,
-// docking whoever Settings → Accountability names as Customer Care's lead.
+// badly a call got dropped. These three checks close that gap the exact same way every other department's
+// SLA already works — a real per-order accountability flag, through the same opsFlags machinery, docking
+// whoever Settings → Accountability names as Customer Care's lead — each with its own named KPI rule key
+// (cx.overdue_*) so it shows up as its own line under Customer Care, not a generic "Operations" one.
 //
-// Both are gated on CX_CALL_SLA_STARTS_AT so turning this on doesn't suddenly flood the queue with flags for
-// calls that were already old news before the feature existed — only orders that cross into the relevant
+// All three are gated on CX_CALL_SLA_STARTS_AT so turning this on doesn't suddenly flood the queue with flags
+// for calls that were already old news before the feature existed — only orders that cross into the relevant
 // status from here on are ever counted.
 const CX_CALL_SLA_STARTS_AT = dayStart("2026-10-31")
+const CONFIRMATION_CALL_SLA_DAYS = 2 // a new order should be confirmed (or otherwise resolved) within this long
 const FEEDBACK_CALL_SLA_DAYS = 3 // a delivered order should get its post-delivery feedback call within this long
 const RETURN_CALL_SLA_DAYS = 2 // a returned/damaged order should get its return feedback call within this long
-const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach delivered or returned
+const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach any of these stages
+
+/** Brand-new orders sitting unconfirmed (still Pending) past the SLA — the call that was never made, or never
+ *  got a real outcome. Bounded directly by createdAt via by_status, since a Pending order's createdAt IS the
+ *  moment the clock starts. */
+export const overdueConfirmationCallCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const cutoff = now - CONFIRMATION_CALL_SLA_DAYS * DAY
+    const since = now - CX_SLA_LOOKBACK_DAYS * DAY
+    const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "pending").gte("createdAt", since)).collect()
+    for (const o of rows) {
+      if (o.deletedAt) continue
+      if (o.createdAt < CX_CALL_SLA_STARTS_AT || o.createdAt > cutoff) continue
+      await raiseAccountabilityFlag(
+        ctx, o, "Confirmation call overdue",
+        `Placed ${Math.floor((now - o.createdAt) / DAY)} day(s) ago — still Pending, no confirmation call resolved yet (SLA: ${CONFIRMATION_CALL_SLA_DAYS} days).`,
+        "BlackBole Ops (automatic)",
+        { ruleKey: "cx.overdue_confirmation_call" },
+      )
+    }
+  },
+})
 
 /** Delivered orders with no post-delivery feedback call (`csat`) logged inside the SLA window. Bounded by
  *  createdAt (not statusChangedAt), on purpose: a delivered_due order that later moves to delivered_paid days
@@ -945,6 +972,7 @@ export const overdueFeedbackCallCheck = internalMutation({
           ctx, o, "Feedback call overdue",
           `Delivered ${Math.floor((now - o.deliveredAt) / DAY)} day(s) ago — no post-delivery feedback call logged yet (SLA: ${FEEDBACK_CALL_SLA_DAYS} days).`,
           "BlackBole Ops (automatic)",
+          { ruleKey: "cx.overdue_feedback_call" },
         )
       }
     }
@@ -968,6 +996,7 @@ export const overdueReturnCallCheck = internalMutation({
           ctx, o, "Return call overdue",
           `In a returned/damaged status ${Math.floor((now - o.statusChangedAt) / DAY)} day(s) — no return feedback call logged yet (SLA: ${RETURN_CALL_SLA_DAYS} days).`,
           "BlackBole Ops (automatic)",
+          { ruleKey: "cx.overdue_return_call" },
         )
       }
     }
