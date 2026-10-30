@@ -15,6 +15,10 @@ import type { Doc } from "./_generated/dataModel"
 const DAY = 86400000
 const SLA_DAYS = 2
 
+/** The real departments a case can be routed to. Kept in step with the team tags the UI shows (CX / OPS / MKT /
+ *  DEV) so a re-route can only ever pick a department the rest of the app knows how to label. */
+export const DEPARTMENTS = ["Customer Care", "Fulfillment", "Marketing", "Development"]
+
 type Owners = { byTeam: Record<string, { name: string; email: string }>; opsHead?: { name: string; email: string } }
 
 async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
@@ -80,12 +84,34 @@ async function sendFlagEmailOnce(
     return
   }
   const now = Date.now()
-  await ctx.db.patch(flagId, { flagEmailSentAt: now, flagEmailAttemptedAt: now, flagEmailSkippedReason: undefined })
+  await ctx.db.patch(flagId, { flagEmailSentAt: now, flagEmailAttemptedAt: now, flagEmailSkippedReason: undefined, flagEmailTo: owner.email.trim() })
   await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
     to: owner.email.trim(),
     subject: opts.subject,
     text: opts.body.replace("{first}", owner.name.split(" ")[0] || "there"),
   })
+}
+
+/** Work out who to email for a (now re-routed) case, and whether we can.
+ *
+ *  Order of precedence: the named assignee if the team setting points at that person, then the assignee's own
+ *  staff record (so "switch the lead to Rafi" reaches Rafi, not just whoever holds the department), then the
+ *  department's configured lead. Returns a reason instead of throwing when nothing usable is found — a re-route
+ *  must never fail because an address is missing. */
+async function resolveLead(ctx: MutationCtx | any, team: string, assigneeName?: string): Promise<{ lead?: { name: string; email: string }; note?: string }> {
+  const owners = await ownersConf(ctx)
+  const byTeam = owners.byTeam?.[team]
+  if (assigneeName) {
+    if (byTeam && byTeam.name.trim().toLowerCase() === assigneeName.trim().toLowerCase()) {
+      return isValidEmail(byTeam.email) ? { lead: byTeam } : { note: `${team} lead ${byTeam.name} has no valid email address on file.` }
+    }
+    const person = (await ctx.db.query("staff").collect()).find((s: any) => s.active && s.name.trim().toLowerCase() === assigneeName.trim().toLowerCase())
+    if (person) return isValidEmail(person.email) ? { lead: { name: person.name, email: person.email } } : { note: `${person.name} has no valid email address on file.` }
+    // Named a person who isn't on the team: fall through to the department lead rather than silently dropping.
+    if (!byTeam) return { note: `“${assigneeName}” isn't on the team, and no lead is set for ${team}.` }
+  }
+  if (!byTeam) return { note: `No lead is set for ${team} in Settings → Accountability.` }
+  return isValidEmail(byTeam.email) ? { lead: byTeam } : { note: `Lead for ${team} has no valid email address on file.` }
 }
 
 /** Saju (or whoever's set as the operations head) opening a question that isn't tied to one order — "why is
@@ -216,6 +242,134 @@ export const unarchive = mutation({
     await ctx.db.patch(id, { status: "open", archivedAt: undefined, archivedBy: undefined, archiveReason: undefined, closedAt: undefined })
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability case restored to the open queue by ${me.staff.name}`, me.staff.name)
     return { alreadyOpen: false }
+  },
+})
+
+/** Super Admin edit / re-route of an open case.
+ *
+ *  Fixes the two mistakes that used to force an archive-and-recreate (losing the original history): a case
+ *  raised against the wrong department, and a typo in the title or the explanation note.
+ *
+ *  The caller sends the full desired state (team, assignee, title, note), which makes "nothing changed" a
+ *  simple value comparison — a genuine no-op returns early and writes no audit entry and sends no email, so
+ *  a double-click can never pad the history.
+ *
+ *  Re-notification reuses the Task-5 latch: when (and only when) the department or the named assignee actually
+ *  changes, the stale `flagEmailSentAt` is cleared so the new lead can be reached exactly once. The old lead is
+ *  never re-emailed, and submitting the same re-route twice is a no-op — no second email. */
+export const rerouteOpsFlag = mutation({
+  args: {
+    id: v.id("opsFlags"),
+    team: v.string(),
+    assignee: v.optional(v.string()),
+    reason: v.string(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "orders.accountability")
+    // Super Admin holds the wildcard; everyone else may answer cases but not rewrite their history.
+    if (!me.perms.includes("*")) throw new ConvexError("Only a Super Admin can edit or re-route a case.")
+
+    const flag = await ctx.db.get(a.id)
+    if (!flag) throw new ConvexError("Case not found")
+    if (flag.archivedAt || flag.status === "archived") throw new ConvexError("This case is archived — restore it first if it needs fixing.")
+    if (flag.status !== "open") throw new ConvexError("This case is already closed — its history is final and can't be edited.")
+
+    const team = a.team.trim()
+    const reason = a.reason.trim()
+    const note = a.note?.trim() || undefined
+    const assignee = a.assignee?.trim() || undefined
+    if (!team) throw new ConvexError("Pick the department this case belongs to.")
+    if (!reason) throw new ConvexError("The issue title can't be empty.")
+
+    // Compare against what's actually on the record (legacy rows may have neither field set).
+    const prevTeam = flag.team ?? ""
+    const prevAssignee = flag.assignee ?? undefined
+    const prevNote = flag.note ?? undefined
+    const changed: string[] = []
+    if (team !== prevTeam) changed.push("department")
+    if ((assignee ?? "") !== (prevAssignee ?? "")) changed.push("assignee")
+    if (reason !== flag.reason) changed.push("title")
+    if ((note ?? "") !== (prevNote ?? "")) changed.push("note")
+
+    if (!changed.length) return { changed: [], emailed: false, noop: true }
+
+    const now = Date.now()
+    const rerouted = changed.includes("department") || changed.includes("assignee")
+
+    // Resolve the new owner before writing, so the record and the audit note agree.
+    const { lead, note: leadProblem } = rerouted ? await resolveLead(ctx, team, assignee) : { lead: undefined, note: undefined }
+
+    const history = [...(flag.rerouteHistory ?? []), {
+      editedAt: now, editedBy: me.staff.name,
+      previousTeam: prevTeam, newTeam: team,
+      previousAssignee: prevAssignee, newAssignee: assignee,
+      changed,
+      emailNote: rerouted ? (lead ? undefined : leadProblem) : undefined,
+    }]
+
+    await ctx.db.patch(a.id, {
+      team,
+      reason,
+      note,
+      assignee,
+      // A re-route must reach the NEW lead: clear the Task-5 latch so exactly one email goes out to them.
+      // Assignee email follows the new owner, so the daily digest lands in the right inbox too.
+      ...(rerouted ? { assigneeEmail: lead?.email, flagEmailSentAt: undefined, flagEmailSkippedReason: undefined, flagEmailAttemptedAt: undefined, flagEmailTo: undefined } : {}),
+      previousTeam: prevTeam,
+      newTeam: team,
+      previousAssignee: prevAssignee,
+      newAssignee: assignee,
+      editedAt: now,
+      editedBy: me.staff.name,
+      rerouteHistory: history,
+    })
+
+    let emailed = false
+    if (rerouted) {
+      if (lead) {
+        // sendFlagEmailOnce patches the flag itself, so it must run on the post-patch document — the cleared
+        // latch above is exactly what lets this one email through.
+        await sendFlagEmailOnce(ctx, a.id, {
+          team,
+          owner: lead,
+          subject: `Accountability: ${reason} — re-routed to you`,
+          body: `Hi {first},\n\nThis case has been re-routed to you as ${team} by ${me.staff.name}${changed.includes("department") ? ` (was ${prevTeam})` : ""}:\n\n"${reason}"${note ? `\n\nNote: "${note}"` : ""}\n\nPlease open it in Ops → Accountability and write what happened, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
+        })
+        emailed = true
+      } else {
+        // Recorded on the flag, never thrown — a missing address must not block the correction itself.
+        await ctx.db.patch(a.id, { flagEmailAttemptedAt: now, flagEmailSkippedReason: leadProblem })
+        await notify(ctx, `${assignee ?? team}: case re-routed`, `${reason} — ${leadProblem}`, flag.orderId, "accountability")
+      }
+    }
+
+    if (flag.orderId) {
+      const bits = [changed.includes("department") ? `${prevTeam} → ${team}` : null, changed.includes("assignee") ? `${prevAssignee ?? "unassigned"} → ${assignee ?? "unassigned"}` : null].filter(Boolean)
+      await logOrder(ctx, flag.orderId, `Accountability case edited by ${me.staff.name} (${changed.join(", ")})${bits.length ? ` — ${bits.join(", ")}` : ""}`, me.staff.name)
+    }
+
+    return { changed, emailed, noop: false, skippedEmailBecause: rerouted && !lead ? leadProblem : undefined }
+  },
+})
+
+/** Who a case can be re-routed to: the configured lead for each department, plus every active staff member, so
+ *  a Super Admin can switch the assignee to a named person (e.g. MKT → OPS, lead → Rafi). Read-only and gated
+ *  on plain view rights, because it only returns names/emails already shown across Settings. Departments with
+ *  no lead still appear, with lead: null, so the picker never silently hides a team. */
+export const assigneeChoices = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "orders.view")
+    const owners = await ownersConf(ctx)
+    const staff = await ctx.db.query("staff").collect()
+    const departments = Object.keys(ACCOUNTABILITY_ROUTING).map((k) => ACCOUNTABILITY_ROUTING[k])
+    const teams = [...new Set([...DEPARTMENTS, ...departments, ...Object.keys(owners.byTeam ?? {})])]
+    return {
+      teams: teams.sort(),
+      byTeam: Object.fromEntries(teams.map((t) => [t, owners.byTeam?.[t] ?? null])),
+      people: staff.filter((s) => s.active).map((s) => ({ name: s.name, email: s.email })).sort((a, b) => a.name.localeCompare(b.name)),
+    }
   },
 })
 

@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dateTime, errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { RerouteDialog, RerouteHistory } from "@/components/accountability-reroute-dialog"
 
 export const Route = createFileRoute("/_app/accountability")({
   validateSearch: (s: Record<string, unknown>): { tab: View } => ({ tab: s.tab === "closed" ? "closed" : "open" }),
@@ -34,9 +35,10 @@ function daysOpen(raisedAt: number) {
 /** CAPA — Corrective & Preventive Action, the standard industry format for closing out an accountability item.
  *  Three required fields, not one free-text box, so a response is a real answer the team is held to, not a
  *  one-line excuse. */
-function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
+function Row({ flag, canRespond, canReroute }: { flag: any; canRespond: boolean; canReroute: boolean }) {
   const respond = useMutation(api.accountability.respond)
   const archive = useMutation(api.accountability.archive)
+  const [rerouteOpen, setRerouteOpen] = useState(false)
   const [open, setOpen] = useState(false)
   const [rootCause, setRootCause] = useState("")
   const [correctiveAction, setCorrectiveAction] = useState("")
@@ -82,14 +84,24 @@ function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
           <p className="mt-1 text-sm font-medium text-tone-red">{flag.reason}</p>
           {flag.note && <p className="mt-0.5 text-sm text-muted-foreground">"{flag.note}"</p>}
           <p className="mt-1 text-xs text-muted-foreground">Flagged by {flag.raisedByName} · {dateTime(flag.raisedAt)}</p>
+          {flag.editedBy && <p className="text-xs text-muted-foreground">Edited by {flag.editedBy} · {dateTime(flag.editedAt)}</p>}
+          <RerouteHistory flag={flag} />
         </div>
-        {canRespond && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="ghost" size="sm" disabled={archiving} onClick={() => void archiveCase()}>Archive</Button>
-            <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "Respond & close"}</Button>
+        {(canRespond || canReroute) && (
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {canReroute && (
+              <Button variant="ghost" size="sm" data-testid="reroute-open" onClick={() => setRerouteOpen(true)}>Edit / Re-route</Button>
+            )}
+            {canRespond && (
+              <>
+                <Button variant="ghost" size="sm" disabled={archiving} onClick={() => void archiveCase()}>Archive</Button>
+                <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "Respond & close"}</Button>
+              </>
+            )}
           </div>
         )}
       </div>
+      {canReroute && <RerouteDialog flag={flag} open={rerouteOpen} onOpenChange={setRerouteOpen} />}
       {open && canRespond && (
         <div className="mt-3 space-y-3 border-t pt-3">
           <div className="space-y-1">
@@ -195,6 +207,8 @@ function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
             </p>
           )}
 
+          <RerouteHistory flag={c} />
+
           {!archived && c.response && (
             <div className="mt-2 space-y-1 rounded-md bg-muted/50 p-2 text-sm">
               {c.rootCause && <p><span className="font-semibold">Root cause:</span> {c.rootCause}</p>}
@@ -245,6 +259,9 @@ function Accountability() {
   const closed = useQuery(api.accountability.listClosed, {})
   const canRespond = can("orders.accountability")
   const canRaise = can("team.manage")
+  // Editing / re-routing rewrites a case's history, so it is Super Admin only — the same wildcard check the
+  // other "only a Super Admin can change a logged record" paths use.
+  const canReroute = can("*")
 
   const tabs: { k: View; label: string; count?: number }[] = [
     { k: "open", label: "Open", count: flags?.length },
@@ -278,7 +295,7 @@ function Accountability() {
         <Empty title="Nothing open">Every at-fault return and question has a response on record — this list stays empty until the next one comes in.</Empty>
       ) : (
         <div className="space-y-3">
-          {flags.map((f) => <Row key={f._id} flag={f} canRespond={canRespond} />)}
+          {flags.map((f) => <Row key={f._id} flag={f} canRespond={canRespond} canReroute={canReroute} />)}
         </div>
       )}
     </div>

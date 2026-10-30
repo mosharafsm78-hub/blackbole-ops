@@ -376,6 +376,10 @@ export default defineSchema({
     expectedAdvanceAmount: v.optional(v.number()), // whole taka the customer was asked for
     promisedPaymentDate: v.optional(v.number()), // epoch ms of the day the advance was promised for
     advanceClearedAt: v.optional(v.number()), // set when the hold is resolved, so a stale promise can't linger
+    // Machine-readable "why the order died" for the two advance-driven cancels (refused_advance /
+    // advance_failed). Optional so every order that predates this, and every cancel for an ordinary reason,
+    // stays a valid document.
+    cancelReason: v.optional(v.string()),
 
     // ---- Pathao money (synced from Pathao invoices) ----
     courierPaid: v.optional(v.boolean()), // Pathao has paid this parcel's money to us
@@ -879,5 +883,33 @@ export default defineSchema({
     flagEmailSentAt: v.optional(v.number()),
     flagEmailAttemptedAt: v.optional(v.number()),
     flagEmailSkippedReason: v.optional(v.string()),
+    // The address the lead email actually went to, so "who was told about this?" is answerable from the record
+    // itself — and so a re-route can be shown to have reached the new lead and not the old one.
+    flagEmailTo: v.optional(v.string()),
+
+    // ---- Super Admin edit / re-route (additive) ----
+    // A case can be raised against the wrong department, or with a typo in its title. A Super Admin fixes it in
+    // place instead of archiving and re-creating (which would lose the original history). The last edit is
+    // mirrored onto the flag for display; `rerouteHistory` is the full append-only trail. Every field is
+    // optional, so a flag raised before this feature is still a perfectly valid document.
+    editedAt: v.optional(v.number()),
+    editedBy: v.optional(v.string()),
+    previousTeam: v.optional(v.string()),
+    newTeam: v.optional(v.string()),
+    previousAssignee: v.optional(v.string()),
+    newAssignee: v.optional(v.string()),
+    rerouteHistory: v.optional(v.array(v.object({
+      editedAt: v.number(),
+      editedBy: v.string(),
+      previousTeam: v.string(),
+      newTeam: v.string(),
+      previousAssignee: v.optional(v.string()),
+      newAssignee: v.optional(v.string()),
+      // which fields this particular edit actually changed, so the trail reads "title + note" rather than
+      // implying a re-route that never happened
+      changed: v.optional(v.array(v.string())),
+      // why the new lead was or wasn't emailed, mirroring flagEmailSkippedReason for that single edit
+      emailNote: v.optional(v.string()),
+    }))),
   }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]).index("by_closed", ["closedAt"]),
 })
