@@ -58,6 +58,7 @@ import { Route as AppWebsiteThemeEditorRouteImport } from './routes/_app/website
 import { Route as AppWebsiteThemesRouteImport } from './routes/_app/website-themes'
 import { Route as AppWhatsappRouteImport } from './routes/_app/whatsapp'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
+import { Route as AppProductsProductIdRouteImport } from './routes/_app/products.$productId'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -303,6 +304,11 @@ const ApiPathaoProxyRoute = ApiPathaoProxyRouteImport.update({
   path: '/api/pathao-proxy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
+  id: '/$productId',
+  path: '/$productId',
+  getParentRoute: () => AppProductsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -321,7 +327,7 @@ export interface FileRoutesByFullPath {
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
-  '/products': typeof AppProductsRoute
+  '/products': typeof AppProductsRouteWithChildren
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
@@ -353,6 +359,7 @@ export interface FileRoutesByFullPath {
   '/website-themes': typeof AppWebsiteThemesRoute
   '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
+  '/products/$productId': typeof AppProductsProductIdRoute
 }
 export interface FileRoutesByTo {
   '/labels': typeof LabelsRoute
@@ -370,7 +377,7 @@ export interface FileRoutesByTo {
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
-  '/products': typeof AppProductsRoute
+  '/products': typeof AppProductsRouteWithChildren
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
@@ -403,6 +410,7 @@ export interface FileRoutesByTo {
   '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
+  '/products/$productId': typeof AppProductsProductIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -422,7 +430,7 @@ export interface FileRoutesById {
   '/_app/new-order': typeof AppNewOrderRoute
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
-  '/_app/products': typeof AppProductsRoute
+  '/_app/products': typeof AppProductsRouteWithChildren
   '/_app/purchase': typeof AppPurchaseRoute
   '/_app/purchases': typeof AppPurchasesRoute
   '/_app/reports': typeof AppReportsRoute
@@ -455,6 +463,7 @@ export interface FileRoutesById {
   '/_app/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/products/$productId': typeof AppProductsProductIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -507,6 +516,7 @@ export interface FileRouteTypes {
     | '/website-themes'
     | '/whatsapp'
     | '/api/pathao-proxy'
+    | '/products/$productId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/labels'
@@ -557,6 +567,7 @@ export interface FileRouteTypes {
     | '/whatsapp'
     | '/api/pathao-proxy'
     | '/'
+    | '/products/$productId'
   id:
     | '__root__'
     | '/_app'
@@ -608,6 +619,7 @@ export interface FileRouteTypes {
     | '/_app/whatsapp'
     | '/api/pathao-proxy'
     | '/_app/'
+    | '/_app/products/$productId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -962,8 +974,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPathaoProxyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/products/$productId': {
+      id: '/_app/products/$productId'
+      path: '/$productId'
+      fullPath: '/products/$productId'
+      preLoaderRoute: typeof AppProductsProductIdRouteImport
+      parentRoute: typeof AppProductsRoute
+    }
   }
 }
+
+interface AppProductsRouteChildren {
+  AppProductsProductIdRoute: typeof AppProductsProductIdRoute
+}
+
+const AppProductsRouteChildren: AppProductsRouteChildren = {
+  AppProductsProductIdRoute: AppProductsProductIdRoute,
+}
+
+const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(
+  AppProductsRouteChildren,
+)
 
 interface AppRouteChildren {
   AppAbandonedRoute: typeof AppAbandonedRoute
@@ -979,7 +1010,7 @@ interface AppRouteChildren {
   AppNewOrderRoute: typeof AppNewOrderRoute
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
-  AppProductsRoute: typeof AppProductsRoute
+  AppProductsRoute: typeof AppProductsRouteWithChildren
   AppPurchaseRoute: typeof AppPurchaseRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppReportsRoute: typeof AppReportsRoute
@@ -1027,7 +1058,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppNewOrderRoute: AppNewOrderRoute,
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
-  AppProductsRoute: AppProductsRoute,
+  AppProductsRoute: AppProductsRouteWithChildren,
   AppPurchaseRoute: AppPurchaseRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppReportsRoute: AppReportsRoute,

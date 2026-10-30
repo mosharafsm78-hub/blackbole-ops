@@ -345,10 +345,18 @@ function OrderPage() {
                 <div key={k} className="flex items-center gap-3 py-3 first:pt-0">
                   {i.imageUrl ? <img src={i.imageUrl} alt="" className="size-14 shrink-0 rounded-lg border object-cover" /> : <div className="size-14 shrink-0 rounded-lg bg-muted" />}
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium leading-snug">{i.name}</div>
+                    {i.variantId ? (
+                      <Link to="/products/$productId" params={{ productId: i.variantId }} className="font-medium leading-snug hover:text-tone-blue hover:underline underline-offset-2">{i.name}</Link>
+                    ) : (
+                      <div className="font-medium leading-snug">{i.name}</div>
+                    )}
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       {i.attrs && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{i.attrs}</span>}
-                      <span className="font-mono">{i.sku}</span>
+                      {i.variantId ? (
+                        <Link to="/products/$productId" params={{ productId: i.variantId }} className="font-mono hover:text-tone-blue hover:underline underline-offset-2">{i.sku}</Link>
+                      ) : (
+                        <span className="font-mono">{i.sku}</span>
+                      )}
                     </div>
                     {!i.variantId && <div className="mt-0.5 text-xs text-tone-red">Not linked to a product — stock not tracked</div>}
                   </div>

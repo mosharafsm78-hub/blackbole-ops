@@ -324,3 +324,72 @@ export const stockLogs = query({
     )
   },
 })
+
+/** Internal product page (Nuport-style): one product with its size variants, live stock per size, and the
+ *  bulleted features. Read-only. Powers the Order View line-item link so a CX agent can check stock and
+ *  product details without leaving Ops. Additive — reads existing tables only, changes nothing. */
+export const productDetail = query({
+  args: { id: v.string() },
+  handler: async (ctx, { id }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    // The link may carry a product id or a variant id — resolve to the product either way.
+    // A malformed id makes db.get throw, so guard each lookup.
+    let product: Doc<"products"> | null = null
+    try { product = await ctx.db.get(id as Id<"products">) } catch { product = null }
+    if (!product) {
+      let vr: Doc<"variants"> | null = null
+      try { vr = await ctx.db.get(id as Id<"variants">) } catch { vr = null }
+      if (vr) product = await ctx.db.get(vr.productId)
+    }
+    if (!product) return null
+    const productId = product._id
+    const variants = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
+    const stock = await stockByVariant(ctx)
+    const locName = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
+    const variantIds = new Set(variants.map((v) => v._id as string))
+    const byVariant = new Map<string, { locationName: string; available: number; processing: number; inTransit: number }[]>()
+    for (const r of await ctx.db.query("stock").collect()) {
+      if (!variantIds.has(r.variantId as string)) continue
+      const list = byVariant.get(r.variantId) ?? []
+      list.push({ locationName: locName.get(r.locationId) ?? "Warehouse", available: r.available, processing: r.processing, inTransit: r.inTransit })
+      byVariant.set(r.variantId, list)
+    }
+    return {
+      _id: product._id,
+      name: product.name,
+      category: product.category ?? "",
+      description: product.description ?? "",
+      imageUrl: product.imageUrl,
+      active: product.active,
+      features: product.features ?? [],
+      variants: variants
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }))
+        .map((vr) => ({
+          _id: vr._id,
+          sku: vr.sku,
+          title: vr.title,
+          attrs: vr.attrs,
+          price: vr.price,
+          purchasePrice: vr.purchasePrice,
+          active: vr.active,
+          stock: stock.get(vr._id) ?? emptySum(),
+          warehouses: (byVariant.get(vr._id) ?? []).sort((a, b) => a.locationName.localeCompare(b.locationName)),
+        })),
+    }
+  },
+})
+
+/** Save the bulleted features shown on the internal product page. Additive field only — never touches
+ *  variants, prices or stock, so live operational data is unaffected. */
+export const saveProductFeatures = mutation({
+  args: { productId: v.id("products"), features: v.array(v.string()) },
+  handler: async (ctx, { productId, features }) => {
+    await requirePerm(ctx, "products.manage")
+    const product = await ctx.db.get(productId)
+    if (!product) throw new ConvexError("Product not found")
+    const clean = features.map((f) => f.trim()).filter(Boolean)
+    await ctx.db.patch(productId, { features: clean.length ? clean : undefined })
+    return productId
+  },
+})

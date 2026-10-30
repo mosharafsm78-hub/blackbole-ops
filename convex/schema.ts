@@ -82,6 +82,9 @@ export default defineSchema({
     name: v.string(),
     category: v.optional(v.string()),
     description: v.optional(v.string()),
+    // Bulleted product features shown on the internal product page (Nuport-style). Additive + optional,
+    // so existing product rows are untouched and nothing that reads `products` breaks.
+    features: v.optional(v.array(v.string())),
     imageUrl: v.optional(v.string()),
     active: v.boolean(),
     preOrder: v.optional(v.boolean()), // takes long to arrive; orders with it go to the Pre-Order tab
