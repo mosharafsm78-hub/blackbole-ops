@@ -131,4 +131,39 @@ describe("business health — stuck approved orders", () => {
     const again = await as.query(api.accountability.listOpen, {})
     expect(again.filter((f) => f.reason.includes("stuck in Approved"))).toHaveLength(1)
   })
+
+  it("flags a parcel that's been sitting in transit for days with no courier update", async () => {
+    const { t, as, orderId } = await setup()
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "in_transit" })
+    await t.run((ctx) => ctx.db.patch(orderId, { statusChangedAt: Date.now() - 5 * 86400000 }))
+
+    await t.action(internal.accountability.businessHealthCheck, {})
+
+    const open = await as.query(api.accountability.listOpen, {})
+    expect(open.some((f) => f.team === "Fulfillment" && f.reason.includes("stuck in transit"))).toBe(true)
+  })
+})
+
+describe("business health — repeat issue on the same product", () => {
+  it("flags a product once it's shown up in 3+ at-fault returns in the last two weeks", async () => {
+    const { t, as } = await setup({ Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" } })
+    const locations = await as.query(api.team.listLocations, {})
+    const locationId = locations.find((l) => l.isDefault)!._id
+    const v41 = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-HSS-41")).unique()))!
+
+    for (let i = 0; i < 3; i++) {
+      const { orderId: oid0 } = await as.mutation(api.orders.create, {
+        source: "Facebook", customerName: `Customer ${i}`, phone: "+8801711000000", address: "House 1, Road 2, Lalmatia",
+        locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+        discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+      })
+      await as.mutation(api.orders.logReturnCsat, { id: oid0 as Id<"orders">, outcome: "Wrong product sent", note: `Call ${i}` })
+    }
+
+    await t.action(internal.accountability.businessHealthCheck, {})
+
+    const open = await as.query(api.accountability.listOpen, {})
+    expect(open.some((f) => f.team === "Fulfillment" && f.reason.includes("Repeat issue") && f.reason.includes("Harbor Shore Sandal"))).toBe(true)
+  })
 })

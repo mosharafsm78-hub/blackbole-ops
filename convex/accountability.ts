@@ -8,7 +8,7 @@ import { query, internalQuery, internalAction, type MutationCtx } from "./_gener
 import { mutation, internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
-import { ACCOUNTABILITY_ROUTING } from "./rules"
+import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
 import { bdDay, statsFromDays } from "./stats"
 import type { Doc } from "./_generated/dataModel"
 
@@ -598,6 +598,9 @@ const SALES_DROP_PCT = -15 // week-over-week % change that counts as "sales drop
 const RETURN_RATIO_HIGH = 0.15 // 15%+ of resolved orders returned/damaged in a week counts as "high" on its own
 const RETURN_RATIO_JUMP = 0.05 // or a 5-percentage-point jump over the previous week, even if not yet at 15%
 const STALE_APPROVED_DAYS = 2 // an approved order that hasn't moved in this long is exactly the "why hasn't this shipped" case fulfillment flagged
+const STALE_TRANSIT_DAYS = 4 // a parcel that's shown "in transit" this long without updating is a courier problem worth a human look, not a glitch
+const HOTSPOT_WINDOW_DAYS = 14 // how far back to look for a product with repeat at-fault flags
+const HOTSPOT_MIN_FLAGS = 3 // this many at-fault flags on the SAME product in the window counts as a pattern, not noise
 
 export const openByTeam = internalQuery({
   args: { team: v.string() },
@@ -682,7 +685,7 @@ export const businessHealthCheck = internalAction({
     // visibility gap the fulfillment team raised, now caught automatically instead of waiting for someone to
     // notice in the list. Bounded by the by_status_changed index, so this never scans the whole orders table.
     const cutoff = now - STALE_APPROVED_DAYS * DAY
-    const stuck = (await ctx.runQuery(internal.accountability.staleApproved, { cutoff })) as { invoice: string; days: number }[]
+    const stuck = (await ctx.runQuery(internal.accountability.staleInStatus, { status: "approved", cutoff })) as { invoice: string; days: number }[]
     if (stuck.length) {
       const tag = "[Business health] Orders stuck in Approved"
       if (!(await alreadyOpen("Fulfillment", tag))) {
@@ -693,16 +696,76 @@ export const businessHealthCheck = internalAction({
         })
       }
     }
+
+    // Parcels sitting "in transit" without a courier update in days — the same visibility gap as the stuck
+    // Approved check, just one stage later: it's out the door but nobody can tell if the courier lost it.
+    const transitCutoff = now - STALE_TRANSIT_DAYS * DAY
+    const transitStuck = (await ctx.runQuery(internal.accountability.staleInStatus, { status: "in_transit", cutoff: transitCutoff })) as { invoice: string; days: number }[]
+    if (transitStuck.length) {
+      const tag = "[Business health] Orders stuck in transit"
+      if (!(await alreadyOpen("Fulfillment", tag))) {
+        await ctx.runMutation(internal.accountability.raiseSystem, {
+          team: "Fulfillment",
+          reason: `${tag} — ${transitStuck.length} order${transitStuck.length === 1 ? "" : "s"} with no courier update in ${STALE_TRANSIT_DAYS}+ days`,
+          note: transitStuck.slice(0, 20).map((s) => `- ${s.invoice} — in transit ${s.days} day${s.days === 1 ? "" : "s"}`).join("\n") + (transitStuck.length > 20 ? `\n…and ${transitStuck.length - 20} more.` : "") + "\n\nWorth a direct chase with the courier on these — a parcel this old is usually lost, delayed, or needs re-attempting.",
+        })
+      }
+    }
+
+    // A product with repeat at-fault flags (wrong item, damaged, doesn't match description…) in the last two
+    // weeks is a pattern, not a one-off call — the kind of thing that's easy to miss case-by-case but obvious
+    // once counted. Routed to whichever department most of that product's flags actually went to.
+    const hotspots = (await ctx.runQuery(internal.accountability.productHotspots, {
+      cutoff: now - HOTSPOT_WINDOW_DAYS * DAY,
+    })) as { product: string; team: string; count: number }[]
+    for (const h of hotspots.filter((x) => x.count >= HOTSPOT_MIN_FLAGS)) {
+      const tag = `[Business health] Repeat issue — ${h.product}`
+      if (!(await alreadyOpen(h.team, tag))) {
+        await ctx.runMutation(internal.accountability.raiseSystem, {
+          team: h.team,
+          reason: `${tag} — ${h.count} at-fault flags in the last ${HOTSPOT_WINDOW_DAYS} days`,
+          note: `This specific product has come up ${h.count} times in Accountability over the last ${HOTSPOT_WINDOW_DAYS} days, mostly routed to ${h.team}. Worth checking whether it's one bad batch, a listing/description problem, or something about the product itself.`,
+        })
+      }
+    }
   },
 })
 
-/** Every order still sitting in "approved" whose status hasn't changed since before the cutoff — bounded by
- *  the (status, statusChangedAt) index, so this only ever scans currently-approved orders, never the whole
- *  orders table. */
-export const staleApproved = internalQuery({
+/** Every order still sitting in one status whose status hasn't changed since before the cutoff — bounded by
+ *  the (status, statusChangedAt) index, so this only ever scans orders currently in that one status, never the
+ *  whole orders table. */
+export const staleInStatus = internalQuery({
+  args: { status: v.string(), cutoff: v.number() },
+  handler: async (ctx, { status, cutoff }) => {
+    const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", status as OrderStatus).lt("statusChangedAt", cutoff)).collect()
+    return rows.map((o) => ({ invoice: invoiceLabel(o), days: Math.floor((Date.now() - (o.statusChangedAt ?? Date.now())) / DAY) }))
+  },
+})
+
+/** Every flag tied to an order, raised within the window, grouped by product name — counts how often each
+ *  product shows up and which department its flags mostly went to. Bounded to three index-scoped scans (one
+ *  per status) over the window, never a full table scan. */
+export const productHotspots = internalQuery({
   args: { cutoff: v.number() },
   handler: async (ctx, { cutoff }) => {
-    const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "approved").lt("statusChangedAt", cutoff)).collect()
-    return rows.map((o) => ({ invoice: invoiceLabel(o), days: Math.floor((Date.now() - (o.statusChangedAt ?? o.approvedAt ?? Date.now())) / DAY) }))
+    const statuses = ["open", "resolved", "archived"]
+    const rows: Doc<"opsFlags">[] = []
+    for (const status of statuses) {
+      rows.push(...(await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", status).gte("raisedAt", cutoff)).collect()))
+    }
+    const byProduct = new Map<string, { teams: Record<string, number>; count: number }>()
+    for (const r of rows) {
+      if (!r.orderId || !r.productNames?.length) continue
+      for (const name of r.productNames) {
+        const g = byProduct.get(name) ?? { teams: {}, count: 0 }
+        g.count += 1
+        g.teams[r.team] = (g.teams[r.team] ?? 0) + 1
+        byProduct.set(name, g)
+      }
+    }
+    return [...byProduct.entries()].map(([product, g]) => ({
+      product, count: g.count,
+      team: Object.entries(g.teams).sort((a, b) => b[1] - a[1])[0][0],
+    }))
   },
 })
