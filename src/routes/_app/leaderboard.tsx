@@ -115,13 +115,15 @@ function RuleBook() {
 
   return (
     <div className="rounded-lg border bg-card p-4">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left">
+      <div className="flex w-full items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Zap className="size-4 text-tone-amber" />
           <h2 className="font-semibold">How to earn points</h2>
         </div>
-        <span className="text-xs text-muted-foreground">{open ? "Hide" : "Show"} the full rule book</span>
-      </button>
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
+          {open ? "Hide" : "Show"} the full rule book
+        </Button>
+      </div>
       <p className="mt-1 text-xs text-muted-foreground">
         Every rule is fully automatic — there's no "award points" button anywhere. The moment the real thing
         happens (a call, a delivery, a clean shipment, a flag), the points post themselves.
