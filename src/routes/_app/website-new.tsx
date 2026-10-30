@@ -3,7 +3,7 @@
 // option values; Google listing. Side column: status, publishing, pre-order, organisation, theme template.
 // One Save creates the Ops product and sizes plus the website page.
 import { Fragment, useEffect, useMemo, useState } from "react"
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
+import { Link, createFileRoute, useNavigate, useSearch } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import { AlertTriangle, ChevronDown, ChevronRight, Plus, Trash2, Wand2, X } from "lucide-react"
 import { toast } from "sonner"
@@ -22,7 +22,7 @@ import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/website-new")({
-  validateSearch: (s: Record<string, unknown>): { from?: string; forPo?: string } => ({ ...(s.from ? { from: String(s.from) } : {}), ...(s.forPo ? { forPo: String(s.forPo) } : {}) }),
+  validateSearch: (s: Record<string, unknown>): { from?: string } => (s.from ? { from: String(s.from) } : {}),
   component: () => <WebsiteGuard><TooltipProvider delayDuration={200}><NewProduct /></TooltipProvider></WebsiteGuard>,
 })
 
@@ -53,7 +53,7 @@ function combos(opts: Opt[]): Record<string, string>[] {
   return used.reduce<Record<string, string>[]>((acc, o) => acc.flatMap((c) => o.values.map((v) => ({ ...c, [o.name.trim()]: v }))), [{}])
 }
 
-function NewProduct() {
+export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCreated?: (id: Id<"products">) => void } = {}) {
   const navigate = useNavigate()
   const create = useMutation(api.website.createProduct)
   const uploadUrl = useMutation(api.website.uploadUrl)
@@ -61,7 +61,8 @@ function NewProduct() {
   const colls = useQuery(api.website.collections)
   const products = useQuery(api.website.products)
   const templates = useQuery(api.website.productTemplateList) ?? [""]
-  const { from, forPo } = Route.useSearch()
+  const search = useSearch({ strict: false }) as { from?: string }
+  const from = embedded ? undefined : search.from
   const source = useQuery(api.website.product, from ? { id: from as Id<"products"> } : "skip")
   const [f, setF] = useState<Form>(empty)
   // Duplicate: start from another product (everything except SKUs, which are made new)
@@ -168,7 +169,8 @@ function NewProduct() {
       })
       markSaved(f)
       toast.success(f.published ? "Product created — live on the website in about a minute" : "Product created as a draft")
-      setTimeout(() => (forPo ? navigate({ to: "/purchase", search: { id: forPo, addProduct: id } }) : navigate({ to: "/website-product", search: { id } })), 0)
+      if (onCreated) onCreated(id)
+      else setTimeout(() => navigate({ to: "/website-product", search: { id } }), 0)
     } catch (e) { toast.error(errMsg(e)) } finally { setSaving(false) }
   }
 
@@ -192,9 +194,18 @@ function NewProduct() {
 
   return (
     <div className="mx-auto max-w-6xl pb-24">
-      <SaveBar dirty={dirty} saving={saving} onSave={onSave} onDiscard={() => setF(empty)} message="Unsaved product" />
-      <PageHeader title="Add product" back={{ to: "/website", search: { tab: "products", view: "live" }, label: "Products" }}
-        primary={<Button size="sm" disabled={saving} onClick={onSave}>{saving ? "Saving" : "Save"}</Button>} />
+      {embedded ? (
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">New product</h2>
+          <Button size="sm" disabled={saving} onClick={onSave}>{saving ? "Saving" : "Save and add to purchase"}</Button>
+        </div>
+      ) : (
+        <>
+          <SaveBar dirty={dirty} saving={saving} onSave={onSave} onDiscard={() => setF(empty)} message="Unsaved product" />
+          <PageHeader title="Add product" back={{ to: "/website", search: { tab: "products", view: "live" }, label: "Products" }}
+            primary={<Button size="sm" disabled={saving} onClick={onSave}>{saving ? "Saving" : "Save"}</Button>} />
+        </>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">

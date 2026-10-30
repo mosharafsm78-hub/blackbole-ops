@@ -11,6 +11,8 @@ import { Loading, PageHeader } from "@/components/bits"
 import { POStatus, ProductBuilder, SlipLink, SlipPicker, SupplierDialog, UploadList, poCode, type POLine, type Slip } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NewProduct } from "./website-new"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -19,7 +21,7 @@ import { dateOnly, dateTime, errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/purchase")({
-  validateSearch: (s: Record<string, unknown>): { id: string; addProduct?: string } => ({ id: String(s.id ?? "new"), ...(s.addProduct ? { addProduct: String(s.addProduct) } : {}) }),
+  validateSearch: (s: Record<string, unknown>) => ({ id: String(s.id ?? "new") }),
   component: () => (
     <Guard perm="inventory.receive">
       <PurchasePage />
@@ -41,18 +43,9 @@ function PurchasePage() {
 
 type Data = Extract<NonNullable<ReturnType<typeof useQuery<typeof api.purchasing.getPO>>>, { missing: false }>
 
-const DRAFT_KEY = "bb-po-draft"
-type Draft = { id: string; supplierId: string; locationId: string; supplierRef: string; tracking: string; expected: string; note: string; lines: POLine[]; discount: number; shipping: number; other: number }
-
 function Editor({ data }: { data: Data | null }) {
   const can = useCan()
   const navigate = useNavigate()
-  const { id: routeId, addProduct } = Route.useSearch()
-  // Coming back from the full product form: restore what was typed on this purchase (supplier, dates, lines…)
-  const [draft] = useState<Draft | null>(() => {
-    if (!addProduct) return null
-    try { const d = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null") as Draft | null; return d && d.id === routeId ? d : null } catch { return null }
-  })
   const po = data?.po
   const save = useMutation(api.purchasing.savePO)
   const setStatus = useMutation(api.purchasing.setPOStatus)
@@ -68,17 +61,17 @@ function Editor({ data }: { data: Data | null }) {
   const suppliers = useQuery(api.purchasing.listSuppliers) ?? []
   const locations = useQuery(api.team.listLocations) ?? []
 
-  const [supplierId, setSupplierId] = useState<string>(draft?.supplierId ?? po?.supplierId ?? "")
-  const [locationId, setLocationId] = useState<string>(draft?.locationId ?? po?.locationId ?? "")
-  const [supplierRef, setSupplierRef] = useState(draft?.supplierRef ?? po?.supplierRef ?? "")
-  const [tracking, setTracking] = useState(draft?.tracking ?? po?.tracking ?? "")
-  const [expected, setExpected] = useState(draft?.expected ?? toDateInput(po?.expectedAt))
-  const [note, setNote] = useState(draft?.note ?? po?.note ?? "")
-  const [lines, setLines] = useState<POLine[]>(draft?.lines ?? po?.items.map((i) => ({ ...i })) ?? [])
-  const [discount, setDiscount] = useState(draft?.discount ?? po?.discount ?? 0)
-  const [shipping, setShipping] = useState(draft?.shipping ?? po?.shippingCost ?? 0)
-  const [other, setOther] = useState(draft?.other ?? po?.otherCost ?? 0)
-  const [dirty, setDirty] = useState(!!draft)
+  const [supplierId, setSupplierId] = useState<string>(po?.supplierId ?? "")
+  const [locationId, setLocationId] = useState<string>(po?.locationId ?? "")
+  const [supplierRef, setSupplierRef] = useState(po?.supplierRef ?? "")
+  const [tracking, setTracking] = useState(po?.tracking ?? "")
+  const [expected, setExpected] = useState(toDateInput(po?.expectedAt))
+  const [note, setNote] = useState(po?.note ?? "")
+  const [lines, setLines] = useState<POLine[]>(po?.items.map((i) => ({ ...i })) ?? [])
+  const [discount, setDiscount] = useState(po?.discount ?? 0)
+  const [shipping, setShipping] = useState(po?.shippingCost ?? 0)
+  const [other, setOther] = useState(po?.otherCost ?? 0)
+  const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
   const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship">(null)
   const [preset, setPreset] = useState<Parameters<typeof ProductBuilder>[0]["preset"]>()
@@ -89,26 +82,20 @@ function Editor({ data }: { data: Data | null }) {
   const locked = status === "cancelled" || status === "received"
   const editable = can("purchases.manage") && !locked
   const touch = () => setDirty(true)
-  const goNewProduct = () => {
-    try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ id: routeId, supplierId, locationId, supplierRef, tracking, expected, note, lines, discount, shipping, other } satisfies Draft)) } catch { /* private mode: lines are simply not kept */ }
-    navigate({ to: "/website-new", search: { forPo: routeId } })
-  }
-  // The product just saved in the full form: add all its sizes as lines (once)
-  const added = useQuery(api.catalog.productSizes, addProduct ? { productId: addProduct as Id<"products"> } : "skip")
-  const doneAdd = useRef(false)
+  const [newOpen, setNewOpen] = useState(false)
+  const [newProductId, setNewProductId] = useState<Id<"products"> | null>(null)
+  const added = useQuery(api.catalog.productSizes, newProductId ? { productId: newProductId } : "skip")
   useEffect(() => {
-    if (!addProduct || !added || doneAdd.current) return
-    doneAdd.current = true
-    try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
+    if (!newProductId || !added) return
     setLines((cur) => {
       const next = [...cur]
       for (const r of added) if (!next.some((x) => x.variantId === r._id)) next.push({ variantId: r._id, sku: r.sku, name: r.productName, title: r.title, orderedQty: 1, unitCost: r.purchasePrice ?? 0 })
       return next
     })
     setDirty(true)
-    navigate({ to: "/purchase", search: { id: routeId }, replace: true })
     toast.success(`${added[0]?.productName ?? "Product"} added to this purchase: set the quantity for each size`)
-  }, [added, addProduct, routeId, navigate])
+    setNewProductId(null)
+  }, [added, newProductId])
   const addLines = (ls: POLine[]) => {
     setLines((cur) => {
       const next = [...cur]
@@ -224,7 +211,7 @@ function Editor({ data }: { data: Data | null }) {
               {editable && (
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => setDlg("search")}><Search className="size-4" /> Add existing</Button>
-                  <Button size="sm" onClick={goNewProduct} title="Opens the full product form (description, photos, prices). When you save it, you come back here with all its sizes added as lines.">
+                  <Button size="sm" onClick={() => setNewOpen(true)} title="Opens the full product form (description, photos, prices) right here. When you save it, all its sizes are added to this purchase.">
                     <Plus className="size-4" /> New product (full details)
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => setDlg("upload")}><Upload className="size-4" /> Upload supplier list</Button>
@@ -327,6 +314,12 @@ function Editor({ data }: { data: Data | null }) {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader><DialogTitle>Add existing products</DialogTitle><DialogDescription>Find the product, open it, and type how many pairs of each size to order.</DialogDescription></DialogHeader>
           <div className="h-[65vh]"><SizePicker locationId={locationId ? (locationId as Id<"locations">) : undefined} onAdd={(ls) => { addLines(ls); toast.success(`${ls.reduce((t, l) => t + l.orderedQty, 0)} pcs added`) }} /></div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+          <DialogHeader className="sr-only"><DialogTitle>New product</DialogTitle><DialogDescription>Full product details</DialogDescription></DialogHeader>
+          {newOpen && <TooltipProvider delayDuration={200}><NewProduct embedded onCreated={(pid) => { setNewOpen(false); setNewProductId(pid) }} /></TooltipProvider>}
         </DialogContent>
       </Dialog>
       <ProductBuilder open={dlg === "builder"} onOpenChange={(o) => setDlg(o ? "builder" : null)} preset={preset} onCreated={(ls) => addLines(ls.filter((l) => l.orderedQty > 0).length ? ls.filter((l) => l.orderedQty > 0) : ls)} />
