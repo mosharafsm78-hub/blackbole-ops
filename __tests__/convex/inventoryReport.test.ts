@@ -174,6 +174,46 @@ describe("inventory report summary", () => {
     expect(after.rows[0].units30).toBe(0)
   })
 
+  it("splits stock held at two different warehouses into two separate, clearly-labelled rows", async () => {
+    const { as, locationId } = await setup()
+    const locations = await as.query(api.team.listLocations, {})
+    const secondLocationId =
+      locations.find((l) => l._id !== locationId)?._id ??
+      (await as.mutation(api.team.saveLocation, { name: "BlackBole CTG", active: true, isDefault: false }))
+
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Harbor Shore Sandal",
+      active: true,
+      variants: [
+        { sku: "BB-HSS-44", title: "Black / 44", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true },
+      ],
+    })
+    const product = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal")!
+    const v44 = product.variants[0]
+
+    await as.mutation(api.catalog.receiveStock, {
+      locationId,
+      updateCost: true,
+      items: [{ variantId: v44._id, qty: 7, unitCost: 500 }],
+    })
+    await as.mutation(api.catalog.receiveStock, {
+      locationId: secondLocationId,
+      updateCost: true,
+      items: [{ variantId: v44._id, qty: 3, unitCost: 500 }],
+    })
+
+    const report = (await as.query(api.inventoryReport.summary, {}))!
+    const rows = report.rows.filter((r) => r.productTitle === "Harbor Shore Sandal")
+    expect(rows).toHaveLength(2)
+
+    // Every row says which warehouse it belongs to, and the quantities are never mixed together.
+    expect(rows.every((r) => r.locationId && r.locationName)).toBe(true)
+    expect(new Set(rows.map((r) => r.locationId)).size).toBe(2)
+    const totalAvailable = rows.reduce((sum, r) => sum + r.available, 0)
+    expect(totalAvailable).toBe(10)
+    expect(rows.map((r) => r.available).sort()).toEqual([3, 7])
+  })
+
   it("returns null for a signed-out visitor", async () => {
     const { t } = await setup()
     expect(await t.query(api.inventoryReport.summary, {})).toBeNull()

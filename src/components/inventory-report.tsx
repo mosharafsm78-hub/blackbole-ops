@@ -23,6 +23,8 @@ type Row = {
   productId: string
   productTitle: string
   color: string
+  locationId: string
+  locationName: string
   sku: string
   variantSkus: string[]
   sizes: { size: string; sku: string; available: number; committed: number; exists: boolean }[]
@@ -66,6 +68,7 @@ export function InventoryReport() {
   const [threshold, setThreshold] = useState(3)
   const [q, setQ] = useState("")
   const [only, setOnly] = useState<"all" | "low" | "out" | "attention">("all")
+  const [warehouse, setWarehouse] = useState("all")
   const data = useQuery(api.inventoryReport.summary, { lowStockThreshold: threshold })
 
   const rows = useMemo<Row[]>(() => {
@@ -80,6 +83,7 @@ export function InventoryReport() {
           r.color.toLowerCase().includes(t) ||
           r.variantSkus.some((s) => s.toLowerCase().includes(t)),
       )
+      .filter((r) => warehouse === "all" || r.locationId === warehouse)
       .filter((r) =>
         only === "all"
           ? true
@@ -89,21 +93,28 @@ export function InventoryReport() {
               ? r.status === "low"
               : r.status === "out",
       )
-  }, [data, q, only])
+  }, [data, q, only, warehouse])
 
   const exportCsv = () => {
     if (!rows.length) return toast.error("Nothing to export")
+    // One column per size (not one packed "40: – · 41: – …" string) so Excel lines them up instead of
+    // cramming a sentence into a single cell — that's what made the old export unreadable for the team.
     const csv = toCsv(
-      rows.map((r) => ({
-        SKU: r.sku,
-        "Product Title": r.productTitle,
-        Color: r.color,
-        "Size Breakdown": r.sizeBreakdown,
-        "Available Stock": r.available,
-        "Committed Stock": r.committed,
-        "Low Stock Alert Status": STATUS_LABEL[r.status],
-        "30-Day Run-Rate Velocity": r.units30,
-      })),
+      rows.map((r) => {
+        const sizeCols: Record<string, string | number> = {}
+        for (const c of r.sizes) sizeCols[`Size ${c.size}`] = c.exists ? c.available : ""
+        return {
+          SKU: r.sku,
+          "Product Title": r.productTitle,
+          Color: r.color,
+          Warehouse: r.locationName,
+          ...sizeCols,
+          "Available Stock": r.available,
+          "Committed Stock": r.committed,
+          "Low Stock Alert Status": STATUS_LABEL[r.status],
+          "30-Day Run-Rate Velocity": r.units30,
+        }
+      }),
     )
     const stamp = new Date().toISOString().slice(0, 10)
     download(`inventory-report-${stamp}.csv`, csv)
@@ -234,6 +245,22 @@ export function InventoryReport() {
           </div>
         </div>
         <div className="space-y-1">
+          <Label className="text-xs">Warehouse</Label>
+          <Select value={warehouse} onValueChange={setWarehouse}>
+            <SelectTrigger size="sm" className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All warehouses</SelectItem>
+              {data.warehouses.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
           <Label className="text-xs">Low-stock threshold</Label>
           <Select value={String(threshold)} onValueChange={(v) => setThreshold(Number(v))}>
             <SelectTrigger size="sm" className="w-32">
@@ -286,6 +313,7 @@ export function InventoryReport() {
                 <th className="p-3 font-medium">SKU</th>
                 <th className="p-3 font-medium">Product title</th>
                 <th className="p-3 font-medium">Color</th>
+                <th className="p-3 font-medium">Warehouse</th>
                 <th className="p-3 font-medium">Size breakdown</th>
                 <th className="p-3 text-right font-medium">Available</th>
                 <th className="p-3 text-right font-medium">Committed</th>
@@ -308,6 +336,7 @@ export function InventoryReport() {
                     </Link>
                   </td>
                   <td className="p-3 whitespace-nowrap">{r.color}</td>
+                  <td className="p-3 whitespace-nowrap text-muted-foreground">{r.locationName}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-1">
                       {r.sizes.map((c) => (
@@ -360,7 +389,7 @@ export function InventoryReport() {
             </tbody>
             <tfoot className="border-t bg-muted/30 text-xs font-semibold">
               <tr>
-                <td className="p-3" colSpan={4}>
+                <td className="p-3" colSpan={5}>
                   {rows.length} row{rows.length === 1 ? "" : "s"}
                   {rows.length !== data.rows.length ? ` of ${data.rows.length}` : ""} · stock value{" "}
                   {taka(rows.reduce((s, r) => s + r.stockValue, 0))}
