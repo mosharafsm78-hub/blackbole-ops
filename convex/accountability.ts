@@ -35,12 +35,13 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
   const owners = await ownersConf(ctx)
   const owner = owners.byTeam[team]
   const existing = await ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", order._id)).filter((q) => q.eq(q.field("status"), "open")).first()
+  const productNames = [...new Set(order.items.map((i) => i.name))]
   let flagId
   if (existing) {
-    await ctx.db.patch(existing._id, { reason: outcome, team, note, raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email, escalatedAt: undefined })
+    await ctx.db.patch(existing._id, { reason: outcome, team, note, raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email, escalatedAt: undefined, productNames })
     flagId = existing._id
   } else {
-    flagId = await ctx.db.insert("opsFlags", { orderId: order._id, reason: outcome, team, note, status: "open", raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    flagId = await ctx.db.insert("opsFlags", { orderId: order._id, productNames, reason: outcome, team, note, status: "open", raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
   }
   await logOrder(ctx, order._id, `Accountability: ${outcome} — flagged to ${owner ? `${owner.name} (${team})` : team}`, byName)
   await notify(ctx, `${owner?.name ?? team}: ${outcome}`, `${invoiceLabel(order)} needs a response from ${owner?.name ?? team} before this can close out.`, order._id, "accountability")
@@ -50,6 +51,11 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
     subject: `Accountability: ${invoiceLabel(order)} needs your answer`,
     body: `Hi {first},\n\n${invoiceLabel(order)} (${order.customerName}, ${order.phone}) came back with: "${outcome}"${note ? ` — note from the call: "${note}"` : ""}.\n\nThis is routed to you as ${team}. Please open it in Ops → Accountability and write what happened, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
   })
+  await sendRaiserEmailOnce(ctx, flagId, {
+    toName: byName,
+    subject: `Accountability: your flag on ${invoiceLabel(order)} was routed to ${owner?.name ?? team}`,
+    body: `Hi {first},\n\nYou flagged ${invoiceLabel(order)} (${order.customerName}, ${order.phone}) for "${outcome}". It's been routed to ${owner?.name ?? team} and must be answered within ${SLA_DAYS} days. You'll get another email the moment it's resolved.\n\n— BlackBole Ops`,
+  })
   return flagId
 }
 
@@ -57,6 +63,55 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
  *  not handed to the mailer to bounce silently. */
 export function isValidEmail(email: string | undefined | null): email is string {
   return !!email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email.trim())
+}
+
+/** Looks up an active staff member's own email by their display name, so the person who raised a flag (not
+ *  just the department it was routed to) can be told directly — both when it's raised and when it's resolved. */
+async function staffEmailByName(ctx: MutationCtx | any, name: string | undefined): Promise<string | undefined> {
+  if (!name) return undefined
+  const person = (await ctx.db.query("staff").collect()).find((s: any) => s.active && s.name.trim().toLowerCase() === name.trim().toLowerCase())
+  return person && isValidEmail(person.email) ? person.email : undefined
+}
+
+/** The one place a "you raised this" confirmation ever goes to the raiser themselves — separate latch from the
+ *  department-lead email above, so each side's email is tracked (and never doubled) independently. */
+async function sendRaiserEmailOnce(ctx: MutationCtx, flagId: Doc<"opsFlags">["_id"], opts: { toName: string; subject: string; body: string }) {
+  const flag = await ctx.db.get(flagId)
+  if (!flag) return
+  if (flag.raiserEmailSentAt) return
+  const email = await staffEmailByName(ctx, opts.toName)
+  if (!email) {
+    await ctx.db.patch(flagId, { raiserEmailSkippedReason: `${opts.toName} has no valid email address on file.` })
+    return
+  }
+  await ctx.db.patch(flagId, { raiserEmailSentAt: Date.now() })
+  await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+    to: email,
+    subject: opts.subject,
+    text: opts.body.replace("{first}", opts.toName.split(" ")[0] || "there"),
+  })
+}
+
+/** Resolved notice to BOTH the person who raised the flag and the person/department it was answered by — sent
+ *  exactly once, latched on resolvedEmailSentAt so a repeated call (there shouldn't be one — `respond` only
+ *  runs on a still-open flag) can never send it twice. */
+async function sendResolvedEmails(ctx: MutationCtx, flag: Doc<"opsFlags">, response: string, orderLabel: string | undefined) {
+  if (flag.resolvedEmailSentAt) return
+  await ctx.db.patch(flag._id, { resolvedEmailSentAt: Date.now() })
+  const subject = `Accountability: resolved — ${flag.reason}`
+  const bodyFor = (first: string) =>
+    `Hi ${first},\n\n${orderLabel ? `${orderLabel} — ` : ""}"${flag.reason}" has been marked resolved${flag.resolvedByName ? ` by ${flag.resolvedByName}` : ""}.\n\n${response}\n\n— BlackBole Ops`
+  const raiserEmail = await staffEmailByName(ctx, flag.raisedByName)
+  if (raiserEmail) {
+    await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+      to: raiserEmail, subject, text: bodyFor(flag.raisedByName.split(" ")[0] || "there"),
+    })
+  }
+  if (isValidEmail(flag.assigneeEmail) && flag.assigneeEmail !== raiserEmail) {
+    await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+      to: flag.assigneeEmail, subject, text: bodyFor((flag.assignee ?? "there").split(" ")[0] || "there"),
+    })
+  }
 }
 
 /** The one place a department-lead flag email is ever queued, so the "never twice" rule lives in a single spot.
@@ -133,6 +188,11 @@ export const raiseFreeform = mutation({
       subject: `Accountability: a question needs your answer`,
       body: `Hi {first},\n\n${me.staff.name} raised this in Accountability, routed to you as ${team}:\n\n"${q}"\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
     })
+    await sendRaiserEmailOnce(ctx, id, {
+      toName: me.staff.name,
+      subject: `Accountability: your question was routed to ${owner?.name ?? team}`,
+      body: `Hi {first},\n\nYour question was routed to ${owner?.name ?? team}: "${q}". You'll get another email the moment it's answered.\n\n— BlackBole Ops`,
+    })
     return id
   },
 })
@@ -168,7 +228,7 @@ export const listOpen = query({
       if (r.orderId) {
         const o = await ctx.db.get(r.orderId)
         if (!o) continue
-        out.push({ ...r, orderInvoice: invoiceLabel(o), orderStatus: o.status, customerName: o.customerName, phone: o.phone })
+        out.push({ ...r, orderInvoice: invoiceLabel(o), orderStatus: o.status, customerName: o.customerName, phone: o.phone, productNames: r.productNames ?? [...new Set(o.items.map((i) => i.name))] })
       } else {
         out.push({ ...r, orderInvoice: null })
       }
@@ -197,6 +257,8 @@ export const respond = mutation({
     const response = `Root cause: ${rootCause}\nFix: ${correctiveAction}\nPrevention: ${preventiveAction}`
     await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now(), closedAt: Date.now() })
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability resolved by ${flag.team}: ${response}`, me.staff.name)
+    const order = flag.orderId ? await ctx.db.get(flag.orderId) : null
+    await sendResolvedEmails(ctx, { ...flag, resolvedByName: me.staff.name }, response, order ? invoiceLabel(order) : undefined)
   },
 })
 
@@ -451,12 +513,16 @@ export const openForDigest = internalQuery({
     const out: any[] = []
     for (const r of rows) {
       let orderInvoice: string | null = null
+      let productNames: string[] = r.productNames ?? []
       if (r.orderId) {
         const o = await ctx.db.get(r.orderId)
-        if (o) orderInvoice = invoiceLabel(o)
+        if (o) {
+          orderInvoice = invoiceLabel(o)
+          if (!productNames.length) productNames = [...new Set(o.items.map((i) => i.name))]
+        }
       }
       out.push({
-        _id: r._id, reason: r.reason, team: r.team, raisedAt: r.raisedAt, orderInvoice,
+        _id: r._id, reason: r.reason, team: r.team, raisedAt: r.raisedAt, orderInvoice, productNames,
         assignee: r.assignee, assigneeEmail: r.assigneeEmail,
       })
     }
@@ -471,9 +537,10 @@ export const markEscalated = internalMutation({
   },
 })
 
-function itemLine(r: { reason: string; team: string; orderInvoice: string | null; raisedAt: number }) {
+function itemLine(r: { reason: string; team: string; orderInvoice: string | null; raisedAt: number; productNames?: string[] }) {
   const days = Math.floor((Date.now() - r.raisedAt) / DAY)
-  return `- ${r.orderInvoice ? `${r.orderInvoice} — ` : ""}"${r.reason}" (${r.team}, open ${days} day${days === 1 ? "" : "s"})`
+  const product = r.productNames?.length ? ` [${r.productNames.join(", ")}]` : ""
+  return `- ${r.orderInvoice ? `${r.orderInvoice} — ` : ""}"${r.reason}"${product} (${r.team}, open ${days} day${days === 1 ? "" : "s"})`
 }
 
 /** Runs daily (see crons.ts). Every owner with open items gets one email listing all of them, every day they
@@ -530,6 +597,7 @@ export const checkOverdue = internalAction({
 const SALES_DROP_PCT = -15 // week-over-week % change that counts as "sales dropping"
 const RETURN_RATIO_HIGH = 0.15 // 15%+ of resolved orders returned/damaged in a week counts as "high" on its own
 const RETURN_RATIO_JUMP = 0.05 // or a 5-percentage-point jump over the previous week, even if not yet at 15%
+const STALE_APPROVED_DAYS = 2 // an approved order that hasn't moved in this long is exactly the "why hasn't this shipped" case fulfillment flagged
 
 export const openByTeam = internalQuery({
   args: { team: v.string() },
@@ -609,5 +677,32 @@ export const businessHealthCheck = internalAction({
         })
       }
     }
+
+    // Approved orders sitting untouched past the SLA — the exact "it's in stock, why hasn't it shipped"
+    // visibility gap the fulfillment team raised, now caught automatically instead of waiting for someone to
+    // notice in the list. Bounded by the by_status_changed index, so this never scans the whole orders table.
+    const cutoff = now - STALE_APPROVED_DAYS * DAY
+    const stuck = (await ctx.runQuery(internal.accountability.staleApproved, { cutoff })) as { invoice: string; days: number }[]
+    if (stuck.length) {
+      const tag = "[Business health] Orders stuck in Approved"
+      if (!(await alreadyOpen("Fulfillment", tag))) {
+        await ctx.runMutation(internal.accountability.raiseSystem, {
+          team: "Fulfillment",
+          reason: `${tag} — ${stuck.length} order${stuck.length === 1 ? "" : "s"} not moved in ${STALE_APPROVED_DAYS}+ days`,
+          note: stuck.slice(0, 20).map((s) => `- ${s.invoice} — approved ${s.days} day${s.days === 1 ? "" : "s"} ago`).join("\n") + (stuck.length > 20 ? `\n…and ${stuck.length - 20} more.` : "") + "\n\nUse the Pick list on these to see what's actually available to ship right now.",
+        })
+      }
+    }
+  },
+})
+
+/** Every order still sitting in "approved" whose status hasn't changed since before the cutoff — bounded by
+ *  the (status, statusChangedAt) index, so this only ever scans currently-approved orders, never the whole
+ *  orders table. */
+export const staleApproved = internalQuery({
+  args: { cutoff: v.number() },
+  handler: async (ctx, { cutoff }) => {
+    const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "approved").lt("statusChangedAt", cutoff)).collect()
+    return rows.map((o) => ({ invoice: invoiceLabel(o), days: Math.floor((Date.now() - (o.statusChangedAt ?? o.approvedAt ?? Date.now())) / DAY) }))
   },
 })

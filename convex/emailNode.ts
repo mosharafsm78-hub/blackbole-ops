@@ -112,6 +112,9 @@ export const sendAccountabilityEmail = internalAction({
     const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
     const error = await send(email, to, subject, text)
     if (error) console.error(`Accountability email to ${to} failed: ${error}`)
+    // Logged like any other outbound email so a flag's emails are auditable, not just a console line that
+    // vanishes once the deploy's logs roll over.
+    await ctx.runMutation(internal.outbound.logSms, { phone: to, text: `${subject} — ${text}`, status: error ? "failed" : "sent", error: error ?? undefined, channel: "email" })
   },
 })
 

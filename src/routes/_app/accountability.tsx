@@ -82,6 +82,9 @@ function Row({ flag, canRespond, canReroute }: { flag: any; canRespond: boolean;
             {overdue && <Pill tone="red">{days} day{days === 1 ? "" : "s"} open{flag.escalatedAt ? " · escalated" : ""}</Pill>}
           </div>
           <p className="mt-1 text-sm font-medium text-tone-red">{flag.reason}</p>
+          {(flag as any).productNames?.length > 0 && (
+            <p className="mt-0.5 text-sm text-muted-foreground">{(flag as any).productNames.join(", ")}</p>
+          )}
           {flag.note && <p className="mt-0.5 text-sm text-muted-foreground">"{flag.note}"</p>}
           <p className="mt-1 text-xs text-muted-foreground">Flagged by {flag.raisedByName} · {dateTime(flag.raisedAt)}</p>
           {flag.editedBy && <p className="text-xs text-muted-foreground">Edited by {flag.editedBy} · {dateTime(flag.editedAt)}</p>}
@@ -194,6 +197,9 @@ function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
             )}
           </div>
           <p className="mt-1 text-sm font-medium">{c.reason}</p>
+          {(c as any).productNames?.length > 0 && (
+            <p className="mt-0.5 text-sm text-muted-foreground">{(c as any).productNames.join(", ")}</p>
+          )}
           {c.note && <p className="mt-0.5 text-sm text-muted-foreground">"{c.note}"</p>}
 
           {archived ? (

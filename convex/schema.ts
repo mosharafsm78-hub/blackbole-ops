@@ -851,6 +851,7 @@ export default defineSchema({
   // with a real response, which is itself part of the record.
   opsFlags: defineTable({
     orderId: v.optional(v.id("orders")), // unset for a free-form question not tied to one order (e.g. "why is our return ratio high?")
+    productNames: v.optional(v.array(v.string())), // the order's product names, frozen at the moment the flag was raised — so the card always shows what's at issue even if the order's items are edited later
     reason: v.string(), // the at-fault return reason that triggered this, e.g. "Wrong product sent" — or the free-form question's own text
     team: v.string(), // which department owns it — see ACCOUNTABILITY_ROUTING, and Settings → Accountability for who that is by name
     note: v.optional(v.string()), // the CX call note, for context
@@ -885,6 +886,13 @@ export default defineSchema({
     // The address the lead email actually went to, so "who was told about this?" is answerable from the record
     // itself — and so a re-route can be shown to have reached the new lead and not the old one.
     flagEmailTo: v.optional(v.string()),
+
+    // ---- Raiser email tracking ----
+    // Same idempotency pattern as flagEmailSentAt, but for the person who raised the flag in the first place —
+    // they get their own confirmation that it was routed, and later their own notice when it's resolved.
+    raiserEmailSentAt: v.optional(v.number()),
+    raiserEmailSkippedReason: v.optional(v.string()),
+    resolvedEmailSentAt: v.optional(v.number()), // latch for the "both parties told it's resolved" email, so a resolve can never double-send
 
     // ---- Super Admin edit / re-route (additive) ----
     // A case can be raised against the wrong department, or with a typo in its title. A Super Admin fixes it in
