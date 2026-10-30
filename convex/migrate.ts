@@ -4,9 +4,10 @@ import { action, httpAction, internalQuery } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
-import { getSetting, moveOrderStock, nextCounter, requirePerm, setCounter, setSetting } from "./lib"
+import { bumpStock, getSetting, moveOrderStock, nextCounter, requirePerm, setCounter, setSetting } from "./lib"
 import { bumpStatusCount } from "./orders"
 import { STATUS_TABS } from "./rules"
+import { splitVariant } from "./inventoryReport"
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -459,5 +460,131 @@ export const nuportCreateOrders = mutation({
     const inv = await ctx.db.query("counters").withIndex("by_name", (q) => q.eq("name", "invoice")).unique()
     if (inv && inv.value < top) await ctx.db.patch(inv._id, { value: top })
     return { created, skipped }
+  },
+})
+
+const STOCK_BUCKETS = ["available", "processing", "inTransit", "returning", "damaged"] as const
+
+/**
+ * One-time repair for a specific corruption pattern left behind by an external tool that "fixed" duplicate
+ * SKUs by creating a brand-new product (name repeated verbatim, 1 SKU, ৳0 price, no image) and moving the
+ * variant's stock reservations onto it — without ever moving the PHYSICAL stock count across. That left the
+ * real units stranded on the throwaway duplicate product while the real, customer-facing product's stock
+ * (and anything reserved against it) silently went negative.
+ *
+ * For every group of products that share an exact name, this picks the one real product (most live variants,
+ * tie-broken by highest price, then by which was created first) and, for every other product in the group,
+ * transfers each of its variants' stock — bucket by bucket, at the same warehouse — onto the real product's
+ * variant for the same size. Every transfer is logged through `bumpStock` (so it shows up in Movements with
+ * a reason anyone can audit), and a duplicate is marked inactive once everything has been moved off it (never
+ * deleted, so old orders that happen to reference its variant ids are untouched). Pass `dryRun: true` first —
+ * it reports every move it WOULD make without touching any data.
+ */
+export const consolidateDuplicateProducts = mutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const me = await requirePerm(ctx, "team.manage")
+    const products = await ctx.db.query("products").collect()
+    const variants = await ctx.db.query("variants").collect()
+    const variantsByProduct = new Map<string, Doc<"variants">[]>()
+    for (const v of variants) {
+      const arr = variantsByProduct.get(v.productId as string) ?? []
+      arr.push(v)
+      variantsByProduct.set(v.productId as string, arr)
+    }
+    const stockRows = await ctx.db.query("stock").collect()
+    const stockByVariant = new Map<string, Doc<"stock">[]>()
+    for (const r of stockRows) {
+      const arr = stockByVariant.get(r.variantId as string) ?? []
+      arr.push(r)
+      stockByVariant.set(r.variantId as string, arr)
+    }
+
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+    const byName = new Map<string, Doc<"products">[]>()
+    for (const p of products) {
+      if (p.deletedAt) continue
+      const key = norm(p.name)
+      const arr = byName.get(key) ?? []
+      arr.push(p)
+      byName.set(key, arr)
+    }
+
+    type Move = {
+      product: string; fromProduct: string; fromProductId: string; toProduct: string; size: string
+      location: string; bucket: string; amount: number; fromSku: string; toSku: string
+    }
+    const moves: Move[] = []
+    const skipped: string[] = []
+    const deactivated: string[] = []
+
+    for (const group of byName.values()) {
+      if (group.length < 2) continue
+      const scored = group.map((p) => {
+        const vs = variantsByProduct.get(p._id as string) ?? []
+        const liveCount = vs.filter((v) => v.active !== false).length
+        const maxPrice = Math.max(0, ...vs.map((v) => v.price || 0))
+        return { p, vs, liveCount, maxPrice }
+      })
+      scored.sort((a, b) => b.liveCount - a.liveCount || b.maxPrice - a.maxPrice || a.p._creationTime - b.p._creationTime)
+      const [canonical, ...dupes] = scored
+      if (canonical.liveCount === 0) { skipped.push(`${group[0].name}: no clearly-live product in this group — left alone`); continue }
+
+      const canonSizes = new Map<string, Doc<"variants">>()
+      for (const v of canonical.vs) {
+        const { size } = splitVariant(v.title, v.attrs)
+        if (size) canonSizes.set(size, v)
+      }
+
+      for (const d of dupes) {
+        let movedAnyFromThisDupe = false
+        for (const v of d.vs) {
+          const { size } = splitVariant(v.title, v.attrs)
+          const target = size ? canonSizes.get(size) : undefined
+          const rows = stockByVariant.get(v._id as string) ?? []
+          const hasStock = rows.some((r) => STOCK_BUCKETS.some((b) => (r as any)[b]))
+          if (!target) {
+            if (hasStock) skipped.push(`${group[0].name} size ${size || "(none)"} (${v.sku}): no matching size on the live product — left alone, needs a human look`)
+            continue
+          }
+          for (const row of rows) {
+            for (const bucket of STOCK_BUCKETS) {
+              const amount = (row as any)[bucket] as number
+              if (!amount) continue
+              moves.push({
+                product: group[0].name, fromProduct: d.p.name, fromProductId: d.p._id as string, toProduct: canonical.p.name,
+                size, location: row.locationId as string, bucket, amount, fromSku: v.sku, toSku: target.sku,
+              })
+              movedAnyFromThisDupe = true
+              if (!dryRun) {
+                await bumpStock(ctx, {
+                  variantId: v._id, locationId: row.locationId, bucket, change: -amount,
+                  reason: `Stock consolidation: duplicate product "${d.p.name}" (${v.sku}) → the real product's ${target.sku}`,
+                  byName: me.staff.name,
+                })
+                await bumpStock(ctx, {
+                  variantId: target._id, locationId: row.locationId, bucket, change: amount,
+                  reason: `Stock consolidation: received from duplicate product "${d.p.name}" (${v.sku})`,
+                  byName: me.staff.name,
+                })
+              }
+            }
+          }
+        }
+        if (movedAnyFromThisDupe && !dryRun) {
+          await ctx.db.patch(d.p._id, { active: false })
+          deactivated.push(`${d.p.name} (${d.p._id})`)
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      moves: moves.length,
+      totalUnits: moves.reduce((s, m) => s + m.amount, 0),
+      sample: moves.slice(0, 150),
+      skipped,
+      deactivated,
+    }
   },
 })

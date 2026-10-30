@@ -104,6 +104,7 @@ function ImportPage() {
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 text-xs" data-testid="import-log">{log.join("\n")}</pre>
       </div>
       <NuportSync />
+      <ConsolidateDuplicates />
     </div>
   )
 }
@@ -151,6 +152,63 @@ function NuportSync() {
               {res.dryRun && <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs" data-testid="nuport-sync-preview">{JSON.stringify(res, null, 1)}</pre>}
               {res.created && <p>Added: <b className="text-tone-green">{res.created.join(", ") || "none"}</b>{res.skipped?.length ? ` · skipped: ${res.skipped.join(", ")}` : ""}</p>}
             </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** One-time repair: merges stock stranded on throwaway duplicate products (same name, ৳0 price, 1 SKU, no
+ *  image — left behind when a product got "fixed" by recreating it instead of editing it) back onto the
+ *  real, customer-facing product. Always run a dry run first and read the preview before applying. */
+function ConsolidateDuplicates() {
+  const run = useMutation(api.migrate.consolidateDuplicateProducts)
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<any>(null)
+  return (
+    <div className="mt-5 space-y-3 rounded-lg border bg-card p-5" data-testid="consolidate-duplicates">
+      <div>
+        <h2 className="font-semibold">Merge duplicate-product stock</h2>
+        <p className="text-sm text-muted-foreground">
+          Finds throwaway duplicate products (same name, ৳0 price, usually 1 SKU, no photo) that are quietly
+          holding real stock, moves every unit back onto the real product's matching size, and deactivates the
+          empty duplicate. Run a dry run first — it changes nothing and just shows what it would move.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={busy} data-testid="consolidate-dry-run" onClick={async () => {
+          setBusy(true); setRes(null)
+          try { setRes(await run({ dryRun: true })) } finally { setBusy(false) }
+        }}>{busy ? "Checking…" : "Dry run (preview only)"}</Button>
+        <Button
+          disabled={busy || !res || res.dryRun === false}
+          data-testid="consolidate-apply"
+          onClick={async () => {
+            if (!confirm(`This will actually move ${res.totalUnits} units across ${res.moves} stock rows. Continue?`)) return
+            setBusy(true)
+            try { setRes(await run({ dryRun: false })) } finally { setBusy(false) }
+          }}
+        >
+          {busy ? "Applying…" : "Apply the fix"}
+        </Button>
+      </div>
+      {res && (
+        <div className="space-y-2 text-sm" data-testid="consolidate-result">
+          <p>
+            {res.dryRun ? "Would move " : "Moved "}
+            <b className={res.dryRun ? "text-tone-amber" : "text-tone-green"}>{res.totalUnits}</b> units across{" "}
+            <b>{res.moves}</b> stock rows
+            {res.deactivated?.length > 0 && <> · deactivated <b>{res.deactivated.length}</b> empty duplicate product{res.deactivated.length === 1 ? "" : "s"}</>}
+            .
+          </p>
+          {res.skipped?.length > 0 && (
+            <p className="text-tone-amber">Needs a human look ({res.skipped.length}): {res.skipped.slice(0, 20).join(" · ")}</p>
+          )}
+          {res.sample?.length > 0 && (
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs" data-testid="consolidate-preview">
+              {res.sample.map((m: any) => `${m.product} · size ${m.size || "—"} · ${m.bucket} +${m.amount} → ${m.toSku} (from ${m.fromSku}, "${m.fromProduct}")`).join("\n")}
+            </pre>
           )}
         </div>
       )}
