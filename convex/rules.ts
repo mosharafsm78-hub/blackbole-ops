@@ -90,6 +90,29 @@ export function canTransition(from: OrderStatus, to: OrderStatus) {
 
 // Where the units of an order sit in stock for each status.
 export type Bucket = "available" | "processing" | "inTransit" | "returning" | "damaged" | "sold"
+
+/** Orders that still owe us stock: raised but not yet shipped. This is the "Committed" figure the
+ *  Operations Director asked for — Pending, On Hold, Approved, Processing, Pre-Order (both origins) and
+ *  Ready To Ship. Deliberately NOT derived from the `stock.processing` bucket: Pending and On Hold sit in
+ *  `available` (STATUS_BUCKET), so the bucket alone would under-count committed units by every unapproved
+ *  order. Cancelled / returned / delivered are excluded — they no longer owe us anything. */
+export const COMMITTED_STATUSES: OrderStatus[] = [
+  "pending",
+  "on_hold",
+  "approved",
+  "processing",
+  "pre_order",
+  "pre_order_bd",
+  "ready_to_ship",
+]
+
+/** Units the courier is bringing BACK to the warehouse — inventory that is arriving soon, so the
+ *  fulfillment team must see it. `pending_returned` is the only status in the `returning` bucket.
+ *
+ *  `returned` is deliberately EXCLUDED: a returned item has already landed and rolled back into regular
+ *  Available stock (STATUS_BUCKET maps `returned` → `available`), so counting it here would double-count
+ *  the same pair of shoes. Same for `damaged`, which is its own bucket and never sellable. */
+export const RETURNING_STATUSES: OrderStatus[] = ["pending_returned"]
 export const STATUS_BUCKET: Record<OrderStatus, Bucket> = {
   pending: "available",
   on_hold: "available",

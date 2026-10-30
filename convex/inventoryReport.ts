@@ -12,21 +12,10 @@
 import { v } from "convex/values"
 import { query } from "./_generated/server"
 import { currentStaff } from "./lib"
-import type { OrderStatus } from "./rules"
+import { COMMITTED_STATUSES } from "./rules"
 
 /** The sizes the report breaks down. Anything else a product has is still counted in the totals. */
 export const REPORT_SIZES = ["40", "41", "42", "43", "44"] as const
-
-/** Orders that still owe us stock: raised but not yet shipped. Cancelled / returned / delivered are excluded. */
-const COMMITTED_STATUSES: OrderStatus[] = [
-  "pending",
-  "on_hold",
-  "approved",
-  "processing",
-  "pre_order",
-  "pre_order_bd",
-  "ready_to_ship",
-]
 
 const DAY = 86400000
 const VELOCITY_DAYS = 30
