@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Trophy, Medal, Award as AwardIcon } from "lucide-react"
+import { Trophy, Medal, Award as AwardIcon, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import { Guard, useCan, useMe } from "@/components/app-shell"
@@ -9,9 +9,6 @@ import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dateTime, errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -105,83 +102,50 @@ function RecentFeed() {
   )
 }
 
-/** A Super Admin crediting or docking someone by hand for anything the automatic rules can't see — packer
- *  speed observed on the floor, a mis-ship once the right person is known, a marketing call. */
-function AwardPointsDialog() {
-  const staff = useQuery(api.team.listStaff, {})
+/** Every way to earn or lose points, grouped by department — visible to every signed-in staff member, not
+ *  just leads. There is no "award points" button anywhere in this app anymore: every row below fires on its
+ *  own, off a real event the system already records, the moment that event happens. This is the one place
+ *  that promise is made visible, so nobody has to take it on faith. */
+function RuleBook() {
   const rules = useQuery(api.kpi.listRules, {})
-  const award = useMutation(api.kpi.manualAward)
   const [open, setOpen] = useState(false)
-  const [staffName, setStaffName] = useState("")
-  const [ruleKey, setRuleKey] = useState<string>("custom")
-  const [points, setPoints] = useState("")
-  const [reason, setReason] = useState("")
-  const [busy, setBusy] = useState(false)
-
-  const active = (staff ?? []).filter((s) => s.active)
-  const manualRules = (rules ?? []).filter((r) => !r.auto && r.active)
-
-  const pickRule = (key: string) => {
-    setRuleKey(key)
-    const r = manualRules.find((x) => x.key === key)
-    if (r) { setPoints(String(r.points)); setReason(r.label) }
-  }
-
-  const submit = async () => {
-    const n = Number(points)
-    if (!staffName) { toast.error("Pick who this is for."); return }
-    if (!Number.isFinite(n) || n === 0) { toast.error("Enter a non-zero points value."); return }
-    if (!reason.trim()) { toast.error("Write a reason."); return }
-    setBusy(true)
-    try {
-      await award({ staffName, points: n, reason: reason.trim(), ruleKey: ruleKey === "custom" ? undefined : ruleKey })
-      toast.success("Awarded")
-      setOpen(false); setStaffName(""); setRuleKey("custom"); setPoints(""); setReason("")
-    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
-  }
+  if (rules === undefined) return null
+  const byTeam = new Map<string, typeof rules>()
+  for (const r of rules) byTeam.set(r.team, [...(byTeam.get(r.team) ?? []), r])
 
   return (
-    <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>Award points</Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Award points</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Staff member</Label>
-              <Select value={staffName} onValueChange={setStaffName}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="Pick who this is for" /></SelectTrigger>
-                <SelectContent>
-                  {active.map((s) => <SelectItem key={s._id} value={s.name}>{s.name} — {s.roleName}</SelectItem>)}
-                </SelectContent>
-              </Select>
+    <div className="rounded-lg border bg-card p-4">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between gap-2 text-left">
+        <div className="flex items-center gap-2">
+          <Zap className="size-4 text-tone-amber" />
+          <h2 className="font-semibold">How to earn points</h2>
+        </div>
+        <span className="text-xs text-muted-foreground">{open ? "Hide" : "Show"} the full rule book</span>
+      </button>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Every rule is fully automatic — there's no "award points" button anywhere. The moment the real thing
+        happens (a call, a delivery, a clean shipment, a flag), the points post themselves.
+      </p>
+      {open && (
+        <div className="mt-3 space-y-4">
+          {[...byTeam.entries()].map(([team, rows]) => (
+            <div key={team}>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{team}</h3>
+              <div className="mt-1.5 space-y-1">
+                {rows.map((r) => (
+                  <div key={r.key} className="flex items-center justify-between gap-3 text-sm">
+                    <span className={cn(!r.active && "text-muted-foreground line-through")}>{r.label}</span>
+                    <span className={cn("shrink-0 font-semibold tabular-nums", r.points < 0 ? "text-tone-red" : "text-tone-green")}>
+                      {r.points > 0 ? "+" : ""}{r.points}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>What for</Label>
-              <Select value={ruleKey} onValueChange={pickRule}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="custom">Something else — write it in</SelectItem>
-                  {manualRules.map((r) => <SelectItem key={r.key} value={r.key}>{r.team} — {r.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Picking one fills in the usual points and reason — both still editable below.</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Points (negative to dock)</Label>
-              <Input type="number" value={points} onChange={(e) => setPoints(e.target.value)} placeholder="e.g. 20 or -50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Reason</Label>
-              <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Packed 48 pairs/hour on the morning shift — well above baseline" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button disabled={busy} onClick={() => void submit()}>Award</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -265,11 +229,11 @@ function Leaderboard() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <PageHeader title="Leaderboard" sub="Weekly sprint, resets every Monday — points bank into the monthly total that decides the prize pool.">
-        {canManage && <AwardPointsDialog />}
-      </PageHeader>
+      <PageHeader title="Leaderboard" sub="Weekly sprint, resets every Monday — points bank into the monthly total that decides the prize pool." />
 
       <MyPoints />
+
+      <RuleBook />
 
       {board === undefined ? <Loading /> : board === null ? (
         <Empty title="Sign in to see the board">The leaderboard is only visible to signed-in staff.</Empty>

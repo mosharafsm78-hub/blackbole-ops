@@ -7,7 +7,7 @@ import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
-import { raiseAccountabilityFlag } from "./accountability"
+import { raiseAccountabilityFlag, ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { bdDay } from "./stats"
 import {
@@ -718,6 +718,14 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     const collected = to === "delivered_paid" || to === "delivered_due" ? order.due : 0
     if (order.courier !== "pickup") patch.codCost = Math.round(collected * codRate) / 100
     if (order.courierFee !== undefined && order.courierCost === undefined) patch.courierCost = order.courierFee
+    // Credits Marketing only for the channels they actually paid to drive (Facebook/Instagram are the ad
+    // channels Meta Ads runs on) — a delivered, paid order is the one outcome that proves the ad spend
+    // turned into real money, not just a click or an abandoned checkout.
+    if (order.source === "Facebook" || order.source === "Instagram") {
+      const owners = await ownersConf(ctx)
+      const lead = owners.byTeam["Marketing"]
+      if (lead?.name) await awardPoints(ctx, { staffName: lead.name, ruleKey: "marketing.delivered_order", label: `${invoiceLabel(order)} (${order.source}) completed delivery`, orderId: order._id })
+    }
   }
   if (to === "delivered_paid" && order.due > 0) {
     await ctx.db.insert("payments", { orderId: order._id, method: "Cash On Delivery", amount: order.due, reference: order.consignmentId, byName, at: now })
@@ -1074,6 +1082,11 @@ export const logCsat = mutation({
     // a new log without a follow-up time clears any old one — same pattern as the confirmation-call follow-up
     await ctx.db.patch(id, { csat, csatFollowUpAt: followUpAt, updatedAt: Date.now() })
     await logOrder(ctx, id, `Feedback call: ${outcome}${csat.note ? ` — ${csat.note}` : ""}`, me.staff.name, "call", outcome)
+    // Only a call that actually reached a real outcome — "Could not reach" is a call that didn't happen yet,
+    // not a completed feedback call, so it earns nothing (and the agent can simply try again later).
+    if (!CSAT_FOLLOWUP_OUTCOMES.includes(outcome)) {
+      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "cx.feedback_logged", label: `Post-delivery feedback call: ${outcome}`, orderId: id })
+    }
   },
 })
 
@@ -1189,6 +1202,9 @@ export const createRecoveryOrder = mutation({
       recoveryFollowUpAt: undefined,
     })
     await logOrder(ctx, o._id, `Recovery order BB-${res.invoiceNo} created`, me.staff.name)
+    // Deliberately only here, never on logRecovery's self-reported outcome string — a real, newly-created
+    // order (res.orderId) has to exist behind the claim before anyone earns points for "winning them back".
+    await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "cx.recovery_win", label: `Won back ${invoiceLabel(o)} with a new order (BB-${res.invoiceNo})`, orderId: o._id })
     return res
   },
 })

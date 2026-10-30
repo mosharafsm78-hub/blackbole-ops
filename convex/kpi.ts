@@ -3,14 +3,26 @@
 // — nothing is ever "added up and stored"; a leaderboard is always the live sum of events in that window, so
 // changing a rule's point value later never requires a migration or leaves old totals wrong.
 //
-// Only four rules are wired to fire automatically, because they're the ones with data this system already
-// tracks reliably: a recovered abandoned checkout, an advance payment actually clearing, a fast well-answered
-// accountability flag, and a flag that had to be re-routed because it was sent to the wrong department first.
-// Everything else in DEFAULT_RULES (packer speed, call timing, ad creative performance, address typos…) needs
-// tracking this system doesn't have yet, so it's awarded by hand through `manualAward` for now — a Super Admin
-// picks the rule (or writes a custom reason) and who it's for. The full rule book still shows in Settings
-// either way, so nothing is hidden, and turning an auto rule off (or editing its point value) takes effect
-// immediately, no redeploy.
+// EVERY rule below fires automatically, off a real event this system already records — a status move, a
+// feedback call, a GRN, an Accountability flag, a Meta ad report. There is no "award points by hand" step
+// anywhere a person can act: an agent can't mark their own outcome to earn points, and a lead can't pick a
+// number and a reason for someone. That's deliberate, not a missing feature — a system a person can self-score
+// stops measuring the thing it was built to measure.
+//
+// Design doctrine (why the rule book looks like this, not like a longer wish-list):
+//   1. Every rule is grounded in a real field this app already writes, never a signal that would need someone
+//      to self-report ("great call", "packed fast") — self-reported inputs are exactly what gets gamed first.
+//   2. Positive rules reward either a leading behavior (the work actually happened — a feedback call was made,
+//      a parcel went out same-day) or a verified outcome that required the customer to follow through (an
+//      advance cleared, a recovery order was placed) — never a claim with nothing real behind it.
+//   3. Every department has a genuine negative counterweight, not just ways to earn points: ops.flag_raised and
+//      ops.overdue_flag dock whichever department actually owns a confirmed mistake or a stalled business-
+//      health signal (sales down, return ratio up, orders stuck) the moment it's raised — so chasing volume on
+//      the positive rules without keeping quality up shows up on the same board immediately, not in a separate
+//      report nobody reads.
+//   4. One rule, one job, one payout. No rule pays out twice for the same underlying event — awardPoints'
+//      orderId dedupe, plus the "only on a genuinely new flag" and "only once per flag" guards at each call
+//      site, enforce this.
 import { v, ConvexError } from "convex/values"
 import { query, internalQuery, type MutationCtx } from "./_generated/server"
 import { mutation } from "./functions"
@@ -20,56 +32,38 @@ import { currentStaff, requirePerm } from "./lib"
 const DAY = 86400000
 
 export type KpiRuleKey =
-  | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.fast_confirmation" | "cx.upsell"
-  | "cx.positive_review" | "cx.complaint_defused" | "cx.address_typo" | "cx.slow_response"
-  | "fulfillment.pack_speed" | "fulfillment.same_day_dispatch" | "fulfillment.fast_restock" | "fulfillment.clean_grn"
-  | "fulfillment.mis_ship" | "fulfillment.late_dispatch" | "fulfillment.damage_in_warehouse"
-  | "marketing.content_published" | "marketing.viral_content" | "marketing.delivered_order"
-  | "marketing.creative_winner" | "marketing.roas_hit" | "marketing.prank_ratio" | "marketing.overspend" | "marketing.late_content"
-  | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.repeat_escalation"
+  | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
+  | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn"
+  | "marketing.delivered_order" | "marketing.roas_hit"
+  | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag"
 
 // Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
-// read the same way on the Leaderboard. "Operations" here covers both the ops head (Saju) and the Fulfillment
-// lead (Rafi) for things that are genuinely their call, not an individual packer's.
+// read the same way on the Leaderboard. "Operations" here is the shared quality layer sitting on top of every
+// department: whoever Settings → Accountability names as the lead for Customer Care, Fulfillment or Marketing
+// is who ops.flag_raised and ops.overdue_flag dock, and whoever's named the operations head is who ops.fast_capa
+// and ops.clean_week credit.
 export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; team: string; auto: boolean }[] = [
   // ---------------------------------------------------------------------------------------------------------- CX
   { key: "cx.recovered_checkout", label: "Recovered an abandoned checkout into an approved order", points: 20, team: "Customer Care", auto: true },
   { key: "cx.advance_secured", label: "Advance payment actually cleared on a held order", points: 15, team: "Customer Care", auto: true },
   { key: "cx.order_confirmed", label: "Confirmed a new order over the phone (Pending → Approved)", points: 5, team: "Customer Care", auto: true },
-  { key: "cx.fast_confirmation", label: "First confirmation call completed in under 15 minutes", points: 10, team: "Customer Care", auto: false },
-  { key: "cx.upsell", label: "Upsold the customer to a higher-value item or a bundle", points: 15, team: "Customer Care", auto: false },
-  { key: "cx.positive_review", label: "Got a 5-star review or testimonial naming the agent by name", points: 10, team: "Customer Care", auto: false },
-  { key: "cx.complaint_defused", label: "Defused an angry customer without it becoming an Accountability flag", points: 10, team: "Customer Care", auto: false },
-  { key: "cx.address_typo", label: "Address/phone typo caused a failed delivery", points: -25, team: "Customer Care", auto: false },
-  { key: "cx.slow_response", label: "Customer message or call went unanswered past the response SLA", points: -10, team: "Customer Care", auto: false },
+  { key: "cx.recovery_win", label: "Won a customer back with a fresh order after our own mistake caused a return", points: 25, team: "Customer Care", auto: true },
+  { key: "cx.feedback_logged", label: "Completed a post-delivery feedback call through to a real outcome", points: 3, team: "Customer Care", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
-  { key: "fulfillment.pack_speed", label: "Packed above baseline speed (40+ pairs/hour)", points: 2, team: "Fulfillment", auto: false },
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
-  { key: "fulfillment.fast_restock", label: "Returned parcel scanned and restocked within 12 hours", points: 10, team: "Fulfillment", auto: false },
-  { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero shortage or damage", points: 10, team: "Fulfillment", auto: false },
-  // Not auto-wired: the system doesn't track who personally packed an order, so docking this automatically
-  // would land on the Fulfillment lead for every mis-ship whether or not it was actually their mistake. Award
-  // it by hand once the right person is known.
-  { key: "fulfillment.mis_ship", label: "Wrong item, size, or colour shipped (confirmed at-fault return)", points: -50, team: "Fulfillment", auto: false },
-  { key: "fulfillment.late_dispatch", label: "Order sat past the dispatch SLA with no action taken", points: -10, team: "Fulfillment", auto: false },
-  { key: "fulfillment.damage_in_warehouse", label: "Stock damaged in the warehouse through mishandling", points: -15, team: "Fulfillment", auto: false },
+  { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero damaged units", points: 4, team: "Fulfillment", auto: true },
 
-  // --------------------------------------------------------------------------------------------- Marketing & Content
-  { key: "marketing.content_published", label: "A planned post/reel/ad went out on schedule", points: 5, team: "Marketing", auto: false },
-  { key: "marketing.viral_content", label: "A post or reel hit a major engagement milestone", points: 20, team: "Marketing", auto: false },
-  { key: "marketing.delivered_order", label: "High-intent order resulted in a successful delivery", points: 15, team: "Marketing", auto: false },
-  { key: "marketing.creative_winner", label: "Ad creative hit 80%+ delivery success rate", points: 20, team: "Marketing", auto: false },
-  { key: "marketing.roas_hit", label: "A campaign hit or beat its ROAS target for the week", points: 20, team: "Marketing", auto: false },
-  { key: "marketing.prank_ratio", label: "High prank/fake order ratio on a campaign angle", points: -30, team: "Marketing", auto: false },
-  { key: "marketing.overspend", label: "Ad spend went over the approved budget without sign-off", points: -20, team: "Marketing", auto: false },
-  { key: "marketing.late_content", label: "A scheduled post or ad missed its deadline", points: -10, team: "Marketing", auto: false },
+  // --------------------------------------------------------------------------------------------------- Marketing & Content
+  { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
+  { key: "marketing.roas_hit", label: "Ad spend hit or beat the weekly ROAS target (Settings → KPI)", points: 20, team: "Marketing", auto: true },
 
   // -------------------------------------------------------------------------------------------- Operations / leads
   { key: "ops.fast_capa", label: "Accountability flag resolved within 6 hours with a full CAPA answer", points: 15, team: "Operations", auto: true },
   { key: "ops.wrong_route", label: "Flag had to be re-routed — sent to the wrong department first", points: -20, team: "Operations", auto: true },
   { key: "ops.clean_week", label: "A full week with no Accountability flag breaching the 2-day SLA", points: 25, team: "Operations", auto: true },
-  { key: "ops.repeat_escalation", label: "The same kind of flag had to be escalated to the ops head again", points: -15, team: "Operations", auto: false },
+  { key: "ops.flag_raised", label: "An Accountability flag — a confirmed mistake, or a business-health signal — was raised against your department", points: -15, team: "Operations", auto: true },
+  { key: "ops.overdue_flag", label: "A flag assigned to you sat unanswered past the 2-day SLA", points: -10, team: "Operations", auto: true },
 ]
 
 const DEFAULTS_BY_KEY = new Map(DEFAULT_RULES.map((r) => [r.key, r]))
@@ -225,9 +219,9 @@ export const saveRule = mutation({
   },
 })
 
-/** A Super Admin crediting or docking someone for anything the automatic rules can't see yet — packer speed
- *  observed on the floor, a call-timing judgment call, a marketing decision. Goes into the exact same ledger,
- *  so it shows on the leaderboard and feed identically to an automatic award. */
+/** A Super Admin crediting or docking someone for anything the automatic rules can't see yet — kept as a
+ *  backend-only emergency correction path (no UI entry point anymore: see leaderboard.tsx). Everything the
+ *  KPI system normally pays out is automatic now; this exists only for a genuine one-off correction. */
 export const manualAward = mutation({
   args: { staffName: v.string(), points: v.number(), reason: v.string(), ruleKey: v.optional(v.string()) },
   handler: async (ctx, a) => {

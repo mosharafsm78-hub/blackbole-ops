@@ -204,8 +204,11 @@ describe("accountability scoring", () => {
       preventiveAction: "Pickers now scan the SKU barcode before sealing.",
     })
 
+    // ops.flag_raised (-15, the moment the flag was raised against Fulfillment) + ops.fast_capa (+15, the
+    // fast answer) — the two real counterweights cancelling out is exactly the point: a lead who answers fast
+    // isn't penalized net for the mistake itself, only for sitting on it.
     const board = await as.query(api.kpi.leaderboard, {})
-    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(15)
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(0)
   })
 
   it("does NOT credit a CAPA answer that took longer than 6 hours", async () => {
@@ -220,8 +223,10 @@ describe("accountability scoring", () => {
       preventiveAction: "Pickers now scan the SKU barcode before sealing.",
     })
 
+    // Only the ops.flag_raised dock from raising the flag — no fast_capa credit to offset it, since the
+    // answer took longer than 6 hours.
     const board = await as.query(api.kpi.leaderboard, {})
-    expect(board!.weekly.find((r) => r.staffName === "Rafi")).toBeUndefined()
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(-15)
   })
 
   it("docks the raiser when a Super Admin re-routes a flag to a different department", async () => {
@@ -242,8 +247,10 @@ describe("accountability scoring", () => {
     // decides it's actually a Fulfillment issue.
     await as.mutation(api.accountability.rerouteOpsFlag, { id, team: "Fulfillment", assignee: "Rafi", reason: "Doesn't match description" })
 
+    // ops.flag_raised (-15, raised against Marketing — Emon's own team) + ops.wrong_route (-20, docked to the
+    // raiser for sending it to the wrong department first) = -35.
     const board = await as.query(api.kpi.leaderboard, {})
-    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(-20)
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(-35)
   })
 })
 
@@ -277,6 +284,155 @@ describe("manual awards and rule config", () => {
 
     const board = await as.query(api.kpi.leaderboard, {})
     expect(board!.weekly.find((r) => r.staffName === "Rafi")).toBeUndefined()
+  })
+})
+
+describe("automatic negative counterweight: flags and overdue escalation", () => {
+  it("docks the owning department's lead once on a genuinely new flag, not again when the same open flag is patched", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: { Marketing: { name: "Rafi", email: "rafi@blackbole.com" } } })
+    const { orderId: id0 } = await as.mutation(api.orders.create, {
+      source: "Facebook", customerName: "Test Customer", phone: "+8801711000000", address: "House 1, Road 2, Lalmatia",
+      locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    const orderId = id0 as Id<"orders">
+    await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Doesn't match description", note: "first call" })
+
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(-15)
+
+    // Re-logging the SAME order's return outcome (a Super Admin correction) reuses the already-open flag —
+    // it must not dock Rafi a second time for the same underlying mistake.
+    await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Doesn't match description", note: "corrected note" })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(-15) // unchanged, not -30
+  })
+
+  it("docks the flag's assignee once when it's escalated past the SLA, never again for the same flag", async () => {
+    const { t, as } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: { Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" } } })
+    const flagId = await t.run((ctx) =>
+      ctx.db.insert("opsFlags", {
+        reason: "Late delivery", team: "Fulfillment", status: "open", assignee: "Rafi", assigneeEmail: "rafi@blackbole.com",
+        raisedByName: "Care Agent", raisedAt: Date.now() - 3 * 86400000, productNames: [],
+      }),
+    )
+    const { internal } = await import("../../convex/_generated/api")
+    await t.mutation(internal.accountability.markEscalated, { id: flagId })
+
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(-10) // ops.overdue_flag only — this flag wasn't raised through raiseAccountabilityFlag/raiseSystem
+
+    // Already escalated once — calling it again (checkOverdue re-lists the same still-open flag every day
+    // it stays overdue) must not dock Rafi a second time.
+    await t.mutation(internal.accountability.markEscalated, { id: flagId })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(-10) // unchanged, not -20
+  })
+})
+
+describe("automatic recovery and feedback credit", () => {
+  it("credits a real recovery order, never a self-reported recovery claim with nothing behind it", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId: id0 } = await as.mutation(api.orders.create, {
+      source: "Facebook", customerName: "Test Customer", phone: "+8801711000000", address: "House 1, Road 2, Lalmatia",
+      locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    const orderId = id0 as Id<"orders">
+
+    // A self-reported "Recovered" claim via logRecovery alone, with no new order behind it, earns nothing.
+    await as.mutation(api.orders.logRecovery, { id: orderId, outcome: "Recovered — placed a new order", note: "customer promised to reorder" })
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")).toBeUndefined()
+
+    // Actually creating the recovery order does.
+    await as.mutation(api.orders.createRecoveryOrder, {
+      id: orderId, items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }], deliveryFee: 0,
+    })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(25)
+  })
+
+  it("credits a completed post-delivery feedback call, but not one that couldn't reach the customer", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId: id0 } = await as.mutation(api.orders.create, {
+      source: "Facebook", customerName: "Test Customer", phone: "+8801711000000", address: "House 1, Road 2, Lalmatia",
+      locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    const orderId = id0 as Id<"orders">
+
+    await as.mutation(api.orders.logCsat, { id: orderId, outcome: "Could not reach" })
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")).toBeUndefined()
+
+    await as.mutation(api.orders.logCsat, { id: orderId, outcome: "Happy", note: "Loved the sandals" })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(3)
+  })
+})
+
+describe("automatic fulfillment and marketing credit", () => {
+  it("credits a zero-damage GRN but not a GRN batch with any damaged units", async () => {
+    const { t, as, v41, locationId } = await setup()
+    const poId = await t.run((ctx) =>
+      ctx.db.insert("purchaseOrders", {
+        code: 1, supplierName: "Test Supplier", locationId, status: "ordered",
+        items: [{ variantId: v41._id, sku: "BB-HSS-41", name: "Harbor Shore Sandal", title: "41", orderedQty: 20, receivedQty: 0, damagedQty: 0, unitCost: 500 }],
+        subtotal: 10000, discount: 0, shippingCost: 0, otherCost: 0, total: 10000, paid: 0, due: 10000,
+        files: [], createdBy: "Emon", createdAt: Date.now(), updatedAt: Date.now(),
+      }),
+    )
+    await as.mutation(api.purchasing.receivePO, { id: poId, lines: [{ variantId: v41._id, qty: 10, damaged: 0 }], costMode: "keep" })
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(4)
+
+    await as.mutation(api.purchasing.receivePO, { id: poId, lines: [{ variantId: v41._id, qty: 5, damaged: 5 }], costMode: "keep" })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(4) // unchanged — that batch had damage
+  })
+
+  it("credits Marketing's lead for a delivered Facebook-sourced order, not an Offline one", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: { Marketing: { name: "Rafi", email: "rafi@blackbole.com" } } })
+
+    const { orderId: fbId } = await as.mutation(api.orders.create, {
+      source: "Facebook", customerName: "Test Customer", phone: "+8801711000000", address: "House 1, Road 2, Lalmatia",
+      locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    for (const to of ["approved", "ready_to_ship", "in_transit", "delivered_paid"] as const) {
+      await as.mutation(api.orders.changeStatus, { ids: [fbId as Id<"orders">], to })
+    }
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(3)
+
+    const { orderId: offId } = await as.mutation(api.orders.create, {
+      source: "Offline", customerName: "Test Customer 2", phone: "+8801711000001", address: "House 1, Road 2, Lalmatia",
+      locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    for (const to of ["approved", "ready_to_ship", "in_transit", "delivered_paid"] as const) {
+      await as.mutation(api.orders.changeStatus, { ids: [offId as Id<"orders">], to })
+    }
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(3) // unchanged — Offline isn't a paid channel
+  })
+
+  it("awards the weekly ROAS-hit once per week, never twice for the same window", async () => {
+    const { t, as } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: { Marketing: { name: "Rafi", email: "rafi@blackbole.com" } } })
+    const { internal } = await import("../../convex/_generated/api")
+    await t.mutation(internal.ads.awardRoasHit, { roas: 2.4, target: 2.0 })
+
+    let board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(20)
+
+    await t.mutation(internal.ads.awardRoasHit, { roas: 2.5, target: 2.0 })
+    board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(20) // unchanged — already paid out this week
   })
 })
 

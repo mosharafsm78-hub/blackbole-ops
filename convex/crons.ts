@@ -43,6 +43,9 @@ crons.daily("accountability business health", { hourUTC: 3, minuteUTC: 5 }, inte
 // KPI: the ops head's "clean week" award — checked every Monday morning, looking back at the week just
 // finished. 9:10 Asia/Dhaka (UTC+6) = 03:10 UTC.
 crons.weekly("kpi clean week check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 10 }, internal.accountability.weeklyCleanCheck, {})
+// KPI: Marketing's weekly ROAS-target award — same Monday morning, looking back at the week just finished.
+// 9:15 Asia/Dhaka (UTC+6) = 03:15 UTC.
+crons.weekly("kpi roas target check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 15 }, internal.ads.weeklyRoasCheck, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})

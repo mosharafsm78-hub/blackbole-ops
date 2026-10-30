@@ -22,7 +22,7 @@ export const DEPARTMENTS = ["Customer Care", "Fulfillment", "Marketing", "Develo
 
 type Owners = { byTeam: Record<string, { name: string; email: string }>; opsHead?: { name: string; email: string } }
 
-async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
+export async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
   return (await getSetting<Owners>(ctx, "accountabilityOwners")) ?? { byTeam: {} }
 }
 
@@ -43,6 +43,9 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
     flagId = existing._id
   } else {
     flagId = await ctx.db.insert("opsFlags", { orderId: order._id, productNames, reason: outcome, team, note, status: "open", raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    // Only on a genuinely new flag — reusing/patching an already-open flag for this order (the "existing"
+    // branch above) must not dock the department twice for the same underlying mistake.
+    if (owner?.name) await awardPoints(ctx, { staffName: owner.name, ruleKey: "ops.flag_raised", label: `Accountability flag: ${outcome}`, orderId: order._id })
   }
   await logOrder(ctx, order._id, `Accountability: ${outcome} — flagged to ${owner ? `${owner.name} (${team})` : team}`, byName)
   await notify(ctx, `${owner?.name ?? team}: ${outcome}`, `${invoiceLabel(order)} needs a response from ${owner?.name ?? team} before this can close out.`, order._id, "accountability")
@@ -332,9 +335,9 @@ export const rerouteOpsFlag = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
+    // Anyone trusted to handle accountability flags in the first place (orders.accountability) can also
+    // correct one — matches the UI gate in accountability.tsx. requirePerm already covers that permission.
     const me = await requirePerm(ctx, "orders.accountability")
-    // Super Admin holds the wildcard; everyone else may answer cases but not rewrite their history.
-    if (!me.perms.includes("*")) throw new ConvexError("Only a Super Admin can edit or re-route a case.")
 
     const flag = await ctx.db.get(a.id)
     if (!flag) throw new ConvexError("Case not found")
@@ -543,7 +546,11 @@ export const openForDigest = internalQuery({
 export const markEscalated = internalMutation({
   args: { id: v.id("opsFlags") },
   handler: async (ctx, { id }) => {
+    const flag = await ctx.db.get(id)
+    if (!flag || flag.escalatedAt) return // only once per flag's lifetime — checkOverdue re-lists the same
+    // still-open flag every day it stays overdue, so without this guard the dock would re-fire daily too.
     await ctx.db.patch(id, { escalatedAt: Date.now() })
+    if (flag.assignee) await awardPoints(ctx, { staffName: flag.assignee, ruleKey: "ops.overdue_flag", label: `"${flag.reason}" sat unanswered past the ${SLA_DAYS}-day SLA`, flagId: id })
   },
 })
 
@@ -655,6 +662,9 @@ export const raiseSystem = internalMutation({
     const owners = await ownersConf(ctx)
     const owner = owners.byTeam[team]
     const id = await ctx.db.insert("opsFlags", { reason, team, note, status: "open", raisedByName: "BlackBole Ops (automatic)", raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    // Caller (businessHealthCheck) already guards against raising a duplicate open flag for the same signal,
+    // so every insert here is a genuinely new flag — safe to dock without an extra "is this new" check.
+    if (owner?.name) await awardPoints(ctx, { staffName: owner.name, ruleKey: "ops.flag_raised", label: `Business-health flag: ${reason}`, flagId: id })
     await notify(ctx, `${owner?.name ?? team}: business metric needs an answer`, reason, undefined, "accountability")
     await sendFlagEmailOnce(ctx, id, {
       team,

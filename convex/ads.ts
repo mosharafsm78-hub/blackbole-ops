@@ -1,7 +1,12 @@
 import { v, ConvexError } from "convex/values"
-import { action, internalQuery } from "./_generated/server"
+import { action, internalQuery, internalAction } from "./_generated/server"
+import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { getSetting, requirePerm } from "./lib"
+import { ownersConf } from "./accountability"
+import { awardPoints } from "./kpi"
+
+const DAY = 86400000
 
 export const cfg = internalQuery({
   args: {},
@@ -63,5 +68,60 @@ export const analytics = action({
       totals: { spend: totalSpend, orders: totalOrders, value: totalValue, roas: totalSpend ? totalValue / totalSpend : 0, cpo: totalOrders ? totalSpend / totalOrders : 0 },
       campaigns: campaigns.sort((x, y) => y.spend - x.spend),
     }
+  },
+})
+
+/** Runs weekly (see crons.ts), looking back at the 7 days just finished. Reuses the exact same spend+revenue
+ *  computation `analytics` uses for the dashboard, so the number that pays out is the same number Emon can see
+ *  on screen — never a separately-maintained copy that could drift from it. Awards Marketing's lead the moment
+ *  the account as a whole hit or beat the configured weekly ROAS target; actions can't write the ledger
+ *  themselves, so the actual award goes through awardRoasHit below. */
+export const weeklyRoasCheck = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const conf = await ctx.runQuery(internal.ads.cfg, {})
+    if (!conf?.token || !conf.accounts?.length) return // Meta Ads not configured — nothing to check yet
+
+    const to = Date.now()
+    const from = to - 7 * DAY
+    const since = new Date(from + 6 * 3600000).toISOString().slice(0, 10)
+    const until = new Date(to + 6 * 3600000).toISOString().slice(0, 10)
+    let totalSpend = 0
+    for (const acc of conf.accounts as { id: string; name: string }[]) {
+      const url = `https://graph.facebook.com/v21.0/act_${acc.id}/insights?level=account&time_increment=1&fields=spend&time_range=${encodeURIComponent(JSON.stringify({ since, until }))}&access_token=${encodeURIComponent(conf.token)}`
+      const res = await fetch(url)
+      const json: any = await res.json()
+      if (json.error) return // a transient Meta API error shouldn't block or mis-score this week — just skip; next week's cron tries again
+      for (const r of json.data ?? []) totalSpend += Number(r.spend ?? 0)
+    }
+    if (totalSpend <= 0) return // nothing spent — "hit the target" is meaningless with no spend behind it
+
+    const revenue: Record<string, { orders: number; value: number; delivered: number; deliveredValue: number }> = await ctx.runQuery(internal.ads.revenueByDay, { from, to })
+    const totalValue = Object.values(revenue).reduce((s, d) => s + d.value, 0)
+    const roas = totalValue / totalSpend
+    const target = (await ctx.runQuery(internal.ads.roasTargetQuery, {})) ?? 2.0
+    if (roas < target) return
+
+    await ctx.runMutation(internal.ads.awardRoasHit, { roas: Math.round(roas * 100) / 100, target })
+  },
+})
+
+export const roasTargetQuery = internalQuery({
+  args: {},
+  handler: async (ctx) => (await getSetting<number>(ctx, "roasTarget")) ?? 2.0,
+})
+
+export const awardRoasHit = internalMutation({
+  args: { roas: v.number(), target: v.number() },
+  handler: async (ctx, { roas, target }) => {
+    const owners = await ownersConf(ctx)
+    const lead = owners.byTeam["Marketing"]
+    if (!lead?.name) return
+    // Idempotency by time window, not orderId (there's no order behind this one) — same pattern as
+    // accountability.weeklyCleanCheck: skip if already awarded in the last 6 days, so a cron that fires twice
+    // in the same week can't double-pay it.
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", Date.now() - 6 * DAY)).collect()
+    if (already.some((e) => e.ruleKey === "marketing.roas_hit")) return
+    await awardPoints(ctx, { staffName: lead.name, ruleKey: "marketing.roas_hit", label: `Hit the weekly ROAS target (${roas.toFixed(2)}x vs ${target}x target)` })
   },
 })

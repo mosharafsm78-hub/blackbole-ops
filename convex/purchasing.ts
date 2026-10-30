@@ -4,6 +4,7 @@ import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { hasPerm } from "./rules"
 import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
+import { awardPoints } from "./kpi"
 
 // ---------------- Suppliers ----------------
 const counted = (p: Doc<"purchaseOrders">) => p.status !== "draft" && p.status !== "cancelled"
@@ -425,6 +426,11 @@ export const receivePO = mutation({
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
     await ctx.db.patch(po._id, { items, status: done ? "received" : "partial", updatedAt: Date.now(), ...(done ? { receivedAt: Date.now() } : {}) })
+    // No orderId to dedupe on, but none is needed — each receivePO call is its own unique GRN event, never
+    // replayed for the same receipt.
+    if (grnItems.some((g) => g.qty > 0) && grnItems.every((g) => !g.damaged)) {
+      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.clean_grn", label: `GRN-${code} (${poLabel}) received with zero shortage or damage` })
+    }
     return { code, receiptId }
   },
 })

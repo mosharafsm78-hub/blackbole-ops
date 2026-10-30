@@ -202,10 +202,12 @@ describe("edit / re-route — guard rails", () => {
       .rejects.toThrow(/archived/i)
   })
 
-  it("refuses anyone who is not a Super Admin, even if they can answer cases", async () => {
+  it("allows anyone trusted to answer cases to also re-route them — not literal Super Admin only", async () => {
     const { t, as } = await setup()
-    // Fulfillment agents legitimately hold orders.accountability — they answer cases all day. Re-routing is a
-    // different right entirely, so this is the gate that must hold: permitted to answer, not to rewrite history.
+    // Fulfillment agents legitimately hold orders.accountability — they answer cases all day. A department
+    // head like Saju (Operations Head, not a literal Super Admin) needs this same right to correct a
+    // mis-routed case, which is exactly what this gate checks: the UI's own canReroute check
+    // (can("*") || can("orders.accountability")) and this mutation's permission check must agree.
     const roles = await as.query(api.team.listRoles, {})
     const ops = roles.find((r) => r.name === "Fulfillment") ?? roles.find((r) => !r.permissions.includes("*"))!
     const opsUser = await t.run((ctx) => ctx.db.insert("users", { email: "agent@blackbole.com" }))
@@ -213,9 +215,9 @@ describe("edit / re-route — guard rails", () => {
     const asOps = t.withIdentity({ subject: `${opsUser}|s2` })
 
     const id = await legacyFlag(t)
-    await expect(asOps.mutation(api.accountability.rerouteOpsFlag, { id, team: "Fulfillment", reason: "Late delivery" }))
-      .rejects.toThrow(/super admin/i)
-    expect((await read(t, id))!.team).toBe("Marketing") // untouched
+    const res = await asOps.mutation(api.accountability.rerouteOpsFlag, { id, team: "Fulfillment", reason: "Late delivery" })
+    expect(res.changed).toContain("department")
+    expect((await read(t, id))!.team).toBe("Fulfillment")
   })
 
   it("refuses someone with no accountability access at all", async () => {
