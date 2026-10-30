@@ -21,7 +21,7 @@ describe("abandoned cart email", () => {
     const m = abandonedEmailContent({ customerName: "Gift box · won Tk 500 (BB-X9U8UN)", items: [{ name: "Wave Sneaker", price: 2994, qty: 1, attrs: "43" }], subtotal: 2994, url: "https://blackbole.com/cart?add=1:1" })
     expect(m.subject).toContain("500")
     expect(m.html).toContain("BB-X9U8UN")
-    expect(m.html).toContain("Complete my order")
+    expect(m.html).toContain("Go to my pre-order")
     const f = abandonedEmailContent({ customerName: "Rafi Khan", items: [], subtotal: 0, step: 2, picks: [{ name: "Other Boot", price: 3500, url: "https://blackbole.com/products/x" }] })
     expect(f.subject).toContain("Rafi")
     expect(f.subject.toLowerCase()).toContain("still")

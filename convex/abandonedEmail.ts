@@ -85,3 +85,17 @@ export const picks = internalQuery({
     return out
   },
 })
+
+/** The product page the customer was on (the pre-order page with the gift box), so the email takes them back there. */
+export const productUrl = internalQuery({
+  args: { checkoutId: v.id("checkouts") },
+  handler: async (ctx, { checkoutId }) => {
+    const c = await ctx.db.get(checkoutId)
+    for (const i of c?.items ?? []) {
+      const vr = i.variantId ? await ctx.db.get(i.variantId) : null
+      const p = vr ? await ctx.db.get(vr.productId) : null
+      if (p?.handle) return `https://blackbole.com/products/${p.handle}`
+    }
+    return null
+  },
+})
