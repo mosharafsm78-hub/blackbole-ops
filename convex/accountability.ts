@@ -10,6 +10,7 @@ import { internal } from "./_generated/api"
 import { requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
 import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
 import { bdDay, statsFromDays } from "./stats"
+import { awardPoints } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
 
 const DAY = 86400000
@@ -259,6 +260,9 @@ export const respond = mutation({
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability resolved by ${flag.team}: ${response}`, me.staff.name)
     const order = flag.orderId ? await ctx.db.get(flag.orderId) : null
     await sendResolvedEmails(ctx, { ...flag, resolvedByName: me.staff.name }, response, order ? invoiceLabel(order) : undefined)
+    if (Date.now() - flag.raisedAt <= 6 * 3600000) {
+      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "ops.fast_capa", label: `Resolved "${flag.reason}" within 6 hours with a full CAPA answer`, flagId: a.id })
+    }
   },
 })
 
@@ -409,6 +413,12 @@ export const rerouteOpsFlag = mutation({
     if (flag.orderId) {
       const bits = [changed.includes("department") ? `${prevTeam} → ${team}` : null, changed.includes("assignee") ? `${prevAssignee ?? "unassigned"} → ${assignee ?? "unassigned"}` : null].filter(Boolean)
       await logOrder(ctx, flag.orderId, `Accountability case edited by ${me.staff.name} (${changed.join(", ")})${bits.length ? ` — ${bits.join(", ")}` : ""}`, me.staff.name)
+    }
+
+    // A true mis-route (the DEPARTMENT was wrong, not just a reassignment within the same team) — docked
+    // against whoever raised it in the first place, since picking the department is their call to get right.
+    if (changed.includes("department")) {
+      await awardPoints(ctx, { staffName: flag.raisedByName, ruleKey: "ops.wrong_route", label: `"${reason}" was re-routed to ${team} (was ${prevTeam})`, flagId: a.id })
     }
 
     return { changed, emailed, noop: false, skippedEmailBecause: rerouted && !lead ? leadProblem : undefined }

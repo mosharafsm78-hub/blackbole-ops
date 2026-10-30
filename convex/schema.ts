@@ -957,4 +957,49 @@ export default defineSchema({
       emailNote: v.optional(v.string()),
     }))),
   }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]).index("by_closed", ["closedAt"]),
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // KPI / team performance leaderboard. Deliberately an append-only point LEDGER (kpiEvents), not a running
+  // total on each staff record — a week's or month's score is always computed fresh by summing the events in
+  // that window, so there's nothing to drift out of sync and no migration needed if the point values change
+  // later. kpiRules holds the current point value for each scoring rule, editable from Settings without a
+  // redeploy; kpiPayouts is the paper trail for the monthly cash prize once a Super Admin finalizes a month —
+  // the app only ever records who's owed what and whether it's been paid, it never moves real money itself.
+  // ---------------------------------------------------------------------------------------------------------------
+  kpiEvents: defineTable({
+    staffName: v.string(), // who earns/loses the points — always a real, active staff member (see awardPoints)
+    points: v.number(), // positive or negative
+    ruleKey: v.string(), // which rule this came from, or "manual" for a Super Admin's own entry
+    label: v.string(), // the line shown in the point feed, e.g. "Recovered an abandoned checkout — BB-11234"
+    orderId: v.optional(v.id("orders")),
+    flagId: v.optional(v.id("opsFlags")),
+    byName: v.optional(v.string()), // who recorded a manual award (unset for an automatic one)
+    at: v.number(),
+  })
+    .index("by_staff", ["staffName", "at"])
+    .index("by_at", ["at"])
+    // Lets an order-linked rule check "has this order already earned this rule's points" before awarding
+    // again — some status transitions (e.g. an advance clearing) can otherwise re-fire on a later, unrelated
+    // move of the same order.
+    .index("by_rule_order", ["ruleKey", "orderId"]),
+
+  kpiRules: defineTable({
+    key: v.string(), // stable id, matches a DEFAULT_RULES key in convex/kpi.ts
+    label: v.string(),
+    points: v.number(), // overrides the default shown in convex/kpi.ts; can be negative
+    active: v.boolean(), // turned off entirely — an inactive automatic rule simply stops awarding
+  }).index("by_key", ["key"]),
+
+  kpiPayouts: defineTable({
+    month: v.string(), // "2026-11" — the calendar month this prize is for
+    rank: v.number(), // 1, 2, or 3
+    staffName: v.string(),
+    points: v.number(), // their monthly total at the moment the month was finalized, for the record
+    amount: v.number(), // taka owed
+    status: v.string(), // "pending" | "paid"
+    paidAt: v.optional(v.number()),
+    paidByName: v.optional(v.string()),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_month", ["month"]),
 })

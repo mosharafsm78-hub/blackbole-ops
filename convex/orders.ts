@@ -8,6 +8,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import { raiseAccountabilityFlag } from "./accountability"
+import { awardPoints } from "./kpi"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
@@ -680,6 +681,11 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // that was actually asked for.
   if (to !== "on_hold" && to !== "cancelled" && order.expectedAdvanceAmount !== undefined) {
     patch.advanceClearedAt = now
+    // awardPoints resolves byName against the active staff list and no-ops otherwise, so a system actor
+    // (Pathao sync, Auto-approve, Nuport sync…) moving this order never gets credited for a human's work; it
+    // also refuses to award the same rule on the same order twice, which matters here since a later, ordinary
+    // move of an already-cleared order would otherwise re-enter this branch and re-fire.
+    await awardPoints(ctx, { staffName: byName, ruleKey: "cx.advance_secured", label: `Advance cleared — ${invoiceLabel(order)}`, orderId: order._id })
   }
   // ---- Ship-on-a-date hold ----
   // "Customer asked us to ship after <date>": the team puts the order on hold with that date, and the order

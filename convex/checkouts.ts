@@ -7,6 +7,7 @@ import { orderItem } from "./schema"
 import { computePurchaseCost, currentStaff, logOrder, moveOrderStock, requirePerm } from "./lib"
 import { STATUS_BUCKET, normalizePhone, type OrderStatus } from "./rules"
 import { insertOrder } from "./orders"
+import { awardPoints } from "./kpi"
 
 /** A checkout counts as abandoned once nothing has happened on it for this long. */
 export const ABANDON_AFTER = 15 * 60000
@@ -528,6 +529,9 @@ export const convert = mutation({
     }, me.staff.name)
     await logOrder(ctx, res.orderId, `Recovered from an abandoned cart (Shopify checkout ${c.checkoutId}) by ${me.staff.name}`, me.staff.name)
     await ctx.db.patch(c._id, { status: "converted", orderId: res.orderId, closedBy: me.staff.name, closedAt: Date.now(), followUpAt: undefined })
+    if (a.status === "approved") {
+      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "cx.recovered_checkout", label: `Recovered an abandoned checkout — ${c.checkoutId}`, orderId: res.orderId })
+    }
     return res
   },
 })
