@@ -37,7 +37,8 @@ const baseOrder = (locationId: Id<"locations">, variantId: Id<"variants">, qty =
 describe("hold with a customer-requested ship date", () => {
   it("sets an auto-approve date on hold, and clears it if the order is held again without one", async () => {
     const { t, as, locationId, v41 } = await setup()
-    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const { orderId: orderId0 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const orderId = orderId0 as Id<"orders">
 
     const tomorrow = Date.now() + 2 * 86400000
     await as.mutation(api.orders.changeStatus, {
@@ -56,7 +57,8 @@ describe("hold with a customer-requested ship date", () => {
 
   it("leaves it alone while on hold, fires the moment it's due, and never twice", async () => {
     const { t, as, locationId, v41 } = await setup()
-    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const { orderId: orderId0 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const orderId = orderId0 as Id<"orders">
     const future = Date.now() + 86400000
     await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "on_hold", reason: "Customer asked to ship on a date", autoApproveAt: future })
 
@@ -78,7 +80,8 @@ describe("hold with a customer-requested ship date", () => {
 
   it("moving a held order to Approved by hand clears any scheduled auto-approve", async () => {
     const { t, as, locationId, v41 } = await setup()
-    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const { orderId: orderId0 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const orderId = orderId0 as Id<"orders">
     await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "on_hold", reason: "Customer asked to ship on a date", autoApproveAt: Date.now() + 86400000 })
     await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
     expect((await t.run((ctx) => ctx.db.get(orderId)))!.autoApproveAt).toBeUndefined()

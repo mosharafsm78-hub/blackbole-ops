@@ -500,18 +500,6 @@ export const consolidateDuplicateProducts = mutation({
       stockByVariant.set(r.variantId as string, arr)
     }
 
-    // The single strongest signal of "this is the real product" — stronger than price or variant count,
-    // which a bad fix script can easily reproduce or even exceed: has an actual customer order ever referenced
-    // this variant? An orphan duplicate created by a broken SKU "fix" was never customer-facing, so it has zero.
-    const orderRefsByVariant = new Map<string, number>()
-    for (const o of await ctx.db.query("orders").collect()) {
-      for (const item of o.items) {
-        if (!item.variantId) continue
-        const key = item.variantId as string
-        orderRefsByVariant.set(key, (orderRefsByVariant.get(key) ?? 0) + 1)
-      }
-    }
-
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
     const byName = new Map<string, Doc<"products">[]>()
     for (const p of products) {
@@ -520,6 +508,22 @@ export const consolidateDuplicateProducts = mutation({
       const arr = byName.get(key) ?? []
       arr.push(p)
       byName.set(key, arr)
+    }
+
+    // The single strongest signal of "this is the real product" — stronger than price or variant count, which
+    // a bad fix script can easily reproduce or even exceed: has an actual customer order ever touched this
+    // variant's stock? An orphan duplicate created by a broken SKU "fix" was never customer-facing, so it has
+    // zero. `stockLogs.orderId` is set only on the two ledger lines a real order's own status move writes
+    // (moveOrderStock) — never on a receipt, an adjustment, or this repair's own transfers — so it can't be
+    // faked by whatever created the duplicate. Looked up per-variant on its index, and only for the variants
+    // that are actually in a name-group with a duplicate, so this never scans the (11,000+ row) orders table.
+    const candidateVariantIds = [...byName.values()]
+      .filter((group) => group.length >= 2)
+      .flatMap((group) => group.flatMap((p) => (variantsByProduct.get(p._id as string) ?? []).map((v) => v._id as Id<"variants">)))
+    const orderRefsByVariant = new Map<string, number>()
+    for (const variantId of candidateVariantIds) {
+      const logs = await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", variantId)).collect()
+      orderRefsByVariant.set(variantId as string, logs.filter((l) => l.orderId !== undefined).length)
     }
 
     type Move = {

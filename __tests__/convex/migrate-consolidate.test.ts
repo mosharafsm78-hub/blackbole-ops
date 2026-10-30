@@ -166,35 +166,18 @@ describe("consolidateDuplicateProducts", () => {
     const dupeV44 = dupe.variants.find((v) => v.sku === "BB-SH-BHSS-BLACK-NEW-44")!
     await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: dupeV44._id, qty: 10, unitCost: 500 }] })
 
-    // Give the REAL variant actual order history — a customer genuinely bought this one.
-    const customerId = await t.run((ctx) =>
-      ctx.db.insert("customers", { code: 1, name: "Test Customer", phone: "01700000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: 0 }),
-    )
-    await t.run((ctx) =>
-      ctx.db.insert("orders", {
-        invoiceNo: 90001,
-        status: "delivered_paid" as any,
-        source: "web",
-        customerId,
-        customerName: "Test Customer",
-        phone: "01700000000",
-        address: "Test address",
-        locationId,
-        deliveryType: "regular",
-        items: [{ variantId: realV44._id, sku: "BB-SH-BHSS-BLACK-44", name: "Harbor Shore Sandal", price: 1380, qty: 1, discount: 0, weightKg: 0.4 }],
-        subtotal: 1380,
-        discount: 0,
-        deliveryFee: 0,
-        paidAmount: 1380,
-        total: 1380,
-        due: 0,
-        callCount: 0,
-        createdByName: "Test",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        statusChangedAt: Date.now(),
-      } as any),
-    )
+    // Give the REAL variant actual order history — a customer genuinely bought this one. This has to go
+    // through a real order + status move (not a raw db.insert into "orders"), because the signal this repair
+    // actually reads is `stockLogs.orderId` — the ledger line `moveOrderStock` writes on a real status
+    // transition — not the orders table itself (reading that directly would mean scanning the whole, 10,000+
+    // row orders table on every run, which is what caused the live dry run to fail in production).
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: realV44._id, qty: 5, unitCost: 500 }] })
+    const order = await as.mutation(api.orders.create, {
+      source: "Facebook", customerName: "Test Customer", phone: "+8801700000000", address: "Test address",
+      locationId, deliveryType: "pickup", items: [{ variantId: realV44._id, qty: 1, price: 1380, discount: 0 }],
+      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
+    })
+    await as.mutation(api.orders.changeStatus, { ids: [order.orderId], to: "approved" })
 
     const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
     const move = res.sample.find((m: any) => m.size === "44")
