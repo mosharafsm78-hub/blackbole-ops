@@ -137,9 +137,8 @@ describe("advance payment clearing", () => {
     await asRafi.mutation(api.orders.changeStatus, { ids: [orderId], to: "in_transit" })
 
     let board = await as.query(api.kpi.leaderboard, {})
-    // cx.order_confirmed (5) + fulfillment.same_day_dispatch (5) + fulfillment.fast_dispatch (3, dispatched
-    // within 4 hours of approval, which this immediate approve-then-dispatch call always is)
-    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(13)
+    // cx.order_confirmed (5) + fulfillment.same_day_dispatch (5)
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(10)
 
     // A second order, approved "yesterday" by backdating approvedAt, dispatched today — no same-day credit.
     const { orderId: id1 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
@@ -150,8 +149,8 @@ describe("advance payment clearing", () => {
 
     board = await as.query(api.kpi.leaderboard, {})
     // +5 for the second cx.order_confirmed, -5 for fulfillment.late_dispatch (dispatched a later calendar day
-    // than approval) — no second same_day_dispatch or fast_dispatch
-    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(13)
+    // than approval) — no second same_day_dispatch
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(10)
   })
 })
 

@@ -1106,7 +1106,36 @@ export const weeklyFulfillmentCleanCheck = internalMutation({
     if (recent.some((e) => FULFILLMENT_NEGATIVE_KEYS.includes(e.ruleKey))) return
     await awardPoints(ctx, {
       staffName: lead.name, ruleKey: "fulfillment.clean_week",
-      label: "A full week with none of Fulfillment's own named misses (late dispatch, wrong item/size, damaged, late-delivery return, failed attempt)",
+      label: "A full week with none of Fulfillment's own named misses (late dispatch, wrong item/size, damaged, late-delivery return)",
+    })
+  },
+})
+
+/** BlackBole dispatches once a day in a batch, not continuously through the day — so "fast" isn't a meaningful
+ *  per-order signal here (every order should finish the day either dispatched or waiting for tomorrow's batch,
+ *  never "within N hours"). The reliable daily signal instead: did EVERY order approved yesterday actually make
+ *  it into yesterday's batch, or did something get left behind. Runs in the morning, after the day in question
+ *  has fully closed, looking back at that one BD calendar day via by_approved. */
+export const dailyFullDispatchCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const owners = await ownersConf(ctx)
+    const lead = owners.byTeam["Fulfillment"]
+    if (!lead?.name) return
+    const now = Date.now()
+    const yStart = dayStart(bdDay(now - DAY))
+    const yEnd = dayStart(bdDay(now))
+    const rows = await ctx.db.query("orders").withIndex("by_approved", (q) => q.gte("approvedAt", yStart).lt("approvedAt", yEnd)).collect()
+    // Cancelled or put back on hold isn't a dispatch miss — those orders were never meant to ship that day.
+    const live = rows.filter((o) => !o.deletedAt && o.status !== "cancelled" && o.status !== "on_hold")
+    if (live.length === 0) return // nothing approved yesterday — no batch to judge either way
+    if (live.some((o) => !o.shippedAt)) return // at least one order never made it out
+    // Idempotency — this only needs to fire once for yesterday's batch, even if the cron somehow runs twice.
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", lead.name).gte("at", now - DAY)).collect()
+    if (already.some((e) => e.ruleKey === "fulfillment.full_batch_dispatch")) return
+    await awardPoints(ctx, {
+      staffName: lead.name, ruleKey: "fulfillment.full_batch_dispatch",
+      label: `Every order approved yesterday (${live.length}) made it into the day's dispatch batch — nothing left stranded`,
     })
   },
 })

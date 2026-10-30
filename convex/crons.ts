@@ -54,6 +54,10 @@ crons.daily("fulfillment overdue dispatch", { hourUTC: 3, minuteUTC: 12 }, inter
 // customer wasn't reachable/ready, not something Fulfillment still controls once it's handed off). Same daily
 // cadence, same spirit. 9:13 Asia/Dhaka (UTC+6) = 03:13 UTC.
 crons.daily("cx delivery failed", { hourUTC: 3, minuteUTC: 13 }, internal.accountability.deliveryFailedCheck, {})
+// KPI: Fulfillment's daily "full batch" award — dispatch here runs once a day, not continuously, so this looks
+// back at the one BD calendar day that just closed and credits the lead only if every order approved that day
+// actually made it into the batch. 9:14 Asia/Dhaka (UTC+6) = 03:14 UTC.
+crons.daily("kpi fulfillment full batch dispatch", { hourUTC: 3, minuteUTC: 14 }, internal.accountability.dailyFullDispatchCheck, {})
 
 // KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
 // weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back

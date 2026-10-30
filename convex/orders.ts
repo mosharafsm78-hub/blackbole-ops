@@ -718,11 +718,6 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     // dispatched at 7am the next morning is a normal, good turnaround, not a miss.
     if (order.approvedAt && bdDay(order.approvedAt) === bdDay(now)) {
       await awardPoints(ctx, { staffName: byName, ruleKey: "fulfillment.same_day_dispatch", label: `Dispatched ${invoiceLabel(order)} same day as approval`, orderId: order._id })
-      // A second, stackable bonus for genuinely fast turnaround — not just "same calendar day" but out the
-      // door within 4 hours of being confirmed. Rewards the actual rush case on top of the ordinary good one.
-      if (now - order.approvedAt <= 4 * 3600000) {
-        await awardPoints(ctx, { staffName: byName, ruleKey: "fulfillment.fast_dispatch", label: `Dispatched ${invoiceLabel(order)} within 4 hours of approval`, orderId: order._id })
-      }
     } else if (order.approvedAt) {
       // Mirrors same_day_dispatch above: approved on one calendar day, not actually handed to the courier
       // until a later one. Only fires when we know the order WAS approved (so this is a real miss, not a

@@ -47,7 +47,7 @@ export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
   | "cx.bad_confirmation" | "cx.overdue_confirmation_call" | "cx.overdue_feedback_call" | "cx.overdue_return_call"
   | "cx.return_after_confirm" | "cx.overdue_hold" | "cx.delivery_failed"
-  | "fulfillment.same_day_dispatch" | "fulfillment.fast_dispatch" | "fulfillment.exchange_dispatched"
+  | "fulfillment.same_day_dispatch" | "fulfillment.exchange_dispatched" | "fulfillment.full_batch_dispatch"
   | "fulfillment.clean_grn" | "fulfillment.po_on_time"
   | "fulfillment.late_dispatch" | "fulfillment.po_late" | "fulfillment.overdue_dispatch"
   | "fulfillment.wrong_item_sent" | "fulfillment.wrong_size_sent" | "fulfillment.damaged_sent" | "fulfillment.late_delivery_return"
@@ -79,8 +79,8 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
-  { key: "fulfillment.fast_dispatch", label: "Order dispatched within 4 hours of approval", points: 3, team: "Fulfillment", auto: true },
   { key: "fulfillment.exchange_dispatched", label: "Exchange replacement packed and dispatched", points: 5, team: "Fulfillment", auto: true },
+  { key: "fulfillment.full_batch_dispatch", label: "Every order approved yesterday made it into that day's dispatch batch — nothing left stranded", points: 10, team: "Fulfillment", auto: true },
   { key: "fulfillment.late_dispatch", label: "Order wasn't dispatched the same day it was approved", points: -5, team: "Fulfillment", auto: true },
   { key: "fulfillment.overdue_dispatch", label: "A confirmed order sat more than a day without ever being dispatched", points: -10, team: "Fulfillment", auto: true },
   { key: "fulfillment.wrong_item_sent", label: "Wrong product sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
