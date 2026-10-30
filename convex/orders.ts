@@ -16,6 +16,7 @@ import {
   CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
+  buildAdvanceFields, isAdvanceReason, type AdvanceFields,
 } from "./rules"
 
 // ---------- status counters (cheap tab counts) ----------
@@ -605,10 +606,18 @@ export const get = query({
 })
 
 // ---------- status changes ----------
-export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean; systemReason?: boolean } = {}) {
+export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: OrderStatus, byName: string, reason?: string, opts: { force?: boolean; quiet?: boolean; systemReason?: boolean; advance?: AdvanceFields } = {}) {
   const from = order.status as OrderStatus
-  if (from === to) return
-  if (!opts.force && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
+  /**
+   * Staying in the same status is normally a no-op (a sync re-sending "already approved"), but it is a real
+   * edit when the caller re-records the reason — an agent switching a hold from "Awaiting Advance Payment" to
+   * "Stock not ready" is correcting the record, not asking for a status move. Without this, the reason kept
+   * its old value and the stale advance amount stayed on the order. There is no transition to validate for a
+   * same-status edit either (on_hold → on_hold isn't in TRANSITIONS at all), so it skips that check too.
+   */
+  const sameStatusEdit = from === to && !!reason && reason !== order.reason
+  if (from === to && !sameStatusEdit) return
+  if (!opts.force && !sameStatusEdit && !canTransition(from, to)) throw new ConvexError(`${invoiceLabel(order)}: can't move ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}`)
   // Approving an order with a pre-order product sends it to Pre-Order (it waits there until the product arrives)
   const poFrom = to === "approved" && !opts.quiet && ["pending", "on_hold", "cancelled"].includes(from) ? await preOrderOrigin(ctx, order.items) : null
   if (poFrom) {
@@ -624,6 +633,27 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // is never a real customer-given reason — never let it land in `reason`/`lastNote`, which the UI reads as
   // "someone found out and recorded why."
   if (reason && !opts.systemReason) { patch.reason = reason; patch.lastNote = `${STATUS_LABEL[to]}: ${reason}`; patch.lastNoteBy = byName }
+  // ---- Advance-payment hold ----
+  // Three distinct cases, deliberately not a single truthiness check:
+  //  1. the reason IS an advance reason  → store the validated amount + date
+  //  2. an ordinary reason on a hold/cancel → CLEAR both, so a re-held order can never show a previous promise
+  //  3. a plain status move with no reason (approve, ship…) → leave the amount alone as history
+  // Case 3 is why this can't key off `opts.advance` alone: buildAdvanceFields returns an EMPTY (but truthy)
+  // object for an ordinary reason, so a truthiness test cleared the amount on every approve.
+  if (isAdvanceReason(reason)) {
+    patch.expectedAdvanceAmount = opts.advance?.expectedAdvanceAmount
+    patch.promisedPaymentDate = opts.advance?.promisedPaymentDate
+    patch.advanceClearedAt = undefined
+  } else if (reason && !opts.systemReason && (to === "on_hold" || to === "cancelled")) {
+    patch.expectedAdvanceAmount = undefined
+    patch.promisedPaymentDate = undefined
+  }
+  // Leaving hold/cancel for a live status means the advance question is settled (paid, waived, or the order
+  // died) — stamp it so reporting can tell a live promise from an abandoned one, without erasing the amount
+  // that was actually asked for.
+  if (to !== "on_hold" && to !== "cancelled" && order.expectedAdvanceAmount !== undefined) {
+    patch.advanceClearedAt = now
+  }
   if (to === "approved" && !order.approvedAt) patch.approvedAt = now
   if (to === "in_transit" && !order.shippedAt) patch.shippedAt = now
   if (isDelivered(to) && !order.deliveredAt) {
@@ -639,9 +669,15 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
     patch.due = 0
   }
   await ctx.db.patch(order._id, patch)
-  await bumpStatusCount(ctx, from, -1)
-  await bumpStatusCount(ctx, to, 1)
-  await logOrder(ctx, order._id, `Status changed ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}${reason ? ` — ${reason}` : ""}`, byName)
+  // A same-status reason edit isn't a move — decrementing and re-incrementing the same counter would be a
+  // no-op at best and a drift at worst, so counters and the "Status changed" log only fire on a real move.
+  if (from !== to) {
+    await bumpStatusCount(ctx, from, -1)
+    await bumpStatusCount(ctx, to, 1)
+    await logOrder(ctx, order._id, `Status changed ${STATUS_LABEL[from]} → ${STATUS_LABEL[to]}${reason ? ` — ${reason}` : ""}`, byName)
+  } else {
+    await logOrder(ctx, order._id, `${STATUS_LABEL[to]} reason set to "${reason}"`, byName)
+  }
   if (opts.quiet) return // sync from Nuport: no notifications, webhooks or courier booking (Nuport already did those)
   await notify(ctx, "Order Status Updated.", `Sales Order ${invoiceLabel(order)} was set to ${STATUS_LABEL[to]}.`, order._id)
   await emitOrderEvent(ctx, order._id, to)
@@ -653,9 +689,19 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
 }
 
 export const changeStatus = mutation({
-  args: { ids: v.array(v.id("orders")), to: orderStatus, reason: v.optional(v.string()) },
-  handler: async (ctx, { ids, to, reason }) => {
+  args: {
+    ids: v.array(v.id("orders")),
+    to: orderStatus,
+    reason: v.optional(v.string()),
+    // Only meaningful with one of the three ADVANCE_REASONS; validated in buildAdvanceFields.
+    expectedAdvanceAmount: v.optional(v.number()),
+    promisedPaymentDate: v.optional(v.number()),
+  },
+  handler: async (ctx, { ids, to, reason, expectedAdvanceAmount, promisedPaymentDate }) => {
     const me = await requirePerm(ctx, "orders.view")
+    // Validate once, up front: a bad amount must not produce a half-applied batch.
+    const advance = buildAdvanceFields({ reason, expectedAdvanceAmount, promisedPaymentDate })
+    if (!advance.ok) throw new ConvexError(advance.error)
     const errors: string[] = []
     let done = 0
     for (const id of ids) {
@@ -666,7 +712,7 @@ export const changeStatus = mutation({
         continue
       }
       try {
-        await applyStatus(ctx, order, to, me.staff.name, reason)
+        await applyStatus(ctx, order, to, me.staff.name, reason, { advance: advance.fields })
         done++
       } catch (e) {
         errors.push(e instanceof Error ? e.message : String(e))

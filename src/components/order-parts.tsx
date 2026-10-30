@@ -4,7 +4,7 @@ import { Check, ChevronsUpDown, Minus, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, RECOVERY_OUTCOMES, RETURN_CSAT_OUTCOMES, RETURN_REASONS, STATUS_LABEL, type OrderStatus } from "@/convex/rules"
+import { CALL_OUTCOMES, CSAT_FOLLOWUP_OUTCOMES, CSAT_OUTCOMES, FOLLOW_UP_OUTCOMES, isRealReason, MESSAGE_CHANNELS, RECOVERY_OUTCOMES, RETURN_CSAT_OUTCOMES, RETURN_REASONS, STATUS_LABEL, type OrderStatus, ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED, CANCEL_REASONS, HOLD_REASONS, isAdvanceReason, parseTakaInput, dateInputToMs, reasonPresets, resolveReasonToggle } from "@/convex/rules"
 import { StatusPill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -356,8 +356,8 @@ export function CallDialog({
 
 // ---------------- Status change dialog ----------------
 export const NEEDS_REASON: OrderStatus[] = ["cancelled", "on_hold", "pending_returned", "returned", "damaged"]
-export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
-export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Advance payment pending", "Address unclear", "Other"]
+// Reason vocabulary lives in convex/rules so the dialog and the mutation agree on it.
+export { CANCEL_REASONS, HOLD_REASONS, reasonPresets } from "@/convex/rules"
 export const EXCHANGE_REASONS = ["Wrong size delivered", "Wrong item delivered", "Doesn't fit", "Defective / damaged", "Customer wants a different colour/style", "Other"]
 
 export function StatusDialog({
@@ -379,9 +379,30 @@ export function StatusDialog({
   const [to, setTo] = useState<OrderStatus | undefined>(initial)
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
-  useEffect(() => { if (open) { setTo(initial ?? options[0]); setReason("") } }, [open, initial, options])
-  const presets = to === "cancelled" ? CANCEL_REASONS : to === "on_hold" ? HOLD_REASONS : (to === "returned" || to === "pending_returned" || to === "damaged") ? RETURN_REASONS : []
+  // advance-payment inputs, held as raw strings so the field can be empty while typing
+  const [advanceAmount, setAdvanceAmount] = useState("")
+  const [promiseDate, setPromiseDate] = useState("")
+  useEffect(() => {
+    if (open) { setTo(initial ?? options[0]); setReason(""); setAdvanceAmount(""); setPromiseDate("") }
+  }, [open, initial, options])
+  const presets = reasonPresets(to)
   const needReason = !!to && NEEDS_REASON.includes(to)
+  const wantsAdvance = isAdvanceReason(reason)
+  /**
+   * Every reason change runs through here. resolveReasonToggle returns a COMPLETE pair for the two advance
+   * inputs, so switching away from an advance reason clears the amount and the date in the same update — the
+   * bug this replaces was a value left in state while its inputs were hidden, which then got saved with the
+   * next reason.
+   */
+  const pickReason = (next: string) => {
+    const cleared = resolveReasonToggle({ from: reason, to: next, amount: advanceAmount, date: promiseDate })
+    setReason(next)
+    setAdvanceAmount(cleared.amount)
+    setPromiseDate(cleared.date)
+  }
+  const amountValue = parseTakaInput(advanceAmount)
+  const dateValue = dateInputToMs(promiseDate)
+  const advanceIncomplete = wantsAdvance && (amountValue === null || amountValue <= 0 || dateValue === null)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -418,13 +439,44 @@ export function StatusDialog({
               <div className="space-y-2">
                 <Label>Reason <span className="font-normal text-tone-red">(required)</span></Label>
                 {presets.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5" data-testid="reason-presets">
                     {presets.map((p) => (
-                      <button key={p} type="button" onClick={() => setReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
+                      <button key={p} type="button" onClick={() => pickReason(p)} className={cn("rounded-md border px-2 py-1 text-xs", reason === p ? "bg-accent" : "hover:bg-accent")}>{p}</button>
                     ))}
                   </div>
                 )}
-                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why?" />
+                <Input value={reason} onChange={(e) => pickReason(e.target.value)} placeholder="Why?" data-testid="reason-input" />
+              </div>
+            )}
+            {wantsAdvance && (
+              <div className="space-y-3 rounded-md border border-tone-amber bg-tone-amber-bg/40 p-3" data-testid="advance-fields">
+                <div className="text-xs font-medium">
+                  Advance payment — {reason}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="advance-amount">Expected Advance Amount (BDT) <span className="font-normal text-tone-red">*</span></Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">৳</span>
+                      <Input
+                        id="advance-amount" inputMode="numeric" className="pl-6" placeholder="e.g. 500"
+                        value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)}
+                        data-testid="advance-amount"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="advance-date">Promised Payment Date <span className="font-normal text-tone-red">*</span></Label>
+                    <Input
+                      id="advance-date" type="date" value={promiseDate}
+                      onChange={(e) => setPromiseDate(e.target.value)}
+                      data-testid="advance-date"
+                    />
+                  </div>
+                </div>
+                {advanceAmount.trim() !== "" && amountValue === null && (
+                  <p className="text-xs text-tone-red" data-testid="advance-amount-error">Enter the amount in taka, digits only.</p>
+                )}
               </div>
             )}
             {(to === "ready_to_ship" || to === "in_transit") && <p className="text-xs text-muted-foreground">Pathao orders are sent to Pathao at the step chosen in Settings (In Transit by default, like Nuport). You can also press “Push to Pathao”.</p>}
@@ -433,12 +485,17 @@ export function StatusDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            disabled={busy || !to || (needReason && !reason.trim())}
+            disabled={busy || !to || (needReason && !reason.trim()) || advanceIncomplete}
             onClick={async () => {
               if (!to) return
               setBusy(true)
               try {
-                const res = await change({ ids, to, reason: reason.trim() || undefined })
+                const res = await change({
+                  ids, to, reason: reason.trim() || undefined,
+                  // only sent for an advance reason, and only once the pair is complete
+                  expectedAdvanceAmount: wantsAdvance ? amountValue ?? undefined : undefined,
+                  promisedPaymentDate: wantsAdvance ? dateValue ?? undefined : undefined,
+                })
                 if (res.done) toast.success(`${res.done} order${res.done > 1 ? "s" : ""} moved to ${STATUS_LABEL[to]}`)
                 res.errors.slice(0, 4).forEach((e) => toast.error(e))
                 onOpenChange(false)
@@ -477,7 +534,7 @@ export function ReasonDialog({
   onOpenChange: (o: boolean) => void
 }) {
   const setReason = useMutation(api.orders.setReason)
-  const presets = status === "cancelled" ? CANCEL_REASONS : status === "on_hold" ? HOLD_REASONS : RETURN_REASONS
+  const presets = reasonPresets(status)
   // a raw courier/migration string (e.g. "Pathao: paid_return", "Same as Nuport (...)") never pre-fills
   // anything — not the category, not the note — it's system junk, not something a human wrote
   const looksLikePreset = !!current && presets.includes(current)

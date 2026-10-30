@@ -297,6 +297,105 @@ export function isRealReason(reason?: string | null): boolean {
   return !!reason && !SYSTEM_REASON_RE.test(reason)
 }
 
+// ---------------- Advance-payment reasons (Hold / Cancel) ----------------
+// Three exact reasons, kept here (not in the modal) because BOTH the form and the mutation have to agree on
+// them: the modal decides whether to reveal the amount/date inputs, and the mutation decides whether to
+// accept and store them. One list, one truth.
+export const ADVANCE_REASON_AWAITING = "Hold: Awaiting Advance Payment"
+export const ADVANCE_REASON_PROMISED = "Hold: Customer Promised Advance"
+export const ADVANCE_REASON_REFUSED = "Canceled: Refused Advance Payment"
+
+export const ADVANCE_REASONS = [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED]
+
+/** Does picking this reason mean the order is parked on an advance payment? Drives the extra two inputs. */
+export function isAdvanceReason(reason?: string | null): boolean {
+  return !!reason && ADVANCE_REASONS.includes(reason)
+}
+
+/** The whole advance-payment block for a given reason. */
+export type AdvanceFields = { expectedAdvanceAmount?: number; promisedPaymentDate?: number }
+
+/**
+ * What the two advance inputs should hold after an agent picks a new reason.
+ *
+ * This is the form-side half of the stale-data fix: the caller REPLACES its two inputs with the returned
+ * pair rather than patching them, so nothing typed under a previous reason can survive into a different one.
+ * Re-picking the same reason keeps what's already there (an agent correcting a typo shouldn't lose the date).
+ */
+export function resolveReasonToggle(input: { from?: string | null; to: string; amount: string; date: string }) {
+  const staying = input.from === input.to
+  return staying ? { amount: input.amount, date: input.date } : { amount: "", date: "" }
+}
+
+/** Ordinary reason chips for a move — the shared vocabulary behind the Hold/Cancel/Return pickers. */
+export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
+export const HOLD_REASONS = ["Customer asked to wait", "Stock not ready", "Address unclear", "Other"]
+
+/**
+ * Reason chips for a status. The three advance-payment reasons come FIRST on Hold and Cancel so they read as
+ * one clear group, and each is shown exactly as it will be stored — the "Hold:"/"Canceled:" prefix included —
+ * so a record can never say a bare "Advance payment pending" that reads like any other hold.
+ * Return moves keep their own vocabulary and never get an advance chip.
+ */
+export function reasonPresets(status?: OrderStatus | null): string[] {
+  if (status === "on_hold") return [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ...HOLD_REASONS]
+  if (status === "cancelled") return [ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, ADVANCE_REASON_REFUSED, ...CANCEL_REASONS]
+  if (status === "returned" || status === "pending_returned" || status === "damaged") return RETURN_REASONS
+  return []
+}
+
+/** Amount as typed by an agent ("5,000", " 5000 ", "৳5000") → a whole taka number, or null if unusable. */
+export function parseTakaInput(raw?: string | number | null): number | null {
+  if (raw === null || raw === undefined) return null
+  if (typeof raw === "number") return Number.isFinite(raw) && raw >= 0 ? Math.round(raw) : null
+  const cleaned = raw.replace(/[^0-9.]/g, "")
+  if (!cleaned || cleaned === ".") return null
+  const n = Number(cleaned)
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null
+}
+
+/** A `<input type="date">` value ("2026-11-05") → local start-of-day epoch ms, or null if not a real date. */
+export function dateInputToMs(value?: string | null): number | null {
+  if (!value) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim())
+  if (!m) return null
+  const [, y, mo, d] = m
+  const year = Number(y), month = Number(mo), day = Number(d)
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null
+  const ms = new Date(year, month - 1, day).getTime()
+  // rejects 2026-02-31, which Date would silently roll into March
+  const back = new Date(ms)
+  if (back.getFullYear() !== year || back.getMonth() !== month - 1 || back.getDate() !== day) return null
+  return ms
+}
+
+/** Epoch ms → "YYYY-MM-DD" for the date input, or "" when unset. */
+export function msToDateInput(ms?: number | null): string {
+  if (!ms || !Number.isFinite(ms)) return ""
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/**
+ * Validates + normalises the advance block for a status change.
+ * Returns `{ ok: true, fields }` (fields empty when the reason is ordinary) or `{ ok: false, error }`.
+ * The mutation calls this so a bad amount can never be stored, whatever the UI does.
+ */
+export function buildAdvanceFields(input: {
+  reason?: string | null
+  expectedAdvanceAmount?: number | null
+  promisedPaymentDate?: number | null
+}): { ok: true; fields: AdvanceFields } | { ok: false; error: string } {
+  if (!isAdvanceReason(input.reason)) return { ok: true, fields: {} }
+  const amount = input.expectedAdvanceAmount
+  if (amount === undefined || amount === null) return { ok: false, error: "Enter the expected advance amount." }
+  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "The advance amount must be more than ৳0." }
+  const date = input.promisedPaymentDate
+  if (date === undefined || date === null || !Number.isFinite(date)) return { ok: false, error: "Pick the date the advance was promised for." }
+  return { ok: true, fields: { expectedAdvanceAmount: Math.round(amount), promisedPaymentDate: date } }
+}
+
 export const CUSTOMER_TAGS = ["NEW", "REGULAR", "VIP", "RISKY"]
 
 // Bangladesh phone → 01XXXXXXXXX

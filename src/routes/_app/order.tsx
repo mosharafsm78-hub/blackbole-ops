@@ -281,6 +281,17 @@ function OrderPage() {
             <button type="button" onClick={() => setReasonOpen(true)} className="shrink-0 text-xs font-semibold text-foreground underline underline-offset-2 hover:opacity-80">Add reason</button>
           </div>
         ) : null}
+        {o.expectedAdvanceAmount !== undefined && o.status !== "cancelled" && o.advanceClearedAt === undefined && (
+          <div className="mx-5 mt-2 rounded-md border border-tone-amber bg-tone-amber-bg/60 px-3 py-1.5 text-sm" data-testid="advance-banner">
+            <span className="font-medium">Advance expected: {taka(o.expectedAdvanceAmount)}</span>
+            {o.promisedPaymentDate !== undefined && (
+              <span className="text-muted-foreground"> · promised {dateTime(o.promisedPaymentDate)}</span>
+            )}
+            {o.promisedPaymentDate !== undefined && o.promisedPaymentDate < Date.now() && (
+              <span className="ml-2 rounded bg-tone-red-bg px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">overdue</span>
+            )}
+          </div>
+        )}
         {o.csat && (
           <div className="mx-5 mt-2 flex items-center justify-between gap-2 rounded-md bg-tone-blue-bg px-3 py-1.5 text-sm text-tone-blue">
             <span>Feedback: {o.csat.outcome}{o.csat.note ? ` — ${o.csat.note}` : ""}</span>

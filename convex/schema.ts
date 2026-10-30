@@ -370,6 +370,13 @@ export default defineSchema({
     imported: v.optional(v.boolean()),
     lastNote: v.optional(v.string()),
     lastNoteBy: v.optional(v.string()),
+    // ---- Advance-payment hold (Task 4) ----
+    // Only ever set together with one of the ADVANCE_REASONS. All three are optional so every order created
+    // before this feature — and every ordinary hold/cancel — is a perfectly valid document.
+    expectedAdvanceAmount: v.optional(v.number()), // whole taka the customer was asked for
+    promisedPaymentDate: v.optional(v.number()), // epoch ms of the day the advance was promised for
+    advanceClearedAt: v.optional(v.number()), // set when the hold is resolved, so a stale promise can't linger
+
     // ---- Pathao money (synced from Pathao invoices) ----
     courierPaid: v.optional(v.boolean()), // Pathao has paid this parcel's money to us
     courierInvoiceId: v.optional(v.string()),
