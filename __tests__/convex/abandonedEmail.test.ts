@@ -96,3 +96,53 @@ describe("abandoned cart email — rotating products", () => {
     expect(a.some((x) => b.some((y) => y.name === x.name))).toBe(false)
   })
 })
+
+describe("abandoned cart email — normal products and the Tk 50 welcome offer", () => {
+  it("picks the right kind of email for each cart", async () => {
+    const t = makeT()
+    const mkProduct = (name: string, over: Record<string, unknown>) => t.run(async (ctx) => {
+      const pid = await ctx.db.insert("products", { name, active: true, imageUrl: "https://x.test/a.jpg", handle: name.toLowerCase(), createdAt: 1, ...over } as any)
+      const vid = await ctx.db.insert("variants", { productId: pid, sku: name, title: "42", price: 2000, purchasePrice: 900, weightKg: 0.5, active: true } as any)
+      return vid
+    })
+    const normal = await mkProduct("Normal", {})
+    const pre = await mkProduct("PreBoot", { preOrder: true })
+    const item = (variantId: any) => ({ variantId, sku: "S", name: "X", price: 2000, qty: 1, discount: 0, weightKg: 0.5 })
+    const welcome = await cart(t, { customerName: "Customer", items: [] })
+    const reg = await cart(t, { customerName: "Rafi Khan", items: [item(normal)] })
+    const prec = await cart(t, { customerName: "Rafi Khan", items: [item(pre)] })
+    const gift = await cart(t, { items: [] })
+    expect((await t.query(internal.abandonedEmail.context, { checkoutId: welcome }))?.kind).toBe("welcome")
+    expect((await t.query(internal.abandonedEmail.context, { checkoutId: reg }))?.kind).toBe("regular")
+    expect((await t.query(internal.abandonedEmail.context, { checkoutId: prec }))?.kind).toBe("preorder")
+    expect((await t.query(internal.abandonedEmail.context, { checkoutId: gift }))?.kind).toBe("preorder")
+  })
+
+  it("shows only in-stock normal products in a normal email", async () => {
+    const t = makeT()
+    await t.run(async (ctx) => {
+      const loc = await ctx.db.insert("locations", { name: "W", active: true } as any)
+      for (const [name, stock, pre] of [["Stocked", 5, false], ["Empty", 0, false], ["PreOne", 5, true]] as const) {
+        const pid = await ctx.db.insert("products", { name, active: true, imageUrl: "https://x.test/a.jpg", handle: name.toLowerCase(), createdAt: 1, ...(pre ? { preOrder: true } : {}) } as any)
+        const vid = await ctx.db.insert("variants", { productId: pid, sku: name, title: "42", price: 2000, purchasePrice: 900, weightKg: 0.5, active: true } as any)
+        await ctx.db.insert("stock", { variantId: vid, locationId: loc, available: stock, processing: 0, inTransit: 0, returning: 0, damaged: 0 } as any)
+      }
+    })
+    const regular = await t.query(internal.abandonedEmail.picks, { exclude: [], kind: "regular" })
+    expect(regular.map((p) => p.name)).toEqual(["Stocked"])
+    const preorder = await t.query(internal.abandonedEmail.picks, { exclude: [], kind: "preorder" })
+    expect(preorder.map((p) => p.name)).toEqual(["PreOne"])
+  })
+
+  it("writes the welcome and normal-cart emails without pre-order wording", () => {
+    const w = abandonedEmailContent({ customerName: "Customer", items: [], subtotal: 0, kind: "welcome", url: "https://blackbole.com" })
+    expect(w.subject).toContain("50")
+    expect(w.html).toContain("WELCOME50")
+    expect(w.html).toContain("Start shopping")
+    expect(w.html).not.toContain("pre-order")
+    const r = abandonedEmailContent({ customerName: "Rafi Khan", items: [{ name: "Boot", price: 2000, qty: 1 }], subtotal: 2000, kind: "regular", url: "https://blackbole.com/cart?add=1:1" })
+    expect(r.html).toContain("Back to my cart")
+    expect(r.html).toContain("Cash on delivery")
+    expect(r.html.toLowerCase()).not.toContain("pre-order")
+  })
+})
