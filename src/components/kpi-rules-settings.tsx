@@ -64,17 +64,26 @@ export function KpiRulesSettings() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={pointsFor(r.key, r.points)}
-                    onChange={(e) => setDraft((d) => ({ ...d, [r.key]: Number(e.target.value) }))}
-                    onBlur={() => {
-                      const v = pointsFor(r.key, r.points)
-                      if (v !== r.points) void commitPoints(r.key, v, r.active)
-                    }}
-                    className="w-20 text-right tabular-nums"
-                    disabled={busyKey === r.key}
-                  />
+                  <div className="relative">
+                    {/* A plain number input shows "−" on its own for a negative value, but nothing for a positive
+                        one — this overlay adds the "+" so a reward and a penalty read the same way at a glance.
+                        It's purely visual: the input underneath is untouched, still a normal editable number
+                        (type a "-" yourself to flip a rule from a reward to a penalty, or back). */}
+                    {pointsFor(r.key, r.points) >= 0 && (
+                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm font-medium tabular-nums text-tone-green">+</span>
+                    )}
+                    <Input
+                      type="number"
+                      value={pointsFor(r.key, r.points)}
+                      onChange={(e) => setDraft((d) => ({ ...d, [r.key]: Number(e.target.value) }))}
+                      onBlur={() => {
+                        const v = pointsFor(r.key, r.points)
+                        if (v !== r.points) void commitPoints(r.key, v, r.active)
+                      }}
+                      className="w-20 pl-5 text-right tabular-nums"
+                      disabled={busyKey === r.key}
+                    />
+                  </div>
                   <span className="text-xs text-muted-foreground">pts</span>
                   <Switch checked={r.active} disabled={busyKey === r.key} onCheckedChange={(v) => void toggleActive(r.key, pointsFor(r.key, r.points), v)} />
                 </div>
