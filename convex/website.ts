@@ -15,6 +15,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, setSetting } from "./lib"
 import { hasPerm } from "./rules"
+import { applyTestStock } from "./stockCheck"
 import { finishCollections, type Rules, type SortKey } from "./websiteRules"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
@@ -1006,12 +1007,14 @@ export const createProduct = mutation({
       cost: v.number(),
       weightKg: v.number(),
       barcode: v.optional(v.string()),
+      testQty: v.optional(v.number()), // test (fake) pairs: stock on the website and in Shopify, marked "not in hand" in Ops
     })),
     templateSuffix: v.optional(v.string()),
     category: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
-    await requireWebsite(ctx)
+    const me = await requireWebsite(ctx)
+    if (a.variants.some((x) => (x.testQty ?? 0) > 0) && !hasPerm(me.perms, "inventory.adjust")) throw new ConvexError("You don't have permission to add test stock.")
     const title = a.title.trim()
     if (!title) throw new ConvexError("Add a title")
     if (!a.variants.length) throw new ConvexError("Add at least one size")
@@ -1043,15 +1046,18 @@ export const createProduct = mutation({
         ...(a.templateSuffix?.trim() ? { templateSuffix: a.templateSuffix.trim() } : {}),
       },
     })
+    const testItems: { variantId: Id<"variants">; qty: number }[] = []
     for (const [i, x] of a.variants.entries()) {
       const opts: Record<string, string> = {}
       for (const n of optNames) if (x.options[n]?.trim()) opts[n] = x.options[n].trim()
-      await ctx.db.insert("variants", {
+      const variantId = await ctx.db.insert("variants", {
         productId, sku: skus[i], title: x.title.trim() || "Default", weightKg: x.weightKg > 0 ? x.weightKg : 0.5,
         price: Math.round(x.fullPrice > 0 ? x.fullPrice : x.price), purchasePrice: Math.max(0, Math.round(x.cost)), active: true, createdAt: now,
         web: { id: newVariantId(now + i), price: Math.round(x.price), compareAt: x.compareAt && x.compareAt > 0 ? Math.round(x.compareAt) : null, options: opts, image: null, pos: i, ...(x.barcode?.trim() ? { barcode: x.barcode.trim() } : {}) },
       })
+      if ((x.testQty ?? 0) > 0 && !a.preOrder) testItems.push({ variantId, qty: Math.round(x.testQty!) })
     }
+    if (testItems.length) await applyTestStock(ctx, testItems, me.staff.name)
     for (const cid of a.collections) {
       const c = await ctx.db.get(cid)
       if (c && !c.productHandles.includes(handle)) await ctx.db.patch(cid, { productHandles: [...c.productHandles, handle], updatedAt: now })

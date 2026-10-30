@@ -89,9 +89,29 @@ describe("Ops → Shopify product creation", () => {
       const fileId = await ctx.db.insert("webFiles", { storageId, url, name: "a.jpg", type: "image/jpeg", size: 3, src: "product", createdAt: 1 })
       return { productId, fileId, storageId }
     })
-    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: { product: { featuredMedia: { status: "READY", image: { url: "https://cdn.shopify.com/a.jpg" } } } } }), { status: 200 }))
-    await t.action(internal.shopifyStock.adoptImage, { productId, shopifyProductId: "gid://p/1", oldUrl: "https://ops.convex.cloud/api/storage/abc", tries: 0 })
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: { product: { media: { nodes: [{ status: "READY", image: { url: "https://cdn.shopify.com/a.jpg" } }] } } } }), { status: 200 }))
+    await t.action(internal.shopifyStock.adoptImage, { productId, shopifyProductId: "gid://p/1", oldUrls: ["https://ops.convex.cloud/api/storage/abc"], tries: 0 })
     expect(await t.run(async (ctx) => [(await ctx.db.get(productId))!.imageUrl, await ctx.db.get(fileId), await ctx.storage.getUrl(storageId)])).toEqual(["https://cdn.shopify.com/a.jpg", null, null])
   })
-})
 
+  it("a product made on the Website page goes with its rich description, tags, handle, photos, website price and Active/Draft", async () => {
+    const calls = shopify()
+    const { t, a } = await setup(1500, 5)
+    await t.run(async (ctx) => {
+      const v = (await ctx.db.get(a))!
+      await ctx.db.patch(v.productId, {
+        handle: "test-product",
+        web: { title: "Test Product Pro", html: "<h2>Hi</h2>", vendor: "BlackBole", type: "Sneakers", tags: ["new"], published: false, seo: { title: "S", description: "D" }, options: [{ name: "Size", values: [] }],
+          images: [{ url: "https://img.example/1.jpg" }, { url: "https://img.example/2.jpg" }] },
+      })
+      await ctx.db.patch(a, { web: { price: 1200, compareAt: 1800, options: { Size: "41" } } })
+    })
+    await t.run((ctx) => ctx.db.insert("shopifyDirty", { variantId: a, at: 1 }))
+    await t.action(internal.shopifyStock.flush, {})
+    const inp = calls.find((c) => c.q.includes("productSet"))!.v.input
+    expect(inp).toMatchObject({ title: "Test Product Pro", handle: "test-product", descriptionHtml: "<h2>Hi</h2>", productType: "Sneakers", tags: ["new"], status: "DRAFT", seo: { title: "S", description: "D" } })
+    expect(inp.files.map((f: any) => f.originalSource)).toEqual(["https://img.example/1.jpg", "https://img.example/2.jpg"])
+    const first = inp.variants.find((x: any) => x.sku === "BB-TP-41")
+    expect(first).toMatchObject({ price: "1200", compareAtPrice: "1800", optionValues: [{ optionName: "Size", name: "41" }] })
+  })
+})

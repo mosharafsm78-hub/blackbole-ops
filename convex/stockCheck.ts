@@ -8,7 +8,7 @@
 // The revenue-target plan reads real pairs only (targets.ts).
 import { v, ConvexError } from "convex/values"
 import type { Id } from "./_generated/dataModel"
-import { query } from "./_generated/server"
+import { query, type MutationCtx } from "./_generated/server"
 import { mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
 
@@ -124,19 +124,28 @@ export const markProduct = mutation({
 
 /** Adds test (fake) pairs: they go into the system stock AND are marked as not in hand in one step, so a product can
  *  be advertised and ordered before it is bought. No counting needed afterwards. */
+/** Adds test (fake) pairs: they count as stock (website, Shopify, orders) but are marked "not in hand" here. */
+export async function applyTestStock(ctx: MutationCtx, items: { variantId: Id<"variants">; locationId?: Id<"locations">; qty: number }[], byName: string) {
+  const locs = await ctx.db.query("locations").collect()
+  const home = locs.find((l) => l.isDefault && l.active) ?? locs.find((l) => l.active && !l.noCourier)
+  for (const i of items) {
+    if (!Number.isInteger(i.qty) || i.qty <= 0 || i.qty > 10000) throw new ConvexError("Test pairs must be a whole number above zero.")
+    const variant = await ctx.db.get(i.variantId)
+    if (!variant) throw new ConvexError("That size no longer exists.")
+    const locationId = i.locationId ?? home?._id
+    if (!locationId) throw new ConvexError("No active warehouse to put test stock in.")
+    const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", i.variantId).eq("locationId", locationId)).unique()
+    if (row) await ctx.db.patch(row._id, { available: row.available + i.qty, virtual: (row.virtual ?? 0) + i.qty, countedAt: Date.now(), countedBy: byName })
+    else await ctx.db.insert("stock", { variantId: i.variantId, locationId, available: i.qty, processing: 0, inTransit: 0, returning: 0, damaged: 0, virtual: i.qty, countedAt: Date.now(), countedBy: byName })
+    await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId, bucket: "available", change: i.qty, reason: "Test stock added", note: "Test (fake) stock — not in hand", byName, at: Date.now() })
+  }
+}
+
 export const addTestStock = mutation({
   args: { items: v.array(v.object({ variantId: v.id("variants"), locationId: v.id("locations"), qty: v.number() })) },
   handler: async (ctx, { items }) => {
     const me = await requirePerm(ctx, "inventory.adjust")
     if (items.length === 0 || items.length > 100) throw new ConvexError("Add test pairs to between 1 and 100 sizes at a time.")
-    for (const i of items) {
-      if (!Number.isInteger(i.qty) || i.qty <= 0 || i.qty > 10000) throw new ConvexError("Test pairs must be a whole number above zero.")
-      const variant = await ctx.db.get(i.variantId)
-      if (!variant) throw new ConvexError("That size no longer exists.")
-      const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", i.variantId).eq("locationId", i.locationId)).unique()
-      if (row) await ctx.db.patch(row._id, { available: row.available + i.qty, virtual: (row.virtual ?? 0) + i.qty, countedAt: Date.now(), countedBy: me.staff.name })
-      else await ctx.db.insert("stock", { variantId: i.variantId, locationId: i.locationId, available: i.qty, processing: 0, inTransit: 0, returning: 0, damaged: 0, virtual: i.qty, countedAt: Date.now(), countedBy: me.staff.name })
-      await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId: i.locationId, bucket: "available", change: i.qty, reason: "Test stock added", note: "Test (fake) stock — not in hand", byName: me.staff.name, at: Date.now() })
-    }
+    await applyTestStock(ctx, items, me.staff.name)
   },
 })

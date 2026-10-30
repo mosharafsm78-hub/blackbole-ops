@@ -234,18 +234,34 @@ export const productGroups = internalQuery({
   args: { variantIds: v.array(v.id("variants")) },
   handler: async (ctx, { variantIds }) => {
     const seen = new Set<string>()
-    const out: { productId: string; name: string; category: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
+    const out: {
+      productId: string; name: string; handle: string; category: string; vendor: string; tags: string[]; html: string; description: string
+      images: string[]; status: "ACTIVE" | "DRAFT"; seo: { title: string; description: string }; optionNames: string[]
+      variants: { id: string; sku: string; title: string; price: number; compareAt: number; cost: number; options: Record<string, string> }[]
+    }[] = []
     for (const id of variantIds) {
       const vr = await ctx.db.get(id)
       if (!vr || seen.has(vr.productId)) continue
       seen.add(vr.productId)
       const p = await ctx.db.get(vr.productId)
       if (!p || p.deletedAt || !p.active) continue
+      const w: any = p.web ?? {}
       const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
-      const image = p.imageUrl ?? vs.find((x) => x.imageUrl)?.imageUrl ?? ""
+        .sort((x: any, y: any) => (x.web?.pos ?? 1e9) - (y.web?.pos ?? 1e9) || x.title.localeCompare(y.title, undefined, { numeric: true }))
+      const shown: string[] = Array.isArray(w.images) && w.images.length ? w.images.map((i: any) => String(i?.url ?? "")) : [p.imageUrl ?? vs.find((x) => x.imageUrl)?.imageUrl ?? ""]
+      const images = shown.filter((u) => /^https:\/\//.test(u)).slice(0, 10)
+      // Website → Products has its own Active/Draft switch ("published"); the plain product form has none (a photo decides)
+      const status = w.archived ? "DRAFT" : typeof w.published === "boolean" ? (w.published ? "ACTIVE" : "DRAFT") : images.length ? "ACTIVE" : "DRAFT"
       out.push({
-        productId: p._id as string, name: p.name, category: p.category ?? "", description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
-        variants: vs.map((x) => ({ id: x._id as string, sku: x.sku, title: x.title, price: x.price, cost: x.purchasePrice })),
+        productId: p._id as string, name: w.title || p.name, handle: p.handle ?? "", category: w.type || p.category || "",
+        vendor: w.vendor || "BlackBole", tags: Array.isArray(w.tags) ? w.tags.map(String) : [], html: typeof w.html === "string" ? w.html : "", description: p.description ?? "",
+        images, status, seo: { title: w.seo?.title ?? "", description: w.seo?.description ?? "" },
+        optionNames: (Array.isArray(w.options) ? w.options : []).map((o: any) => String(o?.name ?? "")).filter(Boolean),
+        variants: vs.map((x: any) => ({
+          id: x._id as string, sku: x.sku, title: x.title, cost: x.purchasePrice, options: (x.web?.options ?? {}) as Record<string, string>,
+          price: typeof x.web?.price === "number" && x.web.price > 0 ? Math.round(x.web.price) : x.price, // the website's selling price, else the Ops price
+          compareAt: typeof x.web?.compareAt === "number" && x.web.compareAt > 0 ? Math.round(x.web.compareAt) : 0,
+        })),
       })
     }
     return out
@@ -281,11 +297,14 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
       const res = await gql(ctx, `query($q: String!) { productVariants(first: 250, query: $q) { nodes { sku product { id } inventoryItem { id } } } }`, { q })
       const have = new Map<string, { productId: string; itemId: string }>()
       for (const n of res.productVariants.nodes) if (n.sku) have.set(n.sku, { productId: n.product.id, itemId: n.inventoryItem.id })
-      const opts = optionsOf(g.variants.map((x: any) => x.title))
+      // option names/values as set on the Website page (Color / Size…), else worked out from the size titles
+      const opts = g.optionNames.length
+        ? { names: g.optionNames as string[], values: g.variants.map((x: any) => g.optionNames.map((n: string, k: number) => x.options[n] || (k === g.optionNames.length - 1 ? x.title : "Default"))) }
+        : optionsOf(g.variants.map((x: any) => x.title))
       const stockOf = (id: string) => [...new Map(qrows.filter((r: any) => r.variantId === id).map((r: any) => [r.shopLoc, { locationId: r.shopLoc, name: "available", quantity: r.qty }])).values()]
       const variantInput = (x: any, i: number) => ({
         optionValues: opts.names.map((name, k) => ({ optionName: name, name: opts.values[i][k] })),
-        sku: x.sku, price: String(x.price),
+        sku: x.sku, price: String(x.price), ...(x.compareAt > x.price ? { compareAtPrice: String(x.compareAt) } : {}),
         inventoryItem: { sku: x.sku, tracked: true, ...(x.cost > 0 ? { cost: String(x.cost) } : {}) },
         inventoryQuantities: stockOf(x.id),
       })
@@ -294,18 +313,21 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
       if (!have.size) {
         const r = await gql(ctx, `mutation($input: ProductSetInput!) { productSet(input: $input, synchronous: true) { product { id variants(first: 100) { nodes { sku inventoryItem { id } } } } userErrors { field message } } }`, {
           input: {
-            title: g.name, vendor: "BlackBole", ...(g.category ? { productType: g.category } : {}), descriptionHtml: g.description ? `<p>${esc(g.description)}</p>` : "",
-            status: g.hasImage ? "ACTIVE" : "DRAFT", // no photo yet → draft, so nothing half-finished goes live
-            productOptions: opts.names.map((name, k) => ({ name, values: [...new Set(opts.values.map((v) => v[k]))].map((n) => ({ name: n })) })),
+            title: g.name, vendor: g.vendor, ...(g.category ? { productType: g.category } : {}),
+            descriptionHtml: g.html || (g.description ? `<p>${esc(g.description)}</p>` : ""),
+            status: g.status, // the Website page's Active/Draft; the plain form: photo → active, none → draft
+            ...(g.handle ? { handle: g.handle } : {}), ...(g.tags.length ? { tags: g.tags } : {}),
+            ...(g.seo.title || g.seo.description ? { seo: { title: g.seo.title || undefined, description: g.seo.description || undefined } } : {}),
+            productOptions: opts.names.map((name: string, k: number) => ({ name, values: [...new Set(opts.values.map((v: string[]) => v[k]))].map((n) => ({ name: n })) })),
             variants: g.variants.map((x: any, i: number) => variantInput(x, i)),
-            ...(g.hasImage ? { files: [{ originalSource: g.image, contentType: "IMAGE" }] } : {}),
+            ...(g.images.length ? { files: g.images.map((u: string) => ({ originalSource: u, contentType: "IMAGE" })) } : {}),
           },
         })
         const errs = r.productSet.userErrors
         if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; "))
         for (const n of r.productSet.product.variants.nodes) found.push({ sku: n.sku, itemId: n.inventoryItem.id })
         // Shopify now downloads the photo and keeps its own copy; Ops lets go of its file a little later (adoptImage)
-        if (g.hasImage) await ctx.scheduler.runAfter(45_000, internal.shopifyStock.adoptImage, { productId: g.productId, shopifyProductId: r.productSet.product.id, oldUrl: g.image, tries: 0 })
+        if (g.images.length) await ctx.scheduler.runAfter(45_000, internal.shopifyStock.adoptImage, { productId: g.productId, shopifyProductId: r.productSet.product.id, oldUrls: g.images, tries: 0 })
       } else if (todo.length) {
         const productId = [...have.values()][0].productId
         const r = await gql(ctx, `mutation($id: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkCreate(productId: $id, variants: $v) { productVariants { sku inventoryItem { id } } userErrors { field message } } }`, { id: productId, v: todo.map(({ x, i }: any) => variantInput(x, i)) })
@@ -327,35 +349,45 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
   return notes
 }
 
-/** Once Shopify has copied the photo, point the Ops product at Shopify's copy and delete the file Ops stored. */
+/** Once Shopify has copied the photos, point the Ops product at Shopify's copies and delete the files Ops stored. */
 export const adoptImage = internalAction({
-  args: { productId: v.id("products"), shopifyProductId: v.string(), oldUrl: v.string(), tries: v.number() },
+  args: { productId: v.id("products"), shopifyProductId: v.string(), oldUrls: v.array(v.string()), tries: v.number() },
   handler: async (ctx, a) => {
     try {
-      const d = await gql(ctx, `query($id: ID!) { product(id: $id) { featuredMedia { status ... on MediaImage { image { url } } } } }`, { id: a.shopifyProductId })
-      const m = d.product?.featuredMedia
-      if (m?.status === "READY" && m.image?.url) {
-        await ctx.runMutation(internal.shopifyStock.swapImage, { productId: a.productId, oldUrl: a.oldUrl, newUrl: m.image.url })
+      const d = await gql(ctx, `query($id: ID!) { product(id: $id) { media(first: 20) { nodes { status ... on MediaImage { image { url } } } } } }`, { id: a.shopifyProductId })
+      const media: any[] = d.product?.media?.nodes ?? []
+      if (media.some((m) => m.status === "FAILED")) return // keep Ops' copies; a photo did not reach Shopify
+      if (media.length >= a.oldUrls.length && media.slice(0, a.oldUrls.length).every((m) => m.status === "READY" && m.image?.url)) {
+        await ctx.runMutation(internal.shopifyStock.swapImage, { productId: a.productId, pairs: a.oldUrls.map((u, i) => ({ oldUrl: u, newUrl: media[i].image.url as string })) })
         return
       }
-      if (m?.status === "FAILED") return // keep Ops' copy; the photo did not reach Shopify
     } catch { /* try again below */ }
     if (a.tries < 6) await ctx.scheduler.runAfter(60_000, internal.shopifyStock.adoptImage, { ...a, tries: a.tries + 1 })
   },
 })
+const STORAGE_ID = /^https:\/\/[^/]+\.convex\.(?:cloud|site)\/api\/storage\/([^/?#]+)/
 export const swapImage = internalMutation({
-  args: { productId: v.id("products"), oldUrl: v.string(), newUrl: v.string() },
-  handler: async (ctx, { productId, oldUrl, newUrl }) => {
+  args: { productId: v.id("products"), pairs: v.array(v.object({ oldUrl: v.string(), newUrl: v.string() })) },
+  handler: async (ctx, { productId, pairs }) => {
     const p = await ctx.db.get(productId)
-    if (!p || p.imageUrl !== oldUrl) return
-    await ctx.db.patch(productId, { imageUrl: newUrl })
-    // only a picture uploaded from a product form, and only if nothing else still shows it
-    const f = await ctx.db.query("webFiles").withIndex("by_url", (q) => q.eq("url", oldUrl)).first()
-    if (!f || f.src !== "product" || !f.storageId) return
+    if (!p) return
     const vs = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
-    if (vs.some((x) => x.imageUrl === oldUrl)) return
-    await ctx.storage.delete(f.storageId)
-    await ctx.db.delete(f._id)
+    const w: any = p.web ?? {}
+    const patch: any = {}
+    for (const { oldUrl, newUrl } of pairs) {
+      // only a picture that belongs to this product alone: uploaded from a product form, or straight on the Website page.
+      // A picture picked from the Website → Files library stays where it is.
+      const f = await ctx.db.query("webFiles").withIndex("by_url", (q) => q.eq("url", oldUrl)).first()
+      const sid = f?.storageId ?? (oldUrl.match(STORAGE_ID)?.[1] as any)
+      const own = f ? f.src === "product" : !!sid
+      const others = (await ctx.db.query("products").collect()).some((o) => o._id !== productId && (o.imageUrl === oldUrl || (Array.isArray((o.web as any)?.images) && (o.web as any).images.some((i: any) => i?.url === oldUrl))))
+      if (!own || others || vs.some((x: any) => x.imageUrl === oldUrl || x.web?.image === oldUrl)) continue
+      if (p.imageUrl === oldUrl) patch.imageUrl = newUrl
+      if (Array.isArray(w.images) && w.images.some((i: any) => i?.url === oldUrl)) patch.web = { ...(patch.web ?? w), images: (patch.web ?? w).images.map((i: any) => (i?.url === oldUrl ? { ...i, url: newUrl } : i)) }
+      try { await ctx.storage.delete(sid) } catch { /* already gone */ }
+      if (f) await ctx.db.delete(f._id)
+    }
+    if (Object.keys(patch).length) await ctx.db.patch(productId, patch)
   },
 })
 

@@ -229,4 +229,23 @@ describe("website product status, bulk edits and Shopify fields", () => {
     const again = (await as.query(api.website.product, { id: sandal._id }))!
     expect(again.variants[0].byLocation[loc._id]).toEqual({ available: 7, committed: 2 })
   })
+
+  it("test (fake) pairs typed per size become stock marked 'not in hand'", async () => {
+    const { t, as } = await setup()
+    const id = await as.mutation(api.website.createProduct, {
+      title: "Test Runner", handle: "", html: "", vendor: "BlackBole", type: "Sneakers", tags: [], seo: { title: "", description: "" }, options: ["Size"], images: [], mf: {},
+      published: true, preOrder: false, preOrderFrom: "china", collections: [],
+      variants: [
+        { sku: "TR-40", title: "40", options: { Size: "40" }, price: 1500, fullPrice: 1500, compareAt: null, cost: 700, weightKg: 0.5, testQty: 5 },
+        { sku: "TR-41", title: "41", options: { Size: "41" }, price: 1500, fullPrice: 1500, compareAt: null, cost: 700, weightKg: 0.5 },
+      ],
+    })
+    const rows = await t.run(async (ctx) => {
+      const vs = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", id)).collect()
+      const out: Record<string, unknown> = {}
+      for (const v of vs) out[v.sku] = (await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", v._id)).collect()).map((r) => [r.available, r.virtual])
+      return out
+    })
+    expect(rows).toEqual({ "TR-40": [[5, 5]], "TR-41": [] })
+  })
 })
