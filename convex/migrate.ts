@@ -522,11 +522,15 @@ export const consolidateDuplicateProducts = mutation({
       if (group.length < 2) continue
       const scored = group.map((p) => {
         const vs = variantsByProduct.get(p._id as string) ?? []
+        // The strongest signal of "this is the real, customer-facing product" is that it's actually synced
+        // to the storefront — `web` or `shopifyItemId` on a variant means real customers can see and buy it.
+        // A throwaway duplicate created by a bad "fix" was never synced, however many sizes it happens to have.
+        const synced = vs.some((v) => v.web || v.shopifyItemId) ? 1 : 0
         const liveCount = vs.filter((v) => v.active !== false).length
         const maxPrice = Math.max(0, ...vs.map((v) => v.price || 0))
-        return { p, vs, liveCount, maxPrice }
+        return { p, vs, synced, liveCount, maxPrice }
       })
-      scored.sort((a, b) => b.liveCount - a.liveCount || b.maxPrice - a.maxPrice || a.p._creationTime - b.p._creationTime)
+      scored.sort((a, b) => b.synced - a.synced || b.liveCount - a.liveCount || b.maxPrice - a.maxPrice || a.p._creationTime - b.p._creationTime)
       const [canonical, ...dupes] = scored
       if (canonical.liveCount === 0) { skipped.push(`${group[0].name}: no clearly-live product in this group — left alone`); continue }
 
@@ -550,7 +554,13 @@ export const consolidateDuplicateProducts = mutation({
           for (const row of rows) {
             for (const bucket of STOCK_BUCKETS) {
               const amount = (row as any)[bucket] as number
-              if (!amount) continue
+              // Only ever move REAL (positive) stranded stock. A negative amount on a duplicate isn't stock
+              // to hand over — it's itself a symptom of this same bug and would just push the deficit onto
+              // the real product instead of fixing anything, so it's left for a human to look at.
+              if (amount <= 0) {
+                if (amount < 0) skipped.push(`${group[0].name} size ${size} (${v.sku}): ${bucket} is itself negative (${amount}) on the duplicate — left alone, needs a human look`)
+                continue
+              }
               moves.push({
                 product: group[0].name, fromProduct: d.p.name, fromProductId: d.p._id as string, toProduct: canonical.p.name,
                 size, location: row.locationId as string, bucket, amount, fromSku: v.sku, toSku: target.sku,

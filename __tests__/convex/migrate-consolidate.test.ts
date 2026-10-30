@@ -98,4 +98,68 @@ describe("consolidateDuplicateProducts", () => {
     expect(res.totalUnits).toBe(0)
     expect(res.skipped.some((s: string) => s.includes("size 46"))).toBe(true)
   })
+
+  it("picks the website-synced product as canonical, never the fuller-looking duplicate", async () => {
+    // Regression test: a first version of this repair picked "canonical" purely by variant count / price,
+    // which can go backwards when a bad fix script built out a full, even higher-priced duplicate product
+    // that was never actually synced to the storefront. Being linked to the website (`web`/`shopifyItemId`)
+    // is the one signal that can't be faked by an orphan script, so it must always win.
+    const { as, t, locationId } = await setup()
+
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Harbor Shore Sandal",
+      active: true,
+      variants: [{ sku: "BB-HSS-39", title: "39", weightKg: 0.4, price: 1380, purchasePrice: 500, active: true }],
+    })
+    const real = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal")!
+    const realV39 = real.variants[0]
+    // Mark it as actually synced to the storefront — the ground-truth signal of "this is the real one".
+    await t.run((ctx) => ctx.db.patch(realV39._id, { web: { id: 123 } }))
+    await as.mutation(api.catalog.adjustStock, { variantId: realV39._id, locationId, bucket: "available", change: -4, note: "test: oversold" })
+
+    // A "fuller" duplicate: more variants AND a higher price than the real one, but never synced anywhere.
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Harbor Shore Sandal",
+      active: true,
+      variants: [
+        { sku: "BB-HSS-NEW-39", title: "39", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+        { sku: "BB-HSS-NEW-40", title: "40", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+      ],
+    })
+    const dupe = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal" && p._id !== real._id)!
+    const dupeV39 = dupe.variants.find((v) => v.sku === "BB-HSS-NEW-39")!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: dupeV39._id, qty: 10, unitCost: 500 }] })
+
+    const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
+    const move = res.sample.find((m: any) => m.size === "39")
+    expect(move).toBeDefined()
+    // Stock must flow INTO the real, website-synced variant — never out of it.
+    expect(move!.toSku).toBe("BB-HSS-39")
+    expect(move!.fromSku).toBe("BB-HSS-NEW-39")
+  })
+
+  it("never transfers a negative bucket off a duplicate — that's a deficit, not stock to hand over", async () => {
+    const { as, locationId } = await setup()
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Trail Runner",
+      active: true,
+      imageUrl: "https://example.com/tr.jpg",
+      variants: [{ sku: "BB-TR-41", title: "41", weightKg: 0.4, price: 2000, purchasePrice: 800, active: true }],
+    })
+    const real = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Trail Runner")!
+
+    await as.mutation(api.catalog.saveProduct, {
+      name: "Trail Runner",
+      active: true,
+      variants: [{ sku: "BB-TR-41-DELETED", title: "41", weightKg: 0.4, price: 0, purchasePrice: 0, active: true }],
+    })
+    const dupe = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Trail Runner" && p._id !== real._id)!
+    // The duplicate's own stock is itself negative (a symptom of the same bug elsewhere) — nothing real to move.
+    await as.mutation(api.catalog.adjustStock, { variantId: dupe.variants[0]._id, locationId, bucket: "available", change: -2, note: "test: duplicate itself corrupted" })
+
+    const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
+    expect(res.totalUnits).toBe(0)
+    expect(res.moves).toBe(0)
+    expect(res.skipped.some((s: string) => s.includes("is itself negative"))).toBe(true)
+  })
 })
