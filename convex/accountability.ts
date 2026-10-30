@@ -40,14 +40,52 @@ export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orde
   }
   await logOrder(ctx, order._id, `Accountability: ${outcome} — flagged to ${owner ? `${owner.name} (${team})` : team}`, byName)
   await notify(ctx, `${owner?.name ?? team}: ${outcome}`, `${invoiceLabel(order)} needs a response from ${owner?.name ?? team} before this can close out.`, order._id, "accountability")
-  if (owner?.email) {
-    await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
-      to: owner.email,
-      subject: `Accountability: ${invoiceLabel(order)} needs your answer`,
-      text: `Hi ${owner.name.split(" ")[0]},\n\n${invoiceLabel(order)} (${order.customerName}, ${order.phone}) came back with: "${outcome}"${note ? ` — note from the call: "${note}"` : ""}.\n\nThis is routed to you as ${team}. Please open it in Ops → Accountability and write what happened, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
-    })
-  }
+  await sendFlagEmailOnce(ctx, flagId, {
+    team,
+    owner,
+    subject: `Accountability: ${invoiceLabel(order)} needs your answer`,
+    body: `Hi {first},\n\n${invoiceLabel(order)} (${order.customerName}, ${order.phone}) came back with: "${outcome}"${note ? ` — note from the call: "${note}"` : ""}.\n\nThis is routed to you as ${team}. Please open it in Ops → Accountability and write what happened, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
+  })
   return flagId
+}
+
+/** A lead address we can actually send to. Deliberately strict: a typo'd address must be recorded as skipped,
+ *  not handed to the mailer to bounce silently. */
+export function isValidEmail(email: string | undefined | null): email is string {
+  return !!email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email.trim())
+}
+
+/** The one place a department-lead flag email is ever queued, so the "never twice" rule lives in a single spot.
+ *
+ *  Idempotency: `flagEmailSentAt` is written in the SAME mutation that schedules the send, before the action
+ *  runs. Re-flagging the same case, or a double-click, therefore finds the latch already set and returns
+ *  without scheduling a second email. A missing or malformed lead address is recorded on the flag
+ *  (`flagEmailSkippedReason`) and never throws — the flag itself is already raised and must not be undone by
+ *  an email problem. */
+async function sendFlagEmailOnce(
+  ctx: MutationCtx,
+  flagId: Doc<"opsFlags">["_id"],
+  opts: { team: string; owner?: { name: string; email: string }; subject: string; body: string },
+) {
+  const flag = await ctx.db.get(flagId)
+  if (!flag) return
+  if (flag.flagEmailSentAt) return // already emailed once — never a second time
+  const { team, owner } = opts
+  if (!owner) {
+    await ctx.db.patch(flagId, { flagEmailAttemptedAt: Date.now(), flagEmailSkippedReason: `No lead is set for ${team} in Settings → Accountability.` })
+    return
+  }
+  if (!isValidEmail(owner.email)) {
+    await ctx.db.patch(flagId, { flagEmailAttemptedAt: Date.now(), flagEmailSkippedReason: `Lead for ${team} has no valid email address on file.` })
+    return
+  }
+  const now = Date.now()
+  await ctx.db.patch(flagId, { flagEmailSentAt: now, flagEmailAttemptedAt: now, flagEmailSkippedReason: undefined })
+  await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+    to: owner.email.trim(),
+    subject: opts.subject,
+    text: opts.body.replace("{first}", owner.name.split(" ")[0] || "there"),
+  })
 }
 
 /** Saju (or whoever's set as the operations head) opening a question that isn't tied to one order — "why is
@@ -63,13 +101,12 @@ export const raiseFreeform = mutation({
     const owner = owners.byTeam[team]
     const id = await ctx.db.insert("opsFlags", { reason: q, team, status: "open", raisedByName: me.staff.name, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
     await notify(ctx, `${owner?.name ?? team}: question raised`, q, undefined, "accountability")
-    if (owner?.email) {
-      await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
-        to: owner.email,
-        subject: `Accountability: a question needs your answer`,
-        text: `Hi ${owner.name.split(" ")[0]},\n\n${me.staff.name} raised this in Accountability, routed to you as ${team}:\n\n"${q}"\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
-      })
-    }
+    await sendFlagEmailOnce(ctx, id, {
+      team,
+      owner,
+      subject: `Accountability: a question needs your answer`,
+      body: `Hi {first},\n\n${me.staff.name} raised this in Accountability, routed to you as ${team}:\n\n"${q}"\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
+    })
     return id
   },
 })
@@ -132,8 +169,94 @@ export const respond = mutation({
     if (correctiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write what was actually done about this specific case.")
     if (preventiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write the concrete change that stops this happening again — not a promise, an action.")
     const response = `Root cause: ${rootCause}\nFix: ${correctiveAction}\nPrevention: ${preventiveAction}`
-    await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now() })
+    await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now(), closedAt: Date.now() })
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability resolved by ${flag.team}: ${response}`, me.staff.name)
+  },
+})
+
+// ---------------------------------------------------------------------------------------------------------------
+// Closed cases: the read-only history of everything that has left the open queue — answered with a CAPA, or
+// archived as a duplicate/invalid case. Nothing here can be edited; the only action is restoring an archived
+// case back to the open queue, which is itself recorded.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Soft-archive a case that shouldn't be answered — a duplicate, a test entry, a flag raised against the wrong
+ *  order. Never a hard delete: the record, its reason and its history all stay, so the audit trail is intact.
+ *  Idempotent, so a double-click is a no-op rather than an error. */
+export const archive = mutation({
+  args: { id: v.id("opsFlags"), reason: v.optional(v.string()) },
+  handler: async (ctx, { id, reason }) => {
+    const me = await requirePerm(ctx, "orders.accountability")
+    const flag = await ctx.db.get(id)
+    if (!flag) throw new ConvexError("Case not found")
+    if (flag.archivedAt) return { alreadyArchived: true }
+    if (flag.status === "resolved") throw new ConvexError("This case is already closed with an answer — it can't be archived.")
+    const now = Date.now()
+    await ctx.db.patch(id, {
+      status: "archived",
+      archivedAt: now,
+      archivedBy: me.staff.name,
+      archiveReason: reason?.trim() || undefined,
+      closedAt: now,
+    })
+    if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability case archived by ${me.staff.name}${reason?.trim() ? ` — ${reason.trim()}` : ""}`, me.staff.name)
+    return { alreadyArchived: false }
+  },
+})
+
+/** Put an archived case back in the open queue — the undo for a mistaken archive. Clears the archive fields and
+ *  the closed stamp so it behaves exactly like a freshly raised flag again. */
+export const unarchive = mutation({
+  args: { id: v.id("opsFlags") },
+  handler: async (ctx, { id }) => {
+    const me = await requirePerm(ctx, "orders.accountability")
+    const flag = await ctx.db.get(id)
+    if (!flag) throw new ConvexError("Case not found")
+    if (!flag.archivedAt) return { alreadyOpen: true }
+    await ctx.db.patch(id, { status: "open", archivedAt: undefined, archivedBy: undefined, archiveReason: undefined, closedAt: undefined })
+    if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability case restored to the open queue by ${me.staff.name}`, me.staff.name)
+    return { alreadyOpen: false }
+  },
+})
+
+/** The Closed Cases history, newest close first. Read-only: every row carries who closed it, when, why, and the
+ *  linked order so the case can be reviewed without leaving the page. Legacy flags that were resolved before
+ *  `closedAt` existed fall back to `resolvedAt`, so old history still appears rather than silently vanishing. */
+export const listClosed = query({
+  args: { team: v.optional(v.string()) },
+  handler: async (ctx, { team }) => {
+    await requirePerm(ctx, "orders.view")
+    const rows = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "resolved")).order("desc").collect()
+    const archived = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "archived")).order("desc").collect()
+    const all = [...rows, ...archived].filter((r) => !team || r.team === team)
+    const out: any[] = []
+    for (const r of all) {
+      let orderInvoice: string | null = null
+      let orderStatus: string | null = null
+      let customerName: string | null = null
+      let phone: string | null = null
+      if (r.orderId) {
+        const o = await ctx.db.get(r.orderId)
+        if (o) {
+          orderInvoice = invoiceLabel(o)
+          orderStatus = o.status
+          customerName = o.customerName
+          phone = o.phone
+        }
+      }
+      out.push({
+        ...r,
+        orderInvoice,
+        orderStatus,
+        customerName,
+        phone,
+        // One sortable "when it closed" for both kinds of closure, with a fallback for pre-Task-5 records.
+        closedAtResolved: r.closedAt ?? r.archivedAt ?? r.resolvedAt ?? r.raisedAt,
+        outcome: r.archivedAt ? "archived" : "answered",
+      })
+    }
+    out.sort((a, b) => b.closedAtResolved - a.closedAtResolved)
+    return out
   },
 })
 
@@ -270,13 +393,12 @@ export const raiseSystem = internalMutation({
     const owner = owners.byTeam[team]
     const id = await ctx.db.insert("opsFlags", { reason, team, note, status: "open", raisedByName: "BlackBole Ops (automatic)", raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
     await notify(ctx, `${owner?.name ?? team}: business metric needs an answer`, reason, undefined, "accountability")
-    if (owner?.email) {
-      await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
-        to: owner.email,
-        subject: `Accountability: a business metric needs your answer`,
-        text: `Hi ${owner.name.split(" ")[0]},\n\nBlackBole Ops spotted this automatically and routed it to you as ${team}:\n\n"${reason}"${note ? `\n\n${note}` : ""}\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
-      })
-    }
+    await sendFlagEmailOnce(ctx, id, {
+      team,
+      owner,
+      subject: `Accountability: a business metric needs your answer`,
+      body: `Hi {first},\n\nBlackBole Ops spotted this automatically and routed it to you as ${team}:\n\n"${reason}"${note ? `\n\n${note}` : ""}\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops`,
+    })
     return id
   },
 })

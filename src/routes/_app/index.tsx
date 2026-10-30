@@ -132,7 +132,7 @@ function Dashboard() {
                     <div className="mt-2 text-3xl font-bold tabular-nums">{urgency.pendingOrders}</div>
                     <div className="mt-0.5 text-xs opacity-80">Pending orders →</div>
                   </Link>
-                  <Link to="/accountability" className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", (flagCounts?.total ?? 0) > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
+                  <Link to="/accountability" search={{ tab: "open" }} className={cn("group rounded-xl p-4 transition hover:-translate-y-0.5 hover:shadow-md", (flagCounts?.total ?? 0) > 0 ? "bg-tone-red/10 text-tone-red" : "bg-tone-green-bg text-tone-green")}>
                     <div className="flex items-center justify-between"><ShieldAlert className="size-4 opacity-70" /></div>
                     <div className="mt-2 text-3xl font-bold tabular-nums">{flagCounts?.total ?? 0}</div>
                     <div className="mt-0.5 text-xs opacity-80">Accountability open →</div>

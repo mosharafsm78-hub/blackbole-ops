@@ -856,5 +856,21 @@ export default defineSchema({
     assignee: v.optional(v.string()), // named owner this was routed to at the time (Settings → Accountability), for display even if the setting later changes
     assigneeEmail: v.optional(v.string()),
     escalatedAt: v.optional(v.number()), // first time this crossed the 2-day SLA and the ops head got pinged
-  }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]),
+
+    // ---- Closed-case history (Task 5) ----
+    // Every field below is optional, so every flag raised before this feature — and every flag still open —
+    // remains a perfectly valid document. A flag with no closedAt is simply still open.
+    closedAt: v.optional(v.number()), // when it left the open queue: answered (resolved) or archived
+    archivedAt: v.optional(v.number()), // soft-archived as a duplicate/invalid case rather than answered
+    archivedBy: v.optional(v.string()),
+    archiveReason: v.optional(v.string()),
+
+    // ---- Department-lead email tracking (Task 5) ----
+    // flagEmailSentAt is the idempotency latch: set once, the moment the email is queued, so re-flagging the
+    // same case or double-clicking can never send a second one. The other two record what happened when no
+    // email could go out, so a missing lead address is visible instead of silent.
+    flagEmailSentAt: v.optional(v.number()),
+    flagEmailAttemptedAt: v.optional(v.number()),
+    flagEmailSkippedReason: v.optional(v.string()),
+  }).index("by_order", ["orderId"]).index("by_status", ["status", "raisedAt"]).index("by_team_status", ["team", "status", "raisedAt"]).index("by_closed", ["closedAt"]),
 })

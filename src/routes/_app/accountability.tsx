@@ -11,14 +11,18 @@ import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dateTime, errMsg } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/accountability")({
+  validateSearch: (s: Record<string, unknown>): { tab: View } => ({ tab: s.tab === "closed" ? "closed" : "open" }),
   component: () => (
     <Guard perm="orders.view">
       <Accountability />
     </Guard>
   ),
 })
+
+type View = "open" | "closed"
 
 const SLA_DAYS = 2
 const TEAMS = ["Fulfillment", "Marketing", "Customer Care"]
@@ -32,17 +36,29 @@ function daysOpen(raisedAt: number) {
  *  one-line excuse. */
 function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
   const respond = useMutation(api.accountability.respond)
+  const archive = useMutation(api.accountability.archive)
   const [open, setOpen] = useState(false)
   const [rootCause, setRootCause] = useState("")
   const [correctiveAction, setCorrectiveAction] = useState("")
   const [preventiveAction, setPreventiveAction] = useState("")
   const [busy, setBusy] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const submit = async () => {
     setBusy(true)
     try {
       await respond({ id: flag._id, rootCause: rootCause.trim(), correctiveAction: correctiveAction.trim(), preventiveAction: preventiveAction.trim() })
       toast.success("Closed out")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  /** Soft-archive: the case leaves the open queue but is never deleted, and lands in Closed cases with who did it
+   *  and when. Guarded so a double-click can't fire twice. */
+  const archiveCase = async () => {
+    if (archiving) return
+    setArchiving(true)
+    try {
+      const res = await archive({ id: flag._id })
+      toast.success(res.alreadyArchived ? "Already archived" : "Archived — moved to Closed cases")
+    } catch (e) { toast.error(errMsg(e)) } finally { setArchiving(false) }
   }
   const days = daysOpen(flag.raisedAt)
   const overdue = days >= SLA_DAYS
@@ -68,7 +84,10 @@ function Row({ flag, canRespond }: { flag: any; canRespond: boolean }) {
           <p className="mt-1 text-xs text-muted-foreground">Flagged by {flag.raisedByName} · {dateTime(flag.raisedAt)}</p>
         </div>
         {canRespond && (
-          <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "Respond & close"}</Button>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="ghost" size="sm" disabled={archiving} onClick={() => void archiveCase()}>Archive</Button>
+            <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Cancel" : "Respond & close"}</Button>
+          </div>
         )}
       </div>
       {open && canRespond && (
@@ -133,11 +152,104 @@ function RaiseQuestion() {
   )
 }
 
+/** One closed case, read-only. Everything needed to review it historically is on the row: who closed it, when,
+ *  why, and the linked order — no click required, and nothing here is editable. */
+function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
+  const unarchive = useMutation(api.accountability.unarchive)
+  const [busy, setBusy] = useState(false)
+  const archived = c.outcome === "archived"
+  const restore = async () => {
+    setBusy(true)
+    try {
+      await unarchive({ id: c._id })
+      toast.success("Back in the open queue")
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="rounded-lg border bg-card p-4" data-testid="closed-case">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <TeamTag team={c.team} />
+            {archived ? <Pill tone="gray">Archived</Pill> : <Pill tone="green">Answered</Pill>}
+            {c.orderInvoice ? (
+              <>
+                <Link to="/order" search={{ id: c.orderId as Id<"orders"> }} className="font-semibold underline underline-offset-2">{c.orderInvoice}</Link>
+                {c.customerName && <span className="text-sm text-muted-foreground">{c.customerName}{c.phone ? ` · ${c.phone}` : ""}</span>}
+              </>
+            ) : (
+              <Pill tone="violet">Question</Pill>
+            )}
+          </div>
+          <p className="mt-1 text-sm font-medium">{c.reason}</p>
+          {c.note && <p className="mt-0.5 text-sm text-muted-foreground">"{c.note}"</p>}
+
+          {archived ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Archived by <span className="font-medium text-foreground">{c.archivedBy ?? "unknown"}</span> · {dateTime(c.archivedAt)}
+              {c.archiveReason ? ` — ${c.archiveReason}` : ""}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Closed by <span className="font-medium text-foreground">{c.resolvedByName ?? "unknown"}</span> · {dateTime(c.resolvedAt ?? c.closedAt)}
+            </p>
+          )}
+
+          {!archived && c.response && (
+            <div className="mt-2 space-y-1 rounded-md bg-muted/50 p-2 text-sm">
+              {c.rootCause && <p><span className="font-semibold">Root cause:</span> {c.rootCause}</p>}
+              {c.correctiveAction && <p><span className="font-semibold">Fix:</span> {c.correctiveAction}</p>}
+              {c.preventiveAction && <p><span className="font-semibold">Prevention:</span> {c.preventiveAction}</p>}
+            </div>
+          )}
+        </div>
+        {archived && canRestore && (
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void restore()}>Restore</Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ClosedCases({ canRestore }: { canRestore: boolean }) {
+  const [team, setTeam] = useState<string>("all")
+  const rows = useQuery(api.accountability.listClosed, team === "all" ? {} : { team })
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">Read-only history — every case that has left the open queue, answered or archived. Nothing here can be edited.</p>
+        <Select value={team} onValueChange={setTeam}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All departments</SelectItem>
+            {TEAMS.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      {rows === undefined ? <Loading /> : rows.length === 0 ? (
+        <Empty title="No closed cases yet">Cases appear here once a department answers them, or once a duplicate is archived.</Empty>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((c) => <ClosedRow key={c._id} c={c} canRestore={canRestore} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Accountability() {
   const can = useCan()
+  const { tab } = Route.useSearch()
+  const navigate = Route.useNavigate()
   const flags = useQuery(api.accountability.listOpen)
+  const closed = useQuery(api.accountability.listClosed, {})
   const canRespond = can("orders.accountability")
   const canRaise = can("team.manage")
+
+  const tabs: { k: View; label: string; count?: number }[] = [
+    { k: "open", label: "Open", count: flags?.length },
+    { k: "closed", label: "Closed cases", count: closed?.length },
+  ]
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -145,7 +257,24 @@ function Accountability() {
         <PageHeader title="Accountability" sub="Returns confirmed to be our own mistake, routed to the person responsible — each one gets a real answer within 2 days, or it escalates." />
         {canRaise && <RaiseQuestion />}
       </div>
-      {flags === undefined ? <Loading /> : flags.length === 0 ? (
+
+      <div className="flex flex-wrap gap-1" role="tablist">
+        {tabs.map((t) => (
+          <button
+            key={t.k} type="button" role="tab" aria-selected={tab === t.k}
+            onClick={() => void navigate({ search: { tab: t.k } })}
+            data-testid={`accountability-tab-${t.k}`}
+            className={cn("rounded-lg px-3 py-1.5 text-sm font-medium", tab === t.k ? "bg-foreground text-background" : "hover:bg-accent")}
+          >
+            {t.label}
+            {t.count !== undefined && <span className="ml-1.5 tabular-nums opacity-80">{t.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "closed" ? (
+        <ClosedCases canRestore={canRespond} />
+      ) : flags === undefined ? <Loading /> : flags.length === 0 ? (
         <Empty title="Nothing open">Every at-fault return and question has a response on record — this list stays empty until the next one comes in.</Empty>
       ) : (
         <div className="space-y-3">
