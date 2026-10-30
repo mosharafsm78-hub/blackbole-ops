@@ -106,4 +106,22 @@ describe("pick list", () => {
     expect(hss42.availableQty).toBe(0)
     expect(hss42.shortageQty).toBe(2) // nothing in stock — the exact "why hasn't this shipped" case
   })
+
+  it("breaks the available quantity down by warehouse, so the team knows where to actually go pick it", async () => {
+    const { t, as, locationId, v41 } = await setup() // v41 already has 10 available at the default warehouse
+    await as.mutation(api.team.saveLocation, { name: "CTG Warehouse", active: true, isDefault: false })
+    const ctg = (await as.query(api.team.listLocations, {})).find((l) => l.name === "CTG Warehouse")!._id
+    await as.mutation(api.catalog.receiveStock, { locationId: ctg, updateCost: true, items: [{ variantId: v41._id, qty: 6, unitCost: 520 }] })
+
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id, 2))
+    const rows = (await as.query(api.orders.pickList, { ids: [orderId] }))!
+    const hss41 = rows.find((r) => r.sku === "BB-HSS-41")!
+    expect(hss41.availableQty).toBe(16) // 10 + 6, summed across both warehouses
+    expect((hss41 as any).warehouses).toEqual(
+      expect.arrayContaining([
+        { name: "CTG Warehouse", qty: 6 },
+        { name: expect.any(String), qty: 10 },
+      ]),
+    )
+  })
 })

@@ -99,31 +99,31 @@ describe("consolidateDuplicateProducts", () => {
     expect(res.skipped.some((s: string) => s.includes("size 46"))).toBe(true)
   })
 
-  it("picks the website-synced product as canonical, never the fuller-looking duplicate", async () => {
-    // Regression test: a first version of this repair picked "canonical" purely by variant count / price,
-    // which can go backwards when a bad fix script built out a full, even higher-priced duplicate product
-    // that was never actually synced to the storefront. Being linked to the website (`web`/`shopifyItemId`)
-    // is the one signal that can't be faked by an orphan script, so it must always win.
-    const { as, t, locationId } = await setup()
+  it("picks the real product by price alone, even when the ৳0 duplicate has more SKUs", async () => {
+    // Regression test: a first version of this repair picked "canonical" by variant count / price among ALL
+    // candidates, which goes backwards when a bad fix script built out a fuller-looking ৳0 duplicate with more
+    // sizes than the real product. ৳0 is the one signal the live data never contradicted — a product that was
+    // never actually priced can never be "the real one", however many sizes it was given, so it's a hard
+    // filter now, not a tie-break that a bigger duplicate can out-score.
+    const { as, locationId } = await setup()
 
     await as.mutation(api.catalog.saveProduct, {
       name: "Harbor Shore Sandal",
       active: true,
+      imageUrl: "https://example.com/hss.jpg",
       variants: [{ sku: "BB-HSS-39", title: "39", weightKg: 0.4, price: 1380, purchasePrice: 500, active: true }],
     })
     const real = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal")!
     const realV39 = real.variants[0]
-    // Mark it as actually synced to the storefront — the ground-truth signal of "this is the real one".
-    await t.run((ctx) => ctx.db.patch(realV39._id, { web: { id: 123 } }))
     await as.mutation(api.catalog.adjustStock, { variantId: realV39._id, locationId, bucket: "available", change: -4, note: "test: oversold" })
 
-    // A "fuller" duplicate: more variants AND a higher price than the real one, but never synced anywhere.
+    // A "fuller" duplicate: more variants than the real one, ৳0 price (the documented duplicate signature).
     await as.mutation(api.catalog.saveProduct, {
       name: "Harbor Shore Sandal",
       active: true,
       variants: [
-        { sku: "BB-HSS-NEW-39", title: "39", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
-        { sku: "BB-HSS-NEW-40", title: "40", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+        { sku: "BB-HSS-NEW-39", title: "39", weightKg: 0.4, price: 0, purchasePrice: 500, active: true },
+        { sku: "BB-HSS-NEW-40", title: "40", weightKg: 0.4, price: 0, purchasePrice: 500, active: true },
       ],
     })
     const dupe = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal" && p._id !== real._id)!
@@ -133,57 +133,41 @@ describe("consolidateDuplicateProducts", () => {
     const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
     const move = res.sample.find((m: any) => m.size === "39")
     expect(move).toBeDefined()
-    // Stock must flow INTO the real, website-synced variant — never out of it.
+    // Stock must flow INTO the real, priced variant — never out of it.
     expect(move!.toSku).toBe("BB-HSS-39")
     expect(move!.fromSku).toBe("BB-HSS-NEW-39")
   })
 
-  it("uses order history to pick the canonical product when neither candidate is storefront-synced", async () => {
-    // Regression test: the exact real-world case that slipped through the `synced` fix — neither the real
-    // product nor its duplicate has `web`/`shopifyItemId` set (common for older catalogue entries), so the
-    // tie-break must fall to something else that can't be gamed by a throwaway duplicate: real order history.
-    const { as, t, locationId } = await setup()
+  it("leaves a whole group alone when two priced, multi-SKU products share a name — too ambiguous to auto-pick", async () => {
+    // The exact real-world case that slipped through every earlier version of this heuristic: two products
+    // sharing a name both have a real price and several SKUs (e.g. an old SKU scheme sitting alongside a new
+    // one, or a genuinely different product that happens to share a name). Live dry runs showed that guessing
+    // between two real-looking candidates — by sync status, order history, variant count, price, or age — gets
+    // it backwards often enough that this can't be auto-picked; it needs a human to actually look.
+    const { as, locationId } = await setup()
 
     await as.mutation(api.catalog.saveProduct, {
       name: "Harbor Shore Sandal",
       active: true,
-      imageUrl: "https://example.com/hss.jpg",
-      variants: [{ sku: "BB-SH-BHSS-BLACK-44", title: "44", weightKg: 0.4, price: 1380, purchasePrice: 500, active: true }],
+      imageUrl: "https://example.com/hss-a.jpg",
+      variants: [{ sku: "BB-HSS-A-44", title: "44", weightKg: 0.4, price: 1380, purchasePrice: 500, active: true }],
     })
-    const real = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal")!
-    const realV44 = real.variants[0]
-
-    // A duplicate with MORE variants and a HIGHER price — on the old heuristic alone this would win.
     await as.mutation(api.catalog.saveProduct, {
       name: "Harbor Shore Sandal",
       active: true,
+      imageUrl: "https://example.com/hss-b.jpg",
       variants: [
-        { sku: "BB-SH-BHSS-BLACK-NEW-44", title: "44", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
-        { sku: "BB-SH-BHSS-BLACK-NEW-45", title: "45", weightKg: 0.4, price: 9999, purchasePrice: 500, active: true },
+        { sku: "BB-HSS-B-44", title: "44", weightKg: 0.4, price: 1980, purchasePrice: 700, active: true },
+        { sku: "BB-HSS-B-45", title: "45", weightKg: 0.4, price: 1980, purchasePrice: 700, active: true },
       ],
     })
-    const dupe = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal" && p._id !== real._id)!
-    const dupeV44 = dupe.variants.find((v) => v.sku === "BB-SH-BHSS-BLACK-NEW-44")!
-    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: dupeV44._id, qty: 10, unitCost: 500 }] })
-
-    // Give the REAL variant actual order history — a customer genuinely bought this one. This has to go
-    // through a real order + status move (not a raw db.insert into "orders"), because the signal this repair
-    // actually reads is `stockLogs.orderId` — the ledger line `moveOrderStock` writes on a real status
-    // transition — not the orders table itself (reading that directly would mean scanning the whole, 10,000+
-    // row orders table on every run, which is what caused the live dry run to fail in production).
-    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: realV44._id, qty: 5, unitCost: 500 }] })
-    const order = await as.mutation(api.orders.create, {
-      source: "Facebook", customerName: "Test Customer", phone: "+8801700000000", address: "Test address",
-      locationId, deliveryType: "pickup", items: [{ variantId: realV44._id, qty: 1, price: 1380, discount: 0 }],
-      discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
-    })
-    await as.mutation(api.orders.changeStatus, { ids: [order.orderId], to: "approved" })
+    const b = (await as.query(api.catalog.listProducts, {}))!.find((p) => p.name === "Harbor Shore Sandal" && p.variants.some((v) => v.sku === "BB-HSS-B-44"))!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: b.variants[0]._id, qty: 10, unitCost: 700 }] })
 
     const res = await as.mutation(api.migrate.consolidateDuplicateProducts, { dryRun: true })
-    const move = res.sample.find((m: any) => m.size === "44")
-    expect(move).toBeDefined()
-    expect(move!.toSku).toBe("BB-SH-BHSS-BLACK-44")
-    expect(move!.fromSku).toBe("BB-SH-BHSS-BLACK-NEW-44")
+    expect(res.totalUnits).toBe(0)
+    expect(res.moves).toBe(0)
+    expect(res.skipped.some((s: string) => s.includes("Harbor Shore Sandal") && s.includes("all look real"))).toBe(true)
   })
 
   it("never transfers a negative bucket off a duplicate — that's a deficit, not stock to hand over", async () => {

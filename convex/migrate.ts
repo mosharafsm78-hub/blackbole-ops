@@ -510,22 +510,6 @@ export const consolidateDuplicateProducts = mutation({
       byName.set(key, arr)
     }
 
-    // The single strongest signal of "this is the real product" — stronger than price or variant count, which
-    // a bad fix script can easily reproduce or even exceed: has an actual customer order ever touched this
-    // variant's stock? An orphan duplicate created by a broken SKU "fix" was never customer-facing, so it has
-    // zero. `stockLogs.orderId` is set only on the two ledger lines a real order's own status move writes
-    // (moveOrderStock) — never on a receipt, an adjustment, or this repair's own transfers — so it can't be
-    // faked by whatever created the duplicate. Looked up per-variant on its index, and only for the variants
-    // that are actually in a name-group with a duplicate, so this never scans the (11,000+ row) orders table.
-    const candidateVariantIds = [...byName.values()]
-      .filter((group) => group.length >= 2)
-      .flatMap((group) => group.flatMap((p) => (variantsByProduct.get(p._id as string) ?? []).map((v) => v._id as Id<"variants">)))
-    const orderRefsByVariant = new Map<string, number>()
-    for (const variantId of candidateVariantIds) {
-      const logs = await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", variantId)).collect()
-      orderRefsByVariant.set(variantId as string, logs.filter((l) => l.orderId !== undefined).length)
-    }
-
     type Move = {
       product: string; fromProduct: string; fromProductId: string; toProduct: string; size: string
       location: string; bucket: string; amount: number; fromSku: string; toSku: string
@@ -538,27 +522,39 @@ export const consolidateDuplicateProducts = mutation({
       if (group.length < 2) continue
       const scored = group.map((p) => {
         const vs = variantsByProduct.get(p._id as string) ?? []
-        // The strongest signal of "this is the real, customer-facing product" is that it's actually synced
-        // to the storefront — `web` or `shopifyItemId` on a variant means real customers can see and buy it.
-        // A throwaway duplicate created by a bad "fix" was never synced, however many sizes it happens to have.
-        const synced = vs.some((v) => v.web || v.shopifyItemId) ? 1 : 0
-        // Second-strongest, un-fakeable signal: has a real customer order ever referenced one of this
-        // product's variants? An orphan duplicate created by a broken "fix" was never customer-facing,
-        // so it has zero order references, however many sizes or however high a price it was given.
-        const orderRefs = vs.reduce((sum, v) => sum + (orderRefsByVariant.get(v._id as string) ?? 0), 0)
-        const liveCount = vs.filter((v) => v.active !== false).length
         const maxPrice = Math.max(0, ...vs.map((v) => v.price || 0))
-        return { p, vs, synced, orderRefs, liveCount, maxPrice }
+        // The documented signature of a throwaway duplicate from the broken SKU "fix" is exactly what the UI
+        // above describes: ৳0 price, no photo, usually one SKU. A product with no real price was never
+        // actually sellable, so it can never be "the real one" — this is a hard filter, not a tie-break, and
+        // it is the one signal the live data never contradicted across two dry runs (unlike sync status,
+        // order history, variant count, or price-among-priced-products, which all picked the wrong product at
+        // least once against the real catalogue).
+        const realPriced = maxPrice > 0
+        // Among real-priced candidates: synced to the storefront (`web`/`shopifyItemId`) and has a photo are
+        // both part of the same documented "real product" shape; kept as supporting signals, not deciders.
+        const synced = vs.some((v) => v.web || v.shopifyItemId) ? 1 : 0
+        const hasImage = p.imageUrl ? 1 : 0
+        const liveCount = vs.filter((v) => v.active !== false).length
+        return { p, vs, realPriced, synced, hasImage, liveCount, maxPrice }
       })
-      scored.sort(
-        (a, b) =>
-          b.synced - a.synced ||
-          b.orderRefs - a.orderRefs ||
-          b.liveCount - a.liveCount ||
-          b.maxPrice - a.maxPrice ||
-          a.p._creationTime - b.p._creationTime,
-      )
-      const [canonical, ...dupes] = scored
+      const realCandidates = scored.filter((s) => s.realPriced)
+      if (realCandidates.length === 0) {
+        skipped.push(`${group[0].name}: no product in this group has a real price — left alone, needs a human look`)
+        continue
+      }
+      if (realCandidates.length > 1) {
+        // More than one product sharing this name actually looks real (a real price, usually several SKUs).
+        // This isn't the simple "one real product plus throwaway ৳0 orphans" shape this repair targets — it
+        // could be two genuinely different products that happen to share a name, or a second, larger-looking
+        // duplicate the bad fix script built out in full. Two live dry runs showed that guessing between two
+        // real-looking candidates (by sync status, order history, variant count, price, or age) gets it
+        // backwards often enough that auto-picking isn't safe here — only a human looking at both products can
+        // tell which one is current, so every member of this group is left alone.
+        skipped.push(`${group[0].name}: ${realCandidates.length} products in this group all look real (a real price, multiple SKUs) — left alone, needs a human to pick which is current`)
+        continue
+      }
+      const canonical = realCandidates[0]
+      const dupes = scored.filter((s) => s.p._id !== canonical.p._id)
       if (canonical.liveCount === 0) { skipped.push(`${group[0].name}: no clearly-live product in this group — left alone`); continue }
 
       const canonSizes = new Map<string, Doc<"variants">>()

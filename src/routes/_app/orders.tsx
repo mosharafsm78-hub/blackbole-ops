@@ -611,7 +611,14 @@ function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open
                         {r.attrs && <span className="text-muted-foreground"> · {r.attrs}</span>}
                       </td>
                       <td className="p-2 text-right tabular-nums">{r.qty}</td>
-                      <td className="p-2 text-right tabular-nums">{r.availableQty}</td>
+                      <td className="p-2 text-right tabular-nums">
+                        {r.availableQty}
+                        {(r as any).warehouses?.length > 0 && (
+                          <div className="whitespace-nowrap text-[11px] font-normal text-muted-foreground">
+                            {(r as any).warehouses.map((w: { name: string; qty: number }) => `${w.name}: ${w.qty}`).join(" · ")}
+                          </div>
+                        )}
+                      </td>
                       <td className={cn("p-2 text-right font-semibold tabular-nums", r.shortageQty > 0 ? "text-tone-red" : "text-muted-foreground")}>
                         {r.shortageQty > 0 ? r.shortageQty : "—"}
                       </td>

@@ -1227,20 +1227,29 @@ export const pickList = query({
         map.set(i.sku, row)
       }
     }
-    // Available stock per variant, summed across every warehouse — this view answers "can we physically pick
-    // this whole batch", not "which warehouse has it"; the existing per-warehouse views already answer that.
+    // Available stock per variant, summed across every warehouse for the headline number, but also broken down
+    // by warehouse so the team can see WHERE to actually go pick it — "it's available" is no help by itself
+    // when it's sitting in a warehouse nobody on this run is standing in.
     const neededVariants = new Set([...map.values()].map((r) => r.variantId).filter((x): x is string => !!x))
     const available = new Map<string, number>()
+    const byWarehouse = new Map<string, Map<string, number>>() // variantId -> locationId -> available
     if (neededVariants.size) {
       for (const r of await ctx.db.query("stock").collect()) {
-        if (!neededVariants.has(r.variantId as string)) continue
+        if (!neededVariants.has(r.variantId as string) || r.available <= 0) continue
         available.set(r.variantId as string, (available.get(r.variantId as string) ?? 0) + r.available)
+        const perLoc = byWarehouse.get(r.variantId as string) ?? new Map<string, number>()
+        perLoc.set(r.locationId as string, (perLoc.get(r.locationId as string) ?? 0) + r.available)
+        byWarehouse.set(r.variantId as string, perLoc)
       }
     }
+    const locationName = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
     return [...map.values()]
       .map((r) => {
         const availableQty = r.variantId ? (available.get(r.variantId) ?? 0) : 0
-        return { ...r, availableQty, shortageQty: Math.max(0, r.qty - availableQty) }
+        const warehouses = r.variantId
+          ? [...(byWarehouse.get(r.variantId) ?? new Map())].map(([locId, qty]) => ({ name: locationName.get(locId) ?? "—", qty })).sort((a, b) => b.qty - a.qty)
+          : []
+        return { ...r, availableQty, shortageQty: Math.max(0, r.qty - availableQty), warehouses }
       })
       .sort((a, b) => b.shortageQty - a.shortageQty || a.sku.localeCompare(b.sku))
   },
