@@ -246,3 +246,32 @@ describe("profit: margin, break-even and profit at target", () => {
     expect(p.profitMtd).toBe(Math.round(400000 * 0.5 - 90000 - (209000 * 10) / 30)) // 40,333
   })
 })
+
+import { allocateGrouped, classify } from "../../convex/targetPlan"
+
+describe("focus / others / dead-stock groups", () => {
+  it("sends broken size runs and never-selling stock to dead, thin stock to others, the rest to focus", () => {
+    expect(classify({ stockUnits: 60, sizesIn: 6, sizesTotal: 7, soldUnits: 20 })).toBe("focus")
+    expect(classify({ stockUnits: 60, sizesIn: 2, sizesTotal: 7, soldUnits: 20 })).toBe("dead") // only 2 of 7 sizes left
+    expect(classify({ stockUnits: 60, sizesIn: 3, sizesTotal: 8, soldUnits: 20 })).toBe("dead") // under 60% of sizes
+    expect(classify({ stockUnits: 60, sizesIn: 6, sizesTotal: 7, soldUnits: 0 })).toBe("dead") // stock, no sales
+    expect(classify({ stockUnits: 6, sizesIn: 6, sizesTotal: 7, soldUnits: 20 })).toBe("other") // fine sizes, thin stock
+    expect(classify({ stockUnits: 40, sizesIn: 1, sizesTotal: 1, soldUnits: 5 })).toBe("focus") // sizeless item
+    expect(classify({ stockUnits: null, sizesIn: 0, sizesTotal: 0, soldUnits: 5 })).toBe("focus") // pre-order
+  })
+
+  it("puts 80% on focus, 12% on others, 8% on dead stock", () => {
+    const mk = (key: string, group: "focus" | "other" | "dead"): any => ({ key, name: key, price: 1000, demandRevenue: 100, stockUnits: null, group })
+    const { rows } = allocateGrouped([mk("F", "focus"), mk("O", "other"), mk("D", "dead")], 100000)
+    const r = Object.fromEntries(rows.map((x) => [x.key, x.revenue]))
+    expect(r).toEqual({ D: 8000, O: 12000, F: 80000 })
+  })
+
+  it("hands what a small group's stock can't carry back to focus, and lets one group take everything if alone", () => {
+    const mk = (key: string, group: "focus" | "dead", stockUnits: number | null): any => ({ key, name: key, price: 1000, demandRevenue: 100, stockUnits, group })
+    const { rows } = allocateGrouped([mk("F", "focus", null), mk("D", "dead", 3)], 100000)
+    const r = Object.fromEntries(rows.map((x) => [x.key, x.units]))
+    expect(r).toEqual({ D: 3, F: 97 })
+    expect(allocateGrouped([mk("D", "dead", 500)], 100000).rows[0].units).toBe(100)
+  })
+})

@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy, Flag,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -36,6 +36,8 @@ const NAV = [
   { to: "/accountability", label: "Accountability", icon: ShieldAlert, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "" },
   // No perm here on purpose — every signed-in staff member can see Pulse, whatever role they hold.
   { to: "/pulse", label: "Pulse", icon: Trophy, perm: null, color: "bg-tone-amber-bg text-tone-amber", group: "" },
+  // Open to all staff, like Pulse: the marketing team works from it.
+  { to: "/target", label: "Target", icon: Flag, perm: null, color: "bg-tone-blue-bg text-tone-blue", group: "" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
   { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },

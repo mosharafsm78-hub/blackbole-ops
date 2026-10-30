@@ -66,7 +66,25 @@ export function summarizeSales(rows: SaleRow[], month: { startMs: number; endMs:
 
 // ------------------------------------------------------------------------------------------------ allocation
 
+/** focus = real stock and a proper size run (carries the pressure); other = thin stock; dead = broken size run or
+ *  no sales (a small share, to clear it). */
+export type Group = "focus" | "other" | "dead"
+export const GROUP_SHARE: Record<Group, number> = { focus: 0.8, other: 0.12, dead: 0.08 }
+export const FOCUS_MIN_STOCK = 10 // pairs
+const MIN_SIZES = 3 // a product with fewer sizes than this has no size run to break (sizeless items)
+const MIN_SIZE_COVER = 0.6 // share of its sizes that must be in stock
+
+/** Which group a product belongs to. A product is "dead" when its size run is broken (sizes missing) or it has
+ *  stock but no recent sales; "other" when the run is fine but the stock is thin; everything else is focus. */
+export function classify(a: { stockUnits: number | null; sizesIn: number; sizesTotal: number; soldUnits: number }): Group {
+  if (a.stockUnits === null) return "focus" // pre-order: nothing to clear, sells on demand
+  const broken = a.sizesTotal >= MIN_SIZES && (a.sizesIn < MIN_SIZES || a.sizesIn / a.sizesTotal < MIN_SIZE_COVER)
+  if (broken || a.soldUnits <= 0) return "dead"
+  return a.stockUnits < FOCUS_MIN_STOCK ? "other" : "focus"
+}
+
 export type ProductInput = {
+  group?: Group
   key: string
   name: string
   /** Revenue one pair brings in, order-total equivalent. */
@@ -77,10 +95,10 @@ export type ProductInput = {
   stockUnits: number | null
 }
 
-export type Allocation = { key: string; name: string; price: number; revenue: number; units: number; capped: boolean }
+export type Allocation = { key: string; name: string; price: number; revenue: number; units: number; capped: boolean; group: Group }
 
 /** Splits `revenue` across products by demand, never asking a product for more than its stock can carry. */
-export function allocateRevenue(products: ProductInput[], revenue: number): { rows: Allocation[]; gap: number } {
+export function allocateRevenue(products: ProductInput[], revenue: number): { rows: Omit<Allocation, "group">[]; gap: number } {
   let open = products.filter((p) => p.demandRevenue > 0 && p.price > 0 && (p.stockUnits === null || p.stockUnits > 0))
   const alloc = new Map<string, number>()
   const capped = new Set<string>()
@@ -104,7 +122,7 @@ export function allocateRevenue(products: ProductInput[], revenue: number): { ro
     open = open.filter((p) => !hitCap.includes(p))
   }
 
-  const rows: Allocation[] = []
+  const rows: Omit<Allocation, "group">[] = []
   for (const p of products) {
     const revenueFor = alloc.get(p.key) ?? 0
     if (revenueFor <= 0) continue
@@ -114,8 +132,30 @@ export function allocateRevenue(products: ProductInput[], revenue: number): { ro
   return { rows, gap: left > 0.5 ? Math.round(left) : 0 }
 }
 
-export type PlanProduct = { name: string; units: number; price: number }
+/** Splits `revenue` across the three groups (focus 80% / other 12% / dead 8%, renormalised over the groups that
+ *  exist), then by demand inside each. What a small group can't carry in stock is handed back to focus. */
+export function allocateGrouped(products: ProductInput[], revenue: number): { rows: Allocation[]; gap: number } {
+  const g = (p: ProductInput): Group => p.group ?? "focus"
+  const live = (["dead", "other", "focus"] as Group[]).filter((k) => products.some((p) => g(p) === k && p.demandRevenue > 0 && p.price > 0 && (p.stockUnits === null || p.stockUnits > 0)))
+  const total = live.reduce((s, k) => s + GROUP_SHARE[k], 0)
+  const rows: Allocation[] = []
+  let left = Math.max(0, revenue)
+  let gap = 0
+  for (const k of live) { // small groups first; focus last takes whatever they couldn't
+    const pool = k === "focus" ? left : (Math.max(0, revenue) * GROUP_SHARE[k]) / (live.includes("focus") ? 1 : total) // small groups keep their fixed share unless there is no focus group
+    const res = allocateRevenue(products.filter((p) => g(p) === k), pool)
+    rows.push(...res.rows.map((r) => ({ ...r, group: k })))
+    left -= pool - res.gap
+    if (k === "focus") gap = res.gap
+  }
+  return { rows, gap }
+}
+
+export type PlanProduct = { name: string; units: number; price: number; group?: Group }
+export const PLAN_VERSION = 2
 export type ProductPlan = {
+  /** Plan format; a saved plan of an older format is re-made. */
+  v?: number
   at: number
   /** The part of the target still to deliver when this plan was made. */
   revenueLeft: number
@@ -126,19 +166,22 @@ export type ProductPlan = {
 }
 
 export function buildPlan(args: { at: number; revenueLeft: number; products: ProductInput[]; soldMtd: Record<string, number> }): ProductPlan {
-  const { rows, gap } = allocateRevenue(args.products, args.revenueLeft)
+  const { rows, gap } = allocateGrouped(args.products, args.revenueLeft)
   const out: Record<string, PlanProduct> = {}
-  for (const r of rows) out[r.key] = { name: r.name, units: (args.soldMtd[r.key] ?? 0) + r.units, price: r.price }
+  for (const r of rows) out[r.key] = { name: r.name, units: (args.soldMtd[r.key] ?? 0) + r.units, price: r.price, group: r.group }
   // Sold something this month but needs nothing more (e.g. out of stock): keep it, finished at what it sold.
   for (const p of args.products) {
-    if (!out[p.key] && (args.soldMtd[p.key] ?? 0) > 0) out[p.key] = { name: p.name, units: args.soldMtd[p.key], price: p.price }
+    if (!out[p.key] && (args.soldMtd[p.key] ?? 0) > 0) out[p.key] = { name: p.name, units: args.soldMtd[p.key], price: p.price, group: p.group ?? "focus" }
   }
-  return { at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
+  return { v: PLAN_VERSION, at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
 }
 
 // ------------------------------------------------------------------------------------------------ daily rows
 
 export type ProductRow = {
+  group: Group
+  /** Sizes with stock / sizes the product comes in. Null for pre-order. */
+  sizes: { inStock: number; total: number } | null
   key: string
   name: string
   price: number
@@ -168,6 +211,7 @@ export function productRows(args: {
   stockUnits: Record<string, number | null>
   trailingUnits: Record<string, number>
   trailingDays: number
+  sizes?: Record<string, { inStock: number; total: number } | null>
 }): ProductRow[] {
   const rows: ProductRow[] = []
   for (const [key, p] of Object.entries(args.plan.products)) {
@@ -181,6 +225,7 @@ export function productRows(args: {
     const perDay = (args.trailingUnits[key] ?? 0) / Math.max(1, args.trailingDays)
     const coverDays = stock !== null && perDay > 0 ? Math.round(stock / perDay) : null
     rows.push({
+      group: p.group ?? "focus", sizes: args.sizes?.[key] ?? null,
       key, name: p.name, price: p.price, monthUnits: p.units, sold, left,
       todayTarget, todaySold,
       toGo: todayTarget === null ? 0 : Math.max(0, todayTarget - todaySold),

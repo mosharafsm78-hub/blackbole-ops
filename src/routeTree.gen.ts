@@ -36,6 +36,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockInRouteImport } from './routes/_app/stock-in'
 import { Route as AppSupplierRouteImport } from './routes/_app/supplier'
 import { Route as AppSuppliersRouteImport } from './routes/_app/suppliers'
+import { Route as AppTargetRouteImport } from './routes/_app/target'
 import { Route as AppWebsiteRouteImport } from './routes/_app/website'
 import { Route as AppWebsiteAnalyticsRouteImport } from './routes/_app/website-analytics'
 import { Route as AppWebsiteBlogRouteImport } from './routes/_app/website-blog'
@@ -196,6 +197,11 @@ const AppSuppliersRoute = AppSuppliersRouteImport.update({
   path: '/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTargetRoute = AppTargetRouteImport.update({
+  id: '/target',
+  path: '/target',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWebsiteRoute = AppWebsiteRouteImport.update({
   id: '/website',
   path: '/website',
@@ -349,6 +355,7 @@ export interface FileRoutesByFullPath {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
+  '/target': typeof AppTargetRoute
   '/website': typeof AppWebsiteRoute
   '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
@@ -400,6 +407,7 @@ export interface FileRoutesByTo {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
+  '/target': typeof AppTargetRoute
   '/website': typeof AppWebsiteRoute
   '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
@@ -455,6 +463,7 @@ export interface FileRoutesById {
   '/_app/stock-in': typeof AppStockInRoute
   '/_app/supplier': typeof AppSupplierRoute
   '/_app/suppliers': typeof AppSuppliersRoute
+  '/_app/target': typeof AppTargetRoute
   '/_app/website': typeof AppWebsiteRoute
   '/_app/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/_app/website-blog': typeof AppWebsiteBlogRoute
@@ -511,6 +520,7 @@ export interface FileRouteTypes {
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
+    | '/target'
     | '/website'
     | '/website-analytics'
     | '/website-blog'
@@ -562,6 +572,7 @@ export interface FileRouteTypes {
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
+    | '/target'
     | '/website'
     | '/website-analytics'
     | '/website-blog'
@@ -616,6 +627,7 @@ export interface FileRouteTypes {
     | '/_app/stock-in'
     | '/_app/supplier'
     | '/_app/suppliers'
+    | '/_app/target'
     | '/_app/website'
     | '/_app/website-analytics'
     | '/_app/website-blog'
@@ -842,6 +854,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/target': {
+      id: '/_app/target'
+      path: '/target'
+      fullPath: '/target'
+      preLoaderRoute: typeof AppTargetRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/website': {
       id: '/_app/website'
       path: '/website'
@@ -1058,6 +1077,7 @@ interface AppRouteChildren {
   AppStockInRoute: typeof AppStockInRoute
   AppSupplierRoute: typeof AppSupplierRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppTargetRoute: typeof AppTargetRoute
   AppWebsiteRoute: typeof AppWebsiteRoute
   AppWebsiteAnalyticsRoute: typeof AppWebsiteAnalyticsRoute
   AppWebsiteBlogRoute: typeof AppWebsiteBlogRoute
@@ -1107,6 +1127,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppStockInRoute: AppStockInRoute,
   AppSupplierRoute: AppSupplierRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppTargetRoute: AppTargetRoute,
   AppWebsiteRoute: AppWebsiteRoute,
   AppWebsiteAnalyticsRoute: AppWebsiteAnalyticsRoute,
   AppWebsiteBlogRoute: AppWebsiteBlogRoute,

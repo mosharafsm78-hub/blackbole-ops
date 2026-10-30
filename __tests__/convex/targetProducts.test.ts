@@ -66,8 +66,9 @@ describe("product plan from sales and stock", () => {
     const rows = Object.fromEntries(p.products!.map((r) => [r.key, r]))
     expect(rows["BB-HERO"].monthUnits).toBe(10)
     expect(rows["BB-HERO"].stockShort).toBe(0)
-    expect(rows["BB-SOFT"].monthUnits).toBe(90)
-    expect(rows["BB-DEAD"]).toBeUndefined()
+    expect(rows["BB-SOFT"].monthUnits).toBe(82)
+    expect(rows["BB-DEAD"]).toMatchObject({ group: "dead", monthUnits: 8 }) // stock that never sells: a small share (8%)
+    expect(rows["BB-HERO"].group).toBe("focus")
     expect(p.productInfo!.gap).toBe(0)
   })
 
