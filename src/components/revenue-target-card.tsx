@@ -18,7 +18,7 @@ export const monthLabel = (month: string) => {
 
 const dayLabel = (day: string) => `${Number(day.slice(8, 10))} ${new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" })}`
 
-export const useTargetProgress = () => usePolledAction(api.targets.progress, {}, 5 * 60000)
+export const useTargetProgress = () => usePolledAction(api.targets.progress, {}, 60000) // live: refreshes every minute
 
 /** Dashboard: a glance only — today's target, the month, and a way in to the full Target page. */
 export function RevenueTargetCard() {

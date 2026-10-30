@@ -25,9 +25,9 @@ import {
 
 const DAY = 86400000
 const WINDOW_DAYS = 60 // how far back "what sells" is measured
-const CACHE_MS = 10 * 60000
-const SPEND_MS = 15 * 60000
-const REPLAN_MS = 7 * DAY // the product plan is re-made weekly from what's still missing
+// Near-real-time: sales and stock are re-read at most once a minute (shared by everyone looking), ad spend every 5.
+const CACHE_MS = 60000
+const SPEND_MS = 5 * 60000
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -489,8 +489,11 @@ export const progress = action({
       }
       snapshot = row.plan as ProductPlan | undefined
       const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
-      if (!snapshot || snapshot.v !== PLAN_VERSION || now - snapshot.at > REPLAN_MS || stockMoved(snapshot.stock, stockNow)) {
-        snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, row.amount - monthPlan.delivered), products: inputs, soldMtd })
+      // Any change to the team's counts (a line counted, test pairs added or removed) re-makes the plan at once, so
+      // the pairs per product follow the real stock the moment it is entered — not only when the total moves a lot.
+      const check = `${data.stockCheck?.counted ?? 0}:${Object.values(stockMap).reduce((s, e) => s + e.fake, 0)}`
+      if (!snapshot || snapshot.v !== PLAN_VERSION || dhakaDay(snapshot.at) !== today || stockMoved(snapshot.stock, stockNow) || snapshot.check !== check) {
+        snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, row.amount - monthPlan.delivered), products: inputs, soldMtd, check })
         if (m === current) await ctx.runMutation(internal.targets.savePlan, { month: m, plan: snapshot })
       }
       const all = productRows({

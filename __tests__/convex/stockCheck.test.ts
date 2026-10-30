@@ -194,3 +194,25 @@ describe("buy suggestion maths", () => {
     expect(buySuggestion({ ordered7: 10, real: 50 })).toEqual({ proven: true, buy: 0 })
   })
 })
+
+describe("the plan follows the counts as they are entered", () => {
+  it("re-plans when a count moves a few pairs between products, even if total stock barely changes", async () => {
+    const { t, asAdmin, addProduct, sell, locationId } = await setup()
+    const a = await addProduct("Model A", { "41": 500 }, "BB-A") // big pile elsewhere keeps the total large
+    await addProduct("Model B", { "41": 40 }, "BB-B")
+    await sell("BB-A-41", 30, NOW - 20 * DAY)
+    await sell("BB-B-41", 30, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+    const first = await asAdmin.action(api.targets.progress, {})
+    const planA = first.products!.find((r) => r.key === "BB-A")!.monthUnits
+
+    // The team finds only 440 of A's 500 are real: total stock moves 60 of 540 → 11%, but even a 1-pair change must count.
+    await asAdmin.mutation(api.stockCheck.saveCounts, { items: [{ variantId: a.variantIds[0], locationId, real: 495 }] })
+    vi.setSystemTime(NOW + 11 * 60000) // past the 10-minute data cache
+    const second = await asAdmin.action(api.targets.progress, {})
+    expect(second.products!.find((r) => r.key === "BB-A")!.stockUnits).toBe(495)
+    const saved = await t.run((ctx) => ctx.db.query("revenueTargets").first())
+    expect(saved!.plan.check).toBe("1:5") // one line counted, 5 test pairs
+    void planA
+  })
+})

@@ -183,6 +183,8 @@ export type ProductPlan = {
   v?: number
   /** Total sellable pairs when the plan was made — a big change (stock corrected) triggers a new plan. */
   stock?: number
+  /** Fingerprint of the team's stock counts (lines counted : test pairs). Any change re-makes the plan. */
+  check?: string
   at: number
   /** The part of the target still to deliver when this plan was made. */
   revenueLeft: number
@@ -192,7 +194,7 @@ export type ProductPlan = {
   products: Record<string, PlanProduct>
 }
 
-export function buildPlan(args: { at: number; revenueLeft: number; products: ProductInput[]; soldMtd: Record<string, number> }): ProductPlan {
+export function buildPlan(args: { at: number; revenueLeft: number; products: ProductInput[]; soldMtd: Record<string, number>; check?: string }): ProductPlan {
   const stock = args.products.reduce((s, p) => s + (p.stockUnits ?? 0), 0)
   const { rows, gap } = allocateGrouped(args.products, args.revenueLeft)
   const out: Record<string, PlanProduct> = {}
@@ -201,7 +203,7 @@ export function buildPlan(args: { at: number; revenueLeft: number; products: Pro
   for (const p of args.products) {
     if (!out[p.key] && (args.soldMtd[p.key] ?? 0) > 0) out[p.key] = { name: p.name, units: args.soldMtd[p.key], price: p.price, group: p.group ?? "focus" }
   }
-  return { v: PLAN_VERSION, stock, at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
+  return { v: PLAN_VERSION, stock, check: args.check, at: args.at, revenueLeft: Math.round(args.revenueLeft), gap, products: out }
 }
 
 // ------------------------------------------------------------------------------------------------ daily rows

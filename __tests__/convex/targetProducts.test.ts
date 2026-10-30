@@ -114,6 +114,21 @@ describe("product plan from sales and stock", () => {
     expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.start).toBe("2026-11-10")
   })
 
+  it("re-arranges the whole plan every new day from what is still missing and what is in stock now", async () => {
+    const { t, asAdmin, addProduct, sell } = await setup()
+    await addProduct("Soft Slide", 1000, "BB-SOFT")
+    await sell("BB-SOFT-41", "Soft Slide", 40, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 210000 })
+    await asAdmin.action(api.targets.progress, {})
+    const day1 = (await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.plan.at
+    vi.setSystemTime(NOW + 2 * 3600000) // same Dhaka day: the plan is kept
+    await asAdmin.action(api.targets.progress, {})
+    expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.plan.at).toBe(day1)
+    vi.setSystemTime(NOW + DAY) // next day: re-made
+    await asAdmin.action(api.targets.progress, {})
+    expect((await t.run((ctx) => ctx.db.query("revenueTargets").first()))!.plan.at).toBe(NOW + DAY)
+  })
+
   it("re-plans at once when stock is corrected, instead of waiting a week", async () => {
     const { t, asAdmin, addProduct, sell } = await setup()
     const hero = await addProduct("Hero Sandal", 100, "BB-HERO") // the system says 100 pairs…
