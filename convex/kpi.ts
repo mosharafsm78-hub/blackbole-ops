@@ -76,15 +76,20 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
 
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
-  { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero damaged units", points: 4, team: "Fulfillment", auto: true },
-  { key: "fulfillment.po_on_time", label: "Purchase order fully received on or before its expected date", points: 5, team: "Fulfillment", auto: true },
   { key: "fulfillment.late_dispatch", label: "Order wasn't dispatched the same day it was approved", points: -5, team: "Fulfillment", auto: true },
-  { key: "fulfillment.po_late", label: "Purchase order fully received after its expected date", points: -5, team: "Fulfillment", auto: true },
   { key: "fulfillment.overdue_dispatch", label: "A confirmed order sat more than a day without ever being dispatched", points: -10, team: "Fulfillment", auto: true },
   { key: "fulfillment.wrong_item_sent", label: "Wrong product sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
   { key: "fulfillment.wrong_size_sent", label: "Wrong size or color sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
   { key: "fulfillment.damaged_sent", label: "Damaged or defective item sent — the order had to be returned", points: -15, team: "Fulfillment", auto: true },
   { key: "fulfillment.late_delivery_return", label: "Order returned because delivery ran too late", points: -15, team: "Fulfillment", auto: true },
+
+  // --------------------------------------------------------------------------------------------------- Purchasing (Saju, not Fulfillment)
+  // Receiving a PO/GRN is Saju's purchasing desk, not the Fulfillment (pick/pack/dispatch) team — these three
+  // keep their "fulfillment." key prefix for backward compatibility with already-recorded kpiEvents, but are
+  // tagged "Operations" so the rule book and leaderboard group them under the right team.
+  { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero damaged units", points: 4, team: "Operations", auto: true },
+  { key: "fulfillment.po_on_time", label: "Purchase order fully received on or before its expected date", points: 5, team: "Operations", auto: true },
+  { key: "fulfillment.po_late", label: "Purchase order fully received after its expected date", points: -5, team: "Operations", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Marketing & Content
   { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
