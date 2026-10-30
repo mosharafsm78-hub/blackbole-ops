@@ -265,9 +265,10 @@ function Accountability() {
   const closed = useQuery(api.accountability.listClosed, {})
   const canRespond = can("orders.accountability")
   const canRaise = can("team.manage")
-  // Editing / re-routing rewrites a case's history, so it is Super Admin only — the same wildcard check the
-  // other "only a Super Admin can change a logged record" paths use.
-  const canReroute = can("*")
+  // Editing / re-routing rewrites a case's history, so it's reserved for whoever is actually trusted to handle
+  // accountability flags in the first place (Super Admin, or a role with orders.accountability — e.g. an
+  // Operations Head or department head), not thrown open to anyone who can merely view orders.
+  const canReroute = can("*") || can("orders.accountability")
 
   const tabs: { k: View; label: string; count?: number }[] = [
     { k: "open", label: "Open", count: flags?.length },
