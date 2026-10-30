@@ -2,7 +2,7 @@ import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
-import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
+import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { COMMITTED_STATUSES } from "./rules"
 
 const variantInput = v.object({
@@ -273,7 +273,7 @@ export const receiveStock = mutation({
       byName: me.staff.name, at: Date.now(),
     })
     for (const i of full) {
-      await bumpStock(ctx, { variantId: i.variantId, locationId: a.locationId, bucket: "available", change: i.qty, reason: `Stock in GRN-${code}`, byName: me.staff.name, receiptId })
+      await receiveAvailable(ctx, { variantId: i.variantId, locationId: a.locationId, qty: i.qty, reason: `Stock in GRN-${code}`, byName: me.staff.name, receiptId })
       if (a.updateCost && i.unitCost > 0) await ctx.db.patch(i.variantId, { purchasePrice: i.unitCost })
     }
     return code

@@ -118,6 +118,27 @@ export async function bumpStock(
   })
 }
 
+/** Real pairs arriving (a received purchase or a stock-in). Test (fake) pairs were placeholders for exactly these pairs,
+ *  so each received pair first replaces one placeholder: only the rest is new stock. (Sales never lower the placeholder
+ *  count, so pairs sold from placeholders are covered too.) Without this the website would show real + fake together. */
+export async function receiveAvailable(
+  ctx: MutationCtx,
+  args: { variantId: Id<"variants">; locationId: Id<"locations">; qty: number; reason: string; byName: string; receiptId?: Id<"receipts"> },
+) {
+  if (args.qty <= 0) return
+  const row = await getStockRow(ctx, args.variantId, args.locationId)
+  const fake = Math.max(0, (row as any).virtual ?? 0)
+  const absorb = Math.min(fake, args.qty)
+  if (absorb > 0) {
+    await ctx.db.patch(row._id, { virtual: fake - absorb })
+    await ctx.db.insert("stockLogs", {
+      variantId: args.variantId, locationId: args.locationId, bucket: "virtual", change: -absorb, reason: args.reason,
+      note: `${absorb} test (fake) pair${absorb === 1 ? "" : "s"} replaced by real stock`, byName: args.byName, receiptId: args.receiptId, at: Date.now(),
+    })
+  }
+  await bumpStock(ctx, { variantId: args.variantId, locationId: args.locationId, bucket: "available", change: args.qty - absorb, reason: args.reason, byName: args.byName, receiptId: args.receiptId })
+}
+
 export const invoiceLabel = (o: { invoiceNo: number; invoiceCode?: string }) => o.invoiceCode ?? `BB-${o.invoiceNo}`
 
 /** Move an order's units between stock buckets when its status changes. */

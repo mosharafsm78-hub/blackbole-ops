@@ -157,6 +157,20 @@ describe("adding test stock, and when it earns a purchase", () => {
     expect(after).toMatchObject({ system: 25, fake: 25, real: 0 })
   })
 
+  it("receiving real pairs replaces the test pairs first, so the website never shows real + fake together", async () => {
+    const { t, asAdmin, locationId, stockRow } = await setup()
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name: "Runner", active: true, createdAt: NOW }))
+    const variantId = await t.run((ctx) => ctx.db.insert("variants", { productId, sku: "BB-RUN-41", title: "41", weightKg: 0.4, price: 1500, purchasePrice: 700, active: true }))
+    await asAdmin.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty: 5 }] })
+    // 3 sold from the test pairs (stock goes down, the placeholder count stays)
+    await t.run(async (ctx) => { const r = (await ctx.db.query("stock").collect())[0]; await ctx.db.patch(r._id, { available: 2 }) })
+    await asAdmin.mutation(api.catalog.receiveStock, { locationId, updateCost: false, items: [{ variantId, qty: 20, unitCost: 700 }] })
+    // 20 real arrive: 5 replace the placeholders (3 of which were already sold), so 17 are free to sell and none is fake
+    expect(await stockRow(variantId)).toMatchObject({ available: 17, virtual: 0 })
+    const line = (await asAdmin.query(api.stockCheck.list, { filter: "all", cursor: null }))!.products.find((p) => p.name === "Runner")!
+    expect(line).toMatchObject({ system: 17, fake: 0, real: 17 })
+  })
+
   it("a search finds a brand-new product with no stock, even on the 'not counted' tab", async () => {
     const { t, asAdmin } = await setup()
     const productId = await t.run((ctx) => ctx.db.insert("products", { name: "Test product", active: true, createdAt: NOW }))

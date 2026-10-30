@@ -3,7 +3,7 @@ import { query, type MutationCtx } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { hasPerm } from "./rules"
-import { bumpStock, currentStaff, nextCounter, requirePerm } from "./lib"
+import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { awardPoints } from "./kpi"
 
 // ---------------- Suppliers ----------------
@@ -421,7 +421,7 @@ export const receivePO = mutation({
         }
         await ctx.db.patch(g.variantId, { purchasePrice: Math.round(newCost * 100) / 100 })
       }
-      if (g.qty > 0) await bumpStock(ctx, { variantId: g.variantId, locationId: po.locationId, bucket: "available", change: g.qty, reason: `Received ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
+      if (g.qty > 0) await receiveAvailable(ctx, { variantId: g.variantId, locationId: po.locationId, qty: g.qty, reason: `Received ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
       if (g.damaged) await bumpStock(ctx, { variantId: g.variantId, locationId: po.locationId, bucket: "damaged", change: g.damaged, reason: `Arrived damaged ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
