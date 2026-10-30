@@ -70,3 +70,12 @@ describe("abandoned cart email — product row", () => {
     expect(picks.map((p) => p.name).sort()).toEqual(["Pre Boot", "Tagged Loafer"])
   })
 })
+
+describe("abandoned cart email — 8 products", () => {
+  it("lays out 8 pre-order products in two rows", () => {
+    const picks = Array.from({ length: 8 }, (_, i) => ({ name: `Boot ${i + 1}`, price: 3000, url: "https://blackbole.com/products/b" + i }))
+    const m = abandonedEmailContent({ customerName: "Rafi", items: [], subtotal: 0, picks })
+    for (let i = 1; i <= 8; i++) expect(m.html).toContain(`Boot ${i}<`)
+    expect(m.html.match(/width="25%"/g)?.length).toBe(8)
+  })
+})

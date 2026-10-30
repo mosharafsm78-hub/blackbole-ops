@@ -70,13 +70,14 @@ export const sendNow = mutation({
   },
 })
 
-/** Other products to show in the email: newest published PRE-ORDER ones with a picture and a price. */
+/** Other products to show in the email: newest 8 published PRE-ORDER ones with a picture and a price. */
 export const picks = internalQuery({
   args: { exclude: v.array(v.string()) },
-  handler: async (ctx) => {
+  handler: async (ctx, { exclude }) => {
     const out: { name: string; imageUrl?: string; price: number; url: string }[] = []
     for await (const p of ctx.db.query("products").order("desc")) {
-      if (out.length >= 4) break
+      if (out.length >= 8) break
+      if (exclude.includes(p.name)) continue // already in their cart
       if (!p.active || !p.imageUrl || !p.handle || p.web?.published === false || p.web?.archived) continue
       // pre-order products only (the whole point of this email is to grow the pre-order model)
       if (!p.preOrder && !((p.web?.tags as string[] | undefined) ?? []).some((t) => t.toLowerCase() === "pre-order")) continue

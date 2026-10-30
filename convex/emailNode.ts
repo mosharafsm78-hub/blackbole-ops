@@ -142,7 +142,7 @@ export const sendAbandonedEmail = internalAction({
     if (!c || !c.email) return
     const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
     const picks = await ctx.runQuery(internal.abandonedEmail.picks, { exclude: c.items.map((i: any) => i.name) })
-    const m = abandonedEmailContent({ customerName: c.customerName, items: c.items, subtotal: c.subtotal, url: (await ctx.runQuery(internal.abandonedEmail.productUrl, { checkoutId })) ?? c.recoveryUrl, hotline: contact?.hotline, step: (c.emailCount ?? 0) + 1, picks: picks.filter((p: any) => !c.items.some((i: any) => i.name === p.name)) })
+    const m = abandonedEmailContent({ customerName: c.customerName, items: c.items, subtotal: c.subtotal, url: (await ctx.runQuery(internal.abandonedEmail.productUrl, { checkoutId })) ?? c.recoveryUrl, hotline: contact?.hotline, step: (c.emailCount ?? 0) + 1, picks })
     const error = await send(email, c.email, m.subject, m.text, contact?.hotline, m.html)
     await ctx.runMutation(internal.abandonedEmail.markResult, { checkoutId, subject: m.subject, error: error ?? undefined })
   },
