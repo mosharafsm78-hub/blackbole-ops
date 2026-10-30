@@ -94,7 +94,8 @@ export const picks = internalQuery({
         }
         if (!inStock) continue
       }
-      all.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
+      // pre-order web price is only the booking money, so show the pair's full price
+      all.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: wantPre ? v.price : (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
     }
     if (all.length <= 8) return all
     const start = (((step ?? 1) - 1) * 8) % all.length
