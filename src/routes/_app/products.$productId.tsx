@@ -124,11 +124,45 @@ function ProductDetailPage() {
                   <Stat label="Processing" value={active.stock.processing} />
                   <Stat label="In transit" value={active.stock.inTransit} />
                 </div>
-                {active.warehouses.length > 0 && (
-                  <div className="text-xs text-muted-foreground">
-                    {active.warehouses.map((w) => `${w.locationName}: ${w.available}`).join(" · ")}
+                <div className="mt-1">
+                  <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Stock by warehouse
                   </div>
-                )}
+                  {active.warehouses.length === 0 ? (
+                    <div className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+                      No warehouse rows for this size yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto rounded-lg border">
+                      <div className="min-w-[340px]">
+                        <div className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px] gap-x-2 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+                          <span>Warehouse</span>
+                          <span className="text-right">Available</span>
+                          <span className="text-right">Processing</span>
+                          <span className="text-right">In transit</span>
+                        </div>
+                        {active.warehouses.map((w) => (
+                          <div
+                            key={w.locationName}
+                            className="grid grid-cols-[minmax(0,1fr)_64px_64px_64px] gap-x-2 border-t px-3 py-2 text-sm"
+                          >
+                            <span className="truncate font-medium">{w.locationName}</span>
+                            <span
+                              className={cn(
+                                "text-right tabular-nums",
+                                w.available <= 0 ? "text-red-600" : "font-semibold",
+                              )}
+                            >
+                              {w.available}
+                            </span>
+                            <span className="text-right tabular-nums text-muted-foreground">{w.processing}</span>
+                            <span className="text-right tabular-nums text-muted-foreground">{w.inTransit}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   Internal variant ID <span className="font-mono">{active._id}</span>
                 </div>
