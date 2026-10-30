@@ -25,23 +25,25 @@
 //      site, enforce this.
 import { v, ConvexError } from "convex/values"
 import { query, internalQuery, type MutationCtx } from "./_generated/server"
-import { mutation } from "./functions"
+import { mutation, internalMutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
-import { currentStaff, requirePerm } from "./lib"
+import { currentStaff, requirePerm, getSetting } from "./lib"
+import { bdDay, dayStart } from "./stats"
 
 const DAY = 86400000
 
 export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
-  | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn"
+  | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn" | "fulfillment.po_on_time"
   | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit"
-  | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag"
+  | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag" | "ops.delivery_rate_hit"
 
 // Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
 // read the same way on the Leaderboard. "Operations" here is the shared quality layer sitting on top of every
 // department: whoever Settings → Accountability names as the lead for Customer Care, Fulfillment or Marketing
-// is who ops.flag_raised and ops.overdue_flag dock, and whoever's named the operations head is who ops.fast_capa
-// and ops.clean_week credit.
+// is who ops.flag_raised and ops.overdue_flag dock, and whoever's named the operations head is who ops.fast_capa,
+// ops.clean_week and ops.delivery_rate_hit credit — the last one is deliberately a business-wide weekly number,
+// not a per-order one: the ops head's job is the aggregate, the same way marketing.roas_hit is Marketing lead's.
 export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; team: string; auto: boolean }[] = [
   // ---------------------------------------------------------------------------------------------------------- CX
   { key: "cx.recovered_checkout", label: "Recovered an abandoned checkout into an approved order", points: 20, team: "Customer Care", auto: true },
@@ -53,6 +55,7 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
   { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero damaged units", points: 4, team: "Fulfillment", auto: true },
+  { key: "fulfillment.po_on_time", label: "Purchase order fully received on or before its expected date", points: 5, team: "Fulfillment", auto: true },
 
   // --------------------------------------------------------------------------------------------------- Marketing & Content
   { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
@@ -66,6 +69,7 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
   { key: "ops.clean_week", label: "A full week with no Accountability flag breaching the 2-day SLA", points: 25, team: "Operations", auto: true },
   { key: "ops.flag_raised", label: "An Accountability flag — a confirmed mistake, or a business-health signal — was raised against your department", points: -15, team: "Operations", auto: true },
   { key: "ops.overdue_flag", label: "A flag assigned to you sat unanswered past the 2-day SLA", points: -10, team: "Operations", auto: true },
+  { key: "ops.delivery_rate_hit", label: "Business-wide delivery rate hit or beat its weekly target (Settings → KPI)", points: 20, team: "Operations", auto: true },
 ]
 
 const DEFAULTS_BY_KEY = new Map(DEFAULT_RULES.map((r) => [r.key, r]))
@@ -120,13 +124,14 @@ export async function awardPoints(
 
 /** Monday 00:00 of the week containing `at`, in UTC — a plain, server-side week boundary. Good enough for a
  *  weekly sprint reset; it doesn't need to match the office's local midnight to the minute. */
+const BD = 6 * 3600000 // Asia/Dhaka
+
+/** Saturday 00:00 Bangladesh time of the week containing `at` — BlackBole's work week runs Saturday through
+ *  Thursday, Friday being the official weekly off day, so the sprint resets the moment Friday ends. */
 function weekStart(at: number) {
-  const d = new Date(at)
-  const day = d.getUTCDay() // 0 = Sunday
-  const diff = (day === 0 ? -6 : 1) - day // back up to Monday
-  d.setUTCDate(d.getUTCDate() + diff)
-  d.setUTCHours(0, 0, 0, 0)
-  return d.getTime()
+  const dow = new Date(at + BD).getUTCDay() // 0 = Sunday … 6 = Saturday, read in Bangladesh local terms
+  const daysSinceSaturday = (dow - 6 + 7) % 7
+  return dayStart(bdDay(at)) - daysSinceSaturday * DAY
 }
 
 function monthKey(at: number) {
@@ -252,31 +257,54 @@ export const listPayouts = query({
  *  same month (e.g. re-run after a late manual award is added before payday) — it replaces any payout rows for
  *  that month that haven't been marked paid yet, and leaves any that HAVE been paid untouched so a correction
  *  can never un-pay someone. */
+/** Shared by the manual Finalize button and the automatic month-end cron below — ranks that month's bank and
+ *  locks in pending payouts for the top finishers. Safe to call more than once for the same month (a late
+ *  manual award, or the cron re-running after a late correction) — it replaces any payout rows that haven't
+ *  been marked paid yet, and never touches a rank already marked paid. */
+async function doFinalizeMonth(ctx: MutationCtx, month: string, prizes: number[]) {
+  const mStart = monthStart(month)
+  const mEnd = monthStart(monthKeyAfter(month))
+  const rows = await ctx.db.query("kpiEvents").withIndex("by_at", (q) => q.gte("at", mStart).lt("at", mEnd)).collect()
+  const byStaff = new Map<string, number>()
+  for (const e of rows) byStaff.set(e.staffName, (byStaff.get(e.staffName) ?? 0) + e.points)
+  const ranked = [...byStaff.entries()].map(([staffName, points]) => ({ staffName, points })).sort((a, b) => b.points - a.points).slice(0, prizes.length)
+
+  const existing = await ctx.db.query("kpiPayouts").withIndex("by_month", (q) => q.eq("month", month)).collect()
+  for (const row of existing) if (row.status !== "paid") await ctx.db.delete(row._id)
+
+  const created: Id<"kpiPayouts">[] = []
+  for (let i = 0; i < ranked.length; i++) {
+    const already = existing.find((r) => r.rank === i + 1 && r.status === "paid")
+    if (already) continue // a paid rank stands exactly as paid — never overwritten by a re-finalize
+    created.push(await ctx.db.insert("kpiPayouts", {
+      month, rank: i + 1, staffName: ranked[i].staffName, points: ranked[i].points, amount: prizes[i] ?? 0,
+      status: "pending", createdAt: Date.now(),
+    }))
+  }
+  return { created: created.length, ranked }
+}
+
 export const finalizeMonth = mutation({
   args: { month: v.string(), prizes: v.array(v.number()) }, // prizes[0] = 1st place taka, [1] = 2nd, [2] = 3rd
   handler: async (ctx, { month, prizes }) => {
-    const me = await requirePerm(ctx, "team.manage")
-    const mStart = monthStart(month)
-    const mEnd = monthStart(monthKeyAfter(month))
-    const rows = await ctx.db.query("kpiEvents").withIndex("by_at", (q) => q.gte("at", mStart).lt("at", mEnd)).collect()
-    const byStaff = new Map<string, number>()
-    for (const e of rows) byStaff.set(e.staffName, (byStaff.get(e.staffName) ?? 0) + e.points)
-    const ranked = [...byStaff.entries()].map(([staffName, points]) => ({ staffName, points })).sort((a, b) => b.points - a.points).slice(0, prizes.length)
+    await requirePerm(ctx, "team.manage")
+    return await doFinalizeMonth(ctx, month, prizes)
+  },
+})
 
-    const existing = await ctx.db.query("kpiPayouts").withIndex("by_month", (q) => q.eq("month", month)).collect()
-    for (const row of existing) if (row.status !== "paid") await ctx.db.delete(row._id)
+const MONTHLY_PRIZES_DEFAULT = [3000] // taka — 1st place only, unless Settings → KPI sets a different prize list
 
-    const created: Id<"kpiPayouts">[] = []
-    for (let i = 0; i < ranked.length; i++) {
-      const already = existing.find((r) => r.rank === i + 1 && r.status === "paid")
-      if (already) continue // a paid rank stands exactly as paid — never overwritten by a re-finalize
-      created.push(await ctx.db.insert("kpiPayouts", {
-        month, rank: i + 1, staffName: ranked[i].staffName, points: ranked[i].points, amount: prizes[i] ?? 0,
-        status: "pending", createdAt: Date.now(),
-      }))
-    }
-    void me
-    return { created: created.length, ranked }
+/** Runs automatically on the 1st of every month (see crons.ts) — finalizes the month that just ended, no one
+ *  has to click anything. `finalizeMonth` (above) stays available too, purely for a correction (a late manual
+ *  award that should bump someone into the money after the automatic run already fired) — re-running it is
+ *  safe, see doFinalizeMonth. */
+export const autoFinalizeMonth = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const month = monthKey(Date.now() - DAY) // the month that just ended — this always runs on day 1
+    const prizes = (await getSetting<number[]>(ctx, "kpiMonthlyPrizes")) ?? MONTHLY_PRIZES_DEFAULT
+    if (!prizes.length) return
+    await doFinalizeMonth(ctx, month, prizes)
   },
 })
 

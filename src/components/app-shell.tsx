@@ -34,7 +34,8 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view", color: "bg-tone-blue-bg text-tone-blue", group: "" },
   { to: "/action-center", label: "Action Center", icon: Target, perm: "dashboard.view", color: "bg-tone-violet-bg text-tone-violet", group: "" },
   { to: "/accountability", label: "Accountability", icon: ShieldAlert, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "" },
-  { to: "/leaderboard", label: "Leaderboard", icon: Trophy, perm: "dashboard.view", color: "bg-tone-amber-bg text-tone-amber", group: "" },
+  // No perm here on purpose — every signed-in staff member can see Pulse, whatever role they hold.
+  { to: "/pulse", label: "Pulse", icon: Trophy, perm: null, color: "bg-tone-amber-bg text-tone-amber", group: "" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
   { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },
@@ -172,7 +173,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         const heading = n.group && n.group !== NAV[i - 1]?.group
           ? <div key={`g-${n.group}`} className="px-2.5 pb-1 pt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">{n.group}</div>
           : null
-        if (!hasPerm(me.perms, n.perm) && !("alt" in n && hasPerm(me.perms, n.alt))) {
+        if (n.perm && !hasPerm(me.perms, n.perm) && !("alt" in n && hasPerm(me.perms, n.alt))) {
           return [heading, (
             <div key={n.to} title="Locked — ask your admin for access" className="flex cursor-not-allowed items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground/50">
               <span className="flex size-7 items-center justify-center rounded-md bg-muted"><Icon className="size-4" /></span>{n.label}<Lock className="ml-auto size-3.5" />

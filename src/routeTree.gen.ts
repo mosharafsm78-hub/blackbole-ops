@@ -23,11 +23,11 @@ import { Route as AppDeliveryPartnersRouteImport } from './routes/_app/delivery-
 import { Route as AppDispatchRouteImport } from './routes/_app/dispatch'
 import { Route as AppImportRouteImport } from './routes/_app/import'
 import { Route as AppInventoryRouteImport } from './routes/_app/inventory'
-import { Route as AppLeaderboardRouteImport } from './routes/_app/leaderboard'
 import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
 import { Route as AppOrderRouteImport } from './routes/_app/order'
 import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
+import { Route as AppPulseRouteImport } from './routes/_app/pulse'
 import { Route as AppPurchaseRouteImport } from './routes/_app/purchase'
 import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
@@ -131,11 +131,6 @@ const AppInventoryRoute = AppInventoryRouteImport.update({
   path: '/inventory',
   getParentRoute: () => AppRoute,
 } as any)
-const AppLeaderboardRoute = AppLeaderboardRouteImport.update({
-  id: '/leaderboard',
-  path: '/leaderboard',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppNewOrderRoute = AppNewOrderRouteImport.update({
   id: '/new-order',
   path: '/new-order',
@@ -154,6 +149,11 @@ const AppOrdersRoute = AppOrdersRouteImport.update({
 const AppProductsRoute = AppProductsRouteImport.update({
   id: '/products',
   path: '/products',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPulseRoute = AppPulseRouteImport.update({
+  id: '/pulse',
+  path: '/pulse',
   getParentRoute: () => AppRoute,
 } as any)
 const AppPurchaseRoute = AppPurchaseRouteImport.update({
@@ -336,11 +336,11 @@ export interface FileRoutesByFullPath {
   '/dispatch': typeof AppDispatchRoute
   '/import': typeof AppImportRoute
   '/inventory': typeof AppInventoryRoute
-  '/leaderboard': typeof AppLeaderboardRoute
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRouteWithChildren
+  '/pulse': typeof AppPulseRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
@@ -388,10 +388,10 @@ export interface FileRoutesByTo {
   '/dispatch': typeof AppDispatchRoute
   '/import': typeof AppImportRoute
   '/inventory': typeof AppInventoryRoute
-  '/leaderboard': typeof AppLeaderboardRoute
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
+  '/pulse': typeof AppPulseRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
@@ -442,11 +442,11 @@ export interface FileRoutesById {
   '/_app/dispatch': typeof AppDispatchRoute
   '/_app/import': typeof AppImportRoute
   '/_app/inventory': typeof AppInventoryRoute
-  '/_app/leaderboard': typeof AppLeaderboardRoute
   '/_app/new-order': typeof AppNewOrderRoute
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
   '/_app/products': typeof AppProductsRouteWithChildren
+  '/_app/pulse': typeof AppPulseRoute
   '/_app/purchase': typeof AppPurchaseRoute
   '/_app/purchases': typeof AppPurchasesRoute
   '/_app/reports': typeof AppReportsRoute
@@ -498,11 +498,11 @@ export interface FileRouteTypes {
     | '/dispatch'
     | '/import'
     | '/inventory'
-    | '/leaderboard'
     | '/new-order'
     | '/order'
     | '/orders'
     | '/products'
+    | '/pulse'
     | '/purchase'
     | '/purchases'
     | '/reports'
@@ -550,10 +550,10 @@ export interface FileRouteTypes {
     | '/dispatch'
     | '/import'
     | '/inventory'
-    | '/leaderboard'
     | '/new-order'
     | '/order'
     | '/orders'
+    | '/pulse'
     | '/purchase'
     | '/purchases'
     | '/reports'
@@ -603,11 +603,11 @@ export interface FileRouteTypes {
     | '/_app/dispatch'
     | '/_app/import'
     | '/_app/inventory'
-    | '/_app/leaderboard'
     | '/_app/new-order'
     | '/_app/order'
     | '/_app/orders'
     | '/_app/products'
+    | '/_app/pulse'
     | '/_app/purchase'
     | '/_app/purchases'
     | '/_app/reports'
@@ -751,13 +751,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/leaderboard': {
-      id: '/_app/leaderboard'
-      path: '/leaderboard'
-      fullPath: '/leaderboard'
-      preLoaderRoute: typeof AppLeaderboardRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/_app/new-order': {
       id: '/_app/new-order'
       path: '/new-order'
@@ -784,6 +777,13 @@ declare module '@tanstack/react-router' {
       path: '/products'
       fullPath: '/products'
       preLoaderRoute: typeof AppProductsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/pulse': {
+      id: '/_app/pulse'
+      path: '/pulse'
+      fullPath: '/pulse'
+      preLoaderRoute: typeof AppPulseRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/purchase': {
@@ -1045,11 +1045,11 @@ interface AppRouteChildren {
   AppDispatchRoute: typeof AppDispatchRoute
   AppImportRoute: typeof AppImportRoute
   AppInventoryRoute: typeof AppInventoryRoute
-  AppLeaderboardRoute: typeof AppLeaderboardRoute
   AppNewOrderRoute: typeof AppNewOrderRoute
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
+  AppPulseRoute: typeof AppPulseRoute
   AppPurchaseRoute: typeof AppPurchaseRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppReportsRoute: typeof AppReportsRoute
@@ -1094,11 +1094,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppDispatchRoute: AppDispatchRoute,
   AppImportRoute: AppImportRoute,
   AppInventoryRoute: AppInventoryRoute,
-  AppLeaderboardRoute: AppLeaderboardRoute,
   AppNewOrderRoute: AppNewOrderRoute,
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
+  AppPulseRoute: AppPulseRoute,
   AppPurchaseRoute: AppPurchaseRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppReportsRoute: AppReportsRoute,

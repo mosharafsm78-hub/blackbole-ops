@@ -431,6 +431,12 @@ export const receivePO = mutation({
     if (grnItems.some((g) => g.qty > 0) && grnItems.every((g) => !g.damaged)) {
       await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.clean_grn", label: `GRN-${code} (${poLabel}) received with zero shortage or damage` })
     }
+    // Cycle-time credit, the moment the WHOLE purchase is fully received (never fires again after this — a
+    // fully-received PO has nothing left to receive, so receivePO can't be called again for it). `po.status`
+    // is the pre-patch status, so this only fires on the one call that actually completes it.
+    if (done && po.status !== "received" && po.expectedAt !== undefined && Date.now() <= po.expectedAt) {
+      await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "fulfillment.po_on_time", label: `${poLabel} fully received on or before its expected date` })
+    }
     return { code, receiptId }
   },
 })

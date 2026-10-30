@@ -40,14 +40,24 @@ crons.daily("accountability daily digest", { hourUTC: 3, minuteUTC: 0 }, interna
 // call. 9:05 Asia/Dhaka (UTC+6) = 03:05 UTC.
 crons.daily("accountability business health", { hourUTC: 3, minuteUTC: 5 }, internal.accountability.businessHealthCheck, {})
 
-// KPI: the ops head's "clean week" award — checked every Monday morning, looking back at the week just
-// finished. 9:10 Asia/Dhaka (UTC+6) = 03:10 UTC.
-crons.weekly("kpi clean week check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 10 }, internal.accountability.weeklyCleanCheck, {})
-// KPI: Marketing's weekly ROAS-target award — same Monday morning, looking back at the week just finished.
+// KPI: the ops head's "clean week" award — BlackBole's work week is Saturday–Thursday (Friday is the official
+// weekly off day), so the sprint resets Saturday morning and these weekly checks run right after, looking back
+// at the Saturday–Thursday week that just finished. 9:10 Asia/Dhaka (UTC+6) = 03:10 UTC.
+crons.weekly("kpi clean week check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 10 }, internal.accountability.weeklyCleanCheck, {})
+// KPI: Marketing's weekly ROAS-target award — same Saturday morning, looking back at the week just finished.
 // 9:15 Asia/Dhaka (UTC+6) = 03:15 UTC.
+crons.weekly("kpi roas target check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 15 }, internal.ads.weeklyRoasCheck, {})
+// KPI: the ops head's own weekly delivery-rate award — same Saturday morning. 9:20 Asia/Dhaka (UTC+6) = 03:20 UTC.
+crons.weekly("kpi ops delivery rate check", { dayOfWeek: "saturday", hourUTC: 3, minuteUTC: 20 }, internal.accountability.opsDeliveryRateCheck, {})
+// KPI: automatic month-end prize payout — no one has to click Finalize. Runs the 1st of every month, 9:00
+// Asia/Dhaka (UTC+6) = 03:00 UTC, and finalizes the month that just ended.
+crons.monthly("kpi auto finalize month", { day: 1, hourUTC: 3, minuteUTC: 0 }, internal.kpi.autoFinalizeMonth, {})
+// KPI: Marketing's revenue-target pacing award — checks the calendar week (Monday morning, looking back to
+// the Sunday just finished) against a straight-line share of the month's target. Independent of the
+// Saturday-reset sprint above: a revenue target is a calendar-month thing, not a sprint-week thing, so it
+// keeps its own Monday/Sunday cadence rather than being forced onto the sprint's Saturday boundary.
 crons.weekly("kpi revenue target pace check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 20 }, internal.targets.weeklyTargetCheck, {})
 crons.daily("kpi revenue target month check", { hourUTC: 3, minuteUTC: 25 }, internal.targets.monthTargetCheck, {})
-crons.weekly("kpi roas target check", { dayOfWeek: "monday", hourUTC: 3, minuteUTC: 15 }, internal.ads.weeklyRoasCheck, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})

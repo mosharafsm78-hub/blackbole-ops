@@ -9,10 +9,10 @@ import { Switch } from "@/components/ui/switch"
 import { errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-/** Settings → KPI: the full rule book behind the Leaderboard — every point value and whether each rule is
- *  live, editable without a redeploy. "Auto" rules fire themselves off real activity (a cleared advance, a
- *  recovered cart…); everything else only ever lands through a manual award, because the system has no
- *  reliable way yet to tell who personally earned or caused it. */
+/** Settings → KPI: the full rule book behind Pulse's team points — every point value and whether each rule is
+ *  live, editable without a redeploy. Every rule fires itself off real activity already recorded elsewhere in
+ *  the app (a cleared advance, a recovered cart, a clean GRN, an accountability flag…) — there is no manual
+ *  award path anywhere, by design (see kpi.ts's design doctrine). */
 export function KpiRulesSettings() {
   const rules = useQuery(api.kpi.listRules, {})
   const save = useMutation(api.kpi.saveRule)
@@ -44,12 +44,10 @@ export function KpiRulesSettings() {
   return (
     <div className="space-y-4">
       <section className="rounded-lg border bg-card p-5">
-        <h2 className="font-semibold">KPI — leaderboard point rules</h2>
+        <h2 className="font-semibold">KPI — Pulse point rules</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Edit any point value or switch a rule off — it takes effect immediately on the Leaderboard, no deploy
-          needed. "Auto" rules fire themselves from order/accountability activity; the rest are only ever
-          awarded by hand from the Leaderboard page, since there's no reliable way yet to attribute them to one
-          person automatically.
+          Edit any point value or switch a rule off — it takes effect immediately on Pulse, no deploy needed.
+          Every rule here fires on its own, straight off real order and accountability activity.
         </p>
       </section>
       {[...byTeam.entries()].map(([team, teamRules]) => (

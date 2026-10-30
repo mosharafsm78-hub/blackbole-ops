@@ -7,9 +7,9 @@ import { v, ConvexError } from "convex/values"
 import { query, internalQuery, internalAction, type MutationCtx } from "./_generated/server"
 import { mutation, internalMutation } from "./functions"
 import { internal } from "./_generated/api"
-import { requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
+import { currentStaff, requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
 import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
-import { bdDay, statsFromDays } from "./stats"
+import { bdDay, statsFromDays, type DayRow } from "./stats"
 import { awardPoints } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
 
@@ -603,29 +603,68 @@ export const checkOverdue = internalAction({
 })
 
 /** Runs weekly (see crons.ts). Rewards the ops head for a clean week on their own terms — not "nothing went
- *  wrong" (plenty can go wrong that never becomes a flag), but specifically "nothing sat past the 2-day SLA":
- *  no currently-open flag that's crossed it, and no flag resolved this week that took longer than it to answer. */
+ *  wrong" (plenty can go wrong that never becomes a flag), but "nothing is currently sitting broken anywhere":
+ *  no currently-open flag that's crossed the 2-day SLA, no flag resolved this week that took longer than it to
+ *  answer, AND no order currently stuck in Approved or in-transit past the same thresholds businessHealthCheck
+ *  itself uses to raise a flag — so this can't call a week "clean" the moment before that flag would fire. */
 export const weeklyCleanCheck = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const since = Date.now() - 7 * DAY
+    const now = Date.now()
+    const since = now - 7 * DAY
     const openNow = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "open")).collect()
-    const anyOpenBreach = openNow.some((f) => Date.now() - f.raisedAt >= SLA_DAYS * DAY)
+    const anyOpenBreach = openNow.some((f) => now - f.raisedAt >= SLA_DAYS * DAY)
 
     const resolvedRecently = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "resolved").gte("raisedAt", since)).collect()
     const anyResolvedBreach = resolvedRecently.some((f) => (f.resolvedAt ?? f.raisedAt) - f.raisedAt > SLA_DAYS * DAY)
-    if (anyOpenBreach || anyResolvedBreach) return
+
+    const stuckApproved = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "approved").lt("statusChangedAt", now - STALE_APPROVED_DAYS * DAY)).first()
+    const stuckTransit = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "in_transit").lt("statusChangedAt", now - STALE_TRANSIT_DAYS * DAY)).first()
+    if (anyOpenBreach || anyResolvedBreach || stuckApproved || stuckTransit) return
 
     const owners = await ownersConf(ctx)
     if (!owners.opsHead?.name) return
     // Idempotency by time window, not orderId (there's no order behind this one) — skip if already awarded
     // once in the last 6 days, so a cron that fires twice in the same week can't double-pay it.
-    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", owners.opsHead!.name).gte("at", Date.now() - 6 * DAY)).collect()
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", owners.opsHead!.name).gte("at", now - 6 * DAY)).collect()
     if (already.some((e) => e.ruleKey === "ops.clean_week")) return
 
     await awardPoints(ctx, {
       staffName: owners.opsHead.name, ruleKey: "ops.clean_week",
-      label: `No Accountability flag breached the ${SLA_DAYS}-day SLA this week`,
+      label: `Nothing breached the ${SLA_DAYS}-day SLA, and nothing sat stuck in Approved or transit, this week`,
+    })
+  },
+})
+
+const DELIVERY_RATE_TARGET_DEFAULT = 90 // percent — delivered / (delivered + returned) over the week, editable via Settings → KPI
+
+/** Runs weekly (see crons.ts), looking back at the week just finished. Reuses the exact same weekly
+ *  scoreboard businessHealthCheck already reads (dayStats, via statsFromDays), so the number that pays out is
+ *  the same number the dashboard shows — never a separately-maintained copy. Deliberately NOT per-order: a
+ *  business-wide delivery rate is Saju's own job as Operations Head, the same way a weekly ROAS target is
+ *  Marketing's lead's job (see ads.weeklyRoasCheck) — no single order's agent "caused" the week's rate, the
+ *  rate itself is the thing the ops head owns and is measured on. */
+export const opsDeliveryRateCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const owners = await ownersConf(ctx)
+    if (!owners.opsHead?.name) return
+    const now = Date.now()
+    const WEEK = 7 * DAY
+    const rows = (await ctx.db.query("dayStats").withIndex("by_day", (q) => q.gte("day", bdDay(now - WEEK)).lte("day", bdDay(now))).collect()) as DayRow[]
+    const t = statsFromDays(rows, now - WEEK, now)
+    if (t.deliveryRate === null) return // nothing resolved (delivered or returned) yet this week — nothing to score
+
+    const target = (await getSetting<number>(ctx, "opsDeliveryRateTarget")) ?? DELIVERY_RATE_TARGET_DEFAULT
+    if (t.deliveryRate < target) return
+
+    // Idempotency by time window, not orderId — same pattern as ops.clean_week / marketing.roas_hit.
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", owners.opsHead!.name).gte("at", now - 6 * DAY)).collect()
+    if (already.some((e) => e.ruleKey === "ops.delivery_rate_hit")) return
+
+    await awardPoints(ctx, {
+      staffName: owners.opsHead.name, ruleKey: "ops.delivery_rate_hit",
+      label: `Delivery rate held at ${t.deliveryRate}% this week (target ${target}%)`,
     })
   },
 })
@@ -776,6 +815,98 @@ export const businessHealthCheck = internalAction({
         })
       }
     }
+  },
+})
+
+// ---------------------------------------------------------------------------------------------------------
+// Business Health Score — one number out of 100 for "how is BlackBole doing right now", the same idea as
+// Amazon's seller Account Health Rating: a handful of pillars, each scored on its own, severity-weighted
+// deductions rather than a flat pass/fail, rolled up into one composite — with a hard cap that can override
+// the composite when something is seriously wrong, regardless of how good everything else looks (exactly what
+// a policy violation does to AHR, whatever the rest of the account looks like). Every input here is a number
+// the dashboard, businessHealthCheck's own flags, or the KPI leaderboard already show somewhere else — this
+// never invents a new metric, it adds up the ones that already exist and already get acted on.
+const HEALTH_WEIGHTS: Record<string, number> = { fulfillment: 0.25, flow: 0.2, quality: 0.2, sales: 0.15, accountability: 0.2 }
+
+export const businessHealth = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentStaff(ctx) // same visibility as the leaderboard — any signed-in staff member
+    if (!me) return null
+    const now = Date.now()
+    const WEEK = 7 * DAY
+    const [thisRows, prevRows] = await Promise.all([
+      ctx.db.query("dayStats").withIndex("by_day", (q) => q.gte("day", bdDay(now - WEEK)).lte("day", bdDay(now))).collect(),
+      ctx.db.query("dayStats").withIndex("by_day", (q) => q.gte("day", bdDay(now - 2 * WEEK)).lte("day", bdDay(now - WEEK))).collect(),
+    ])
+    const t = statsFromDays(thisRows as DayRow[], now - WEEK, now)
+    const p = statsFromDays(prevRows as DayRow[], now - 2 * WEEK, now - WEEK)
+
+    const pillars: { key: string; label: string; score: number; note: string }[] = []
+    let hardCap = 100
+    let capReason: string | null = null
+    const cap = (limit: number, reason: string) => { if (limit < hardCap) { hardCap = limit; capReason = reason } }
+
+    // 1) Delivery reliability — same weekly delivery rate ops.delivery_rate_hit pays out on. No data yet this
+    // week isn't a strike against the business, so it scores full marks until there's something to judge.
+    const deliveryTarget = (await getSetting<number>(ctx, "opsDeliveryRateTarget")) ?? DELIVERY_RATE_TARGET_DEFAULT
+    let fulfillScore = 100
+    let fulfillNote = "Not enough delivered/returned orders this week to score yet."
+    if (t.deliveryRate !== null) {
+      fulfillScore = Math.max(0, 100 - Math.max(0, deliveryTarget - t.deliveryRate) * 3) // 3 pts per point below target
+      fulfillNote = `${t.deliveryRate}% delivered vs. returned this week (target ${deliveryTarget}%).`
+    }
+    pillars.push({ key: "fulfillment", label: "Delivery reliability", score: Math.round(fulfillScore), note: fulfillNote })
+
+    // 2) Order flow — the exact same stuck-Approved / stuck-in-transit counts businessHealthCheck flags and
+    // weeklyCleanCheck requires to be zero. Escalates fast on purpose: a handful of stuck orders should hurt.
+    const stuckApproved = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "approved").lt("statusChangedAt", now - STALE_APPROVED_DAYS * DAY)).collect()
+    const stuckTransit = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "in_transit").lt("statusChangedAt", now - STALE_TRANSIT_DAYS * DAY)).collect()
+    const stuckCount = stuckApproved.length + stuckTransit.length
+    pillars.push({
+      key: "flow", label: "Order flow", score: Math.round(Math.max(0, 100 - stuckCount * 15)),
+      note: stuckCount === 0 ? "Nothing stuck in Approved or in transit past its SLA." : `${stuckApproved.length} stuck in Approved, ${stuckTransit.length} stuck in transit, past SLA.`,
+    })
+    if (stuckCount >= 3) cap(70, `${stuckCount} orders stuck past SLA`)
+
+    // 3) Returns & quality — the same return-ratio number the "Return ratio high" flag watches.
+    const tResolved = t.delivered + t.returned
+    const tRatio = tResolved > 0 ? t.returned / tResolved : null
+    let qualityScore = 100
+    let qualityNote = "Not enough resolved orders this week to score yet."
+    if (tRatio !== null) {
+      qualityScore = Math.max(0, 100 - Math.max(0, tRatio - 0.05) * 400) // 4 pts per point above a 5% baseline
+      qualityNote = `${Math.round(tRatio * 100)}% of resolved orders were returned/damaged this week.`
+    }
+    pillars.push({ key: "quality", label: "Returns & quality", score: Math.round(qualityScore), note: qualityNote })
+    if (tRatio !== null && tRatio >= RETURN_RATIO_HIGH) cap(75, `Return ratio at ${Math.round(tRatio * 100)}%`)
+
+    // 4) Sales momentum — the same week-over-week sales comparison the "Sales down" flag watches.
+    let salesScore = 100
+    let salesNote = "Not enough sales history yet to compare weeks."
+    if (p.totalSales > 0) {
+      const pct = Math.round(((t.totalSales - p.totalSales) / p.totalSales) * 100)
+      salesScore = Math.max(0, Math.min(100, 100 + pct * 2)) // 2 pts per % down, 2 pts per % up, capped at 100
+      salesNote = `Sales ${pct >= 0 ? "up" : "down"} ${Math.abs(pct)}% week over week (৳${Math.round(t.totalSales).toLocaleString()} vs ৳${Math.round(p.totalSales).toLocaleString()}).`
+      if (pct <= SALES_DROP_PCT) cap(80, `Sales down ${Math.abs(pct)}% week over week`)
+    }
+    pillars.push({ key: "sales", label: "Sales momentum", score: Math.round(salesScore), note: salesNote })
+
+    // 5) Accountability discipline — open flags cost a little each, a flag that's actually breached the SLA
+    // costs a lot more, and any live breach caps the whole score — the same severity jump escalatedAt marks.
+    const openFlags = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "open")).collect()
+    const breached = openFlags.filter((f) => now - f.raisedAt >= SLA_DAYS * DAY)
+    pillars.push({
+      key: "accountability", label: "Accountability", score: Math.round(Math.max(0, 100 - openFlags.length * 5 - breached.length * 15)),
+      note: openFlags.length === 0 ? "No open accountability flags." : `${openFlags.length} open flag${openFlags.length === 1 ? "" : "s"}, ${breached.length} past the ${SLA_DAYS}-day SLA.`,
+    })
+    if (breached.length > 0) cap(70, `${breached.length} flag${breached.length === 1 ? "" : "s"} past the SLA`)
+
+    const composite = pillars.reduce((sum, pl) => sum + pl.score * (HEALTH_WEIGHTS[pl.key] ?? 0), 0)
+    const score = Math.round(Math.min(composite, hardCap))
+    const status = score >= 80 ? "Healthy" : score >= 60 ? "At Risk" : "Needs Attention"
+
+    return { score, status, capReason, pillars, asOf: now }
   },
 })
 

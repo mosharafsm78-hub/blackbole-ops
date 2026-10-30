@@ -1,23 +1,22 @@
 import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Trophy, Medal, Award as AwardIcon, Zap } from "lucide-react"
+import { Trophy, Medal, Award as AwardIcon, Zap, Crown, HeartPulse, ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import { Guard, useCan, useMe } from "@/components/app-shell"
+import { useCan, useMe } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { dateTime, errMsg } from "@/lib/format"
+import { dateTime, errMsg, type Tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-export const Route = createFileRoute("/_app/leaderboard")({
-  component: () => (
-    <Guard perm="dashboard.view">
-      <Leaderboard />
-    </Guard>
-  ),
+// No permission gate here on purpose — the whole point of this page is that every signed-in staff member can
+// see how the business is doing and where they and everyone else stand, not just roles that happen to hold
+// dashboard.view.
+export const Route = createFileRoute("/_app/pulse")({
+  component: () => <Pulse />,
 })
 
 const MEDAL = [
@@ -50,14 +49,75 @@ function Board({ title, rows, hint }: { title: string; rows: { staffName: string
               key={r.staffName}
               className={cn(
                 "flex items-center justify-between gap-2 rounded-md px-2 py-1.5",
-                r.staffName === me.name && "bg-tone-blue-bg",
+                i === 0 && "bg-gradient-to-r from-tone-amber-bg to-transparent",
+                r.staffName === me.name && "ring-1 ring-tone-blue",
+                r.staffName === me.name && i !== 0 && "bg-tone-blue-bg",
               )}
             >
               <div className="flex items-center gap-2">
                 <Rank i={i} />
-                <span className="text-sm font-medium">{r.staffName}{r.staffName === me.name && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}</span>
+                <span className="text-sm font-medium">
+                  {r.staffName}
+                  {i === 0 && rows.length > 1 && <Crown className="ml-1 inline size-3.5 text-tone-amber" />}
+                  {r.staffName === me.name && <span className="ml-1 text-xs text-muted-foreground">(you)</span>}
+                </span>
               </div>
               <span className={cn("text-sm font-semibold tabular-nums", r.points < 0 && "text-tone-red")}>{r.points}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const HEALTH_TONE = (score: number): Tone => (score >= 80 ? "green" : score >= 60 ? "amber" : "red")
+
+/** The business health score, front and center — out of 100, with the handful of pillars behind it, the same
+ *  idea as Amazon's seller "Account Health" rating: one number for "how are we doing right now", built from
+ *  real signals the dashboard and the automatic accountability flags already track, never a self-reported
+ *  claim. A pillar that gets dragged down caps the overall number even if the rest look fine. */
+function BusinessHealthCard() {
+  const health = useQuery(api.accountability.businessHealth, {})
+  const [open, setOpen] = useState(false)
+  if (health === undefined) return <Loading />
+  if (health === null) return null
+  const tone = HEALTH_TONE(health.score)
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <HeartPulse className={cn("size-5", `text-tone-${tone}`)} />
+          <h2 className="font-semibold">Business health</h2>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
+          {open ? "Hide" : "Show"} the breakdown
+          <ChevronDown className={cn("ml-1 size-3.5 transition-transform", open && "rotate-180")} />
+        </Button>
+      </div>
+
+      <div className="mt-3 flex items-center gap-4">
+        <div className={cn("flex size-20 shrink-0 items-center justify-center rounded-full border-4 text-2xl font-bold tabular-nums", `border-tone-${tone} text-tone-${tone}`)}>
+          {health.score}%
+        </div>
+        <div>
+          <Pill tone={tone}>{health.status}</Pill>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {health.capReason ? `Held down by: ${health.capReason}.` : "Weighted across delivery, order flow, returns, sales and accountability — see the breakdown for each."}
+          </p>
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {health.pillars.map((pl) => (
+            <div key={pl.key} className="rounded-md border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium">{pl.label}</span>
+                <span className={cn("text-sm font-semibold tabular-nums", `text-tone-${HEALTH_TONE(pl.score)}`)}>{pl.score}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">{pl.note}</p>
             </div>
           ))}
         </div>
@@ -156,14 +216,17 @@ function monthKeyNow() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
 }
 
-/** Month-end prize pool: lock in the top 3 of the monthly bank, then mark each paid once the real cash has
- *  actually gone out by hand — the app only ever records that it happened, never moves the money itself. */
+/** Month-end prize pool. The 1st-place payout now happens on its own — see the auto-finalize cron in
+ *  crons.ts — so nobody has to click anything for the normal case. This panel is only for a lead who needs to
+ *  check what went out, mark the actual cash as paid once it's handed over, or re-run a month by hand (a late
+ *  award that should have counted, a different prize split for one month). Re-running is always safe: it
+ *  never touches a rank already marked paid. */
 function PayoutsPanel() {
   const [month, setMonth] = useState(monthKeyNow())
   const payouts = useQuery(api.kpi.listPayouts, { month })
   const finalize = useMutation(api.kpi.finalizeMonth)
   const markPaid = useMutation(api.kpi.markPayoutPaid)
-  const [prizes, setPrizes] = useState(["1800", "800", "400"])
+  const [prizes, setPrizes] = useState(["3000"])
   const [busy, setBusy] = useState(false)
 
   const doFinalize = async () => {
@@ -188,16 +251,17 @@ function PayoutsPanel() {
         <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="w-40" />
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Locks in the top finishers of that month's bank. Re-running it after a late award is fine — it never
-        touches a rank already marked paid.
+        Pays out on its own on the 1st of the month for the month that just ended — this is only for checking
+        what went out, marking it paid, or re-running a month by hand.
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
-        {["1st", "2nd", "3rd"].map((label, i) => (
-          <div key={label} className="space-y-1">
-            <Label className="text-xs">{label} (৳)</Label>
-            <Input className="w-24" type="number" value={prizes[i]} onChange={(e) => setPrizes((p) => p.map((v, j) => (j === i ? e.target.value : v)))} />
+        {prizes.map((amount, i) => (
+          <div key={i} className="space-y-1">
+            <Label className="text-xs">{i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`} (৳)</Label>
+            <Input className="w-24" type="number" value={amount} onChange={(e) => setPrizes((p) => p.map((v, j) => (j === i ? e.target.value : v)))} />
           </div>
         ))}
+        <Button type="button" variant="outline" size="sm" onClick={() => setPrizes((p) => [...p, "0"])}>+ Add place</Button>
         <Button size="sm" disabled={busy} onClick={() => void doFinalize()}>Finalize {month}</Button>
       </div>
 
@@ -224,31 +288,38 @@ function PayoutsPanel() {
   )
 }
 
-function Leaderboard() {
+function Pulse() {
   const can = useCan()
   const canManage = can("team.manage")
   const board = useQuery(api.kpi.leaderboard, {})
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
-      <PageHeader title="Leaderboard" sub="Weekly sprint, resets every Monday — points bank into the monthly total that decides the prize pool." />
+      <PageHeader
+        title="Pulse"
+        sub="How the business is doing right now, and how the team is doing earning it. Sprint runs Saturday through Thursday (Friday's the weekly off), banking into the monthly total — top of the month wins the cash prize, paid out automatically."
+      />
 
-      <MyPoints />
-
-      <RuleBook />
+      <BusinessHealthCard />
 
       {board === undefined ? <Loading /> : board === null ? (
-        <Empty title="Sign in to see the board">The leaderboard is only visible to signed-in staff.</Empty>
+        <Empty title="Sign in to see Pulse">This page is only visible to signed-in staff.</Empty>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Board title="This week" rows={board.weekly} hint={`ends ${dateTime(board.weekEnd)}`} />
-          <Board title={`This month (${board.month})`} rows={board.monthly} hint="banked total" />
-        </div>
+        <>
+          <MyPoints />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Board title="This week" rows={board.weekly} hint={`ends ${dateTime(board.weekEnd)}`} />
+            <Board title={`This month (${board.month})`} rows={board.monthly} hint="banked total" />
+          </div>
+
+          <RuleBook />
+
+          <RecentFeed />
+
+          {canManage && <PayoutsPanel />}
+        </>
       )}
-
-      <RecentFeed />
-
-      {canManage && <PayoutsPanel />}
     </div>
   )
 }
