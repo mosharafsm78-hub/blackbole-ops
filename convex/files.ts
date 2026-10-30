@@ -38,7 +38,7 @@ export const uploadUrl = mutation({
 
 /** Registers an uploaded file and returns its public link. */
 export const add = mutation({
-  args: { storageId: v.id("_storage"), name: v.string(), type: v.string(), size: v.number(), w: v.optional(v.number()), h: v.optional(v.number()) },
+  args: { storageId: v.id("_storage"), name: v.string(), type: v.string(), size: v.number(), w: v.optional(v.number()), h: v.optional(v.number()), src: v.optional(v.literal("product")) },
   handler: async (ctx, a) => {
     await requireUpload(ctx)
     const type = a.type.toLowerCase()
@@ -49,7 +49,7 @@ export const add = mutation({
     const name = a.name.trim().slice(0, 160) || "file"
     const id = await ctx.db.insert("webFiles", {
       storageId: a.storageId, url, name, type, size: a.size,
-      ...(a.w ? { w: Math.round(a.w) } : {}), ...(a.h ? { h: Math.round(a.h) } : {}), createdAt: Date.now(),
+      ...(a.w ? { w: Math.round(a.w) } : {}), ...(a.h ? { h: Math.round(a.h) } : {}), ...(a.src ? { src: a.src } : {}), createdAt: Date.now(),
     })
     return { id, url }
   },

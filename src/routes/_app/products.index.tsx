@@ -136,7 +136,7 @@ function FragmentRows({ children }: { children: React.ReactNode }) {
 function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: () => void }) {
   const save = useMutation(api.catalog.saveProduct)
   const [f, setF] = useState<ProductForm>(initial)
-  const photo = useUploadFiles()
+  const photo = useUploadFiles({ product: true })
   const [sizes, setSizes] = useState("")
   const [baseSku, setBaseSku] = useState("")
   const [basePrice, setBasePrice] = useState(0)

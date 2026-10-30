@@ -38,7 +38,7 @@ function mediaSize(f: File): Promise<{ w: number; h: number } | null> {
 }
 
 /** Uploads files to Website → Files; returns their public links. */
-export function useUploadFiles() {
+export function useUploadFiles(opts?: { product?: boolean }) {
   const getUrl = useMutation(api.files.uploadUrl)
   const add = useMutation(api.files.add)
   const [busy, setBusy] = useState(0)
@@ -54,7 +54,7 @@ export function useUploadFiles() {
           const res = await fetch(post, { method: "POST", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f })
           if (!res.ok) throw new Error(`Upload failed (${f.name})`)
           const { storageId } = await res.json()
-          const r = await add({ storageId, name: f.name, type: f.type || "application/octet-stream", size: f.size, ...(size ? { w: size.w, h: size.h } : {}) })
+          const r = await add({ storageId, name: f.name, type: f.type || "application/octet-stream", size: f.size, ...(size ? { w: size.w, h: size.h } : {}), ...(opts?.product ? { src: "product" as const } : {}) })
           urls.push(r.url)
         } catch (e) {
           toast.error(errMsg(e))

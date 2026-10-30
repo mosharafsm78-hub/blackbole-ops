@@ -234,7 +234,7 @@ export const productGroups = internalQuery({
   args: { variantIds: v.array(v.id("variants")) },
   handler: async (ctx, { variantIds }) => {
     const seen = new Set<string>()
-    const out: { name: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
+    const out: { productId: string; name: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
     for (const id of variantIds) {
       const vr = await ctx.db.get(id)
       if (!vr || seen.has(vr.productId)) continue
@@ -244,7 +244,7 @@ export const productGroups = internalQuery({
       const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
       const image = p.imageUrl ?? vs.find((x) => x.imageUrl)?.imageUrl ?? ""
       out.push({
-        name: p.name, description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
+        productId: p._id as string, name: p.name, description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
         variants: vs.map((x) => ({ id: x._id as string, sku: x.sku, title: x.title, price: x.price, cost: x.purchasePrice })),
       })
     }
@@ -304,6 +304,8 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
         const errs = r.productSet.userErrors
         if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; "))
         for (const n of r.productSet.product.variants.nodes) found.push({ sku: n.sku, itemId: n.inventoryItem.id })
+        // Shopify now downloads the photo and keeps its own copy; Ops lets go of its file a little later (adoptImage)
+        if (g.hasImage) await ctx.scheduler.runAfter(45_000, internal.shopifyStock.adoptImage, { productId: g.productId, shopifyProductId: r.productSet.product.id, oldUrl: g.image, tries: 0 })
       } else if (todo.length) {
         const productId = [...have.values()][0].productId
         const r = await gql(ctx, `mutation($id: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkCreate(productId: $id, variants: $v) { productVariants { sku inventoryItem { id } } userErrors { field message } } }`, { id: productId, v: todo.map(({ x, i }: any) => variantInput(x, i)) })
@@ -324,6 +326,38 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
   if (save.length) await ctx.runMutation(internal.shopifyStock.saveItemIds, { list: [...new Map(save.map((x) => [x.id, x])).values()] })
   return notes
 }
+
+/** Once Shopify has copied the photo, point the Ops product at Shopify's copy and delete the file Ops stored. */
+export const adoptImage = internalAction({
+  args: { productId: v.id("products"), shopifyProductId: v.string(), oldUrl: v.string(), tries: v.number() },
+  handler: async (ctx, a) => {
+    try {
+      const d = await gql(ctx, `query($id: ID!) { product(id: $id) { featuredMedia { status ... on MediaImage { image { url } } } } }`, { id: a.shopifyProductId })
+      const m = d.product?.featuredMedia
+      if (m?.status === "READY" && m.image?.url) {
+        await ctx.runMutation(internal.shopifyStock.swapImage, { productId: a.productId, oldUrl: a.oldUrl, newUrl: m.image.url })
+        return
+      }
+      if (m?.status === "FAILED") return // keep Ops' copy; the photo did not reach Shopify
+    } catch { /* try again below */ }
+    if (a.tries < 6) await ctx.scheduler.runAfter(60_000, internal.shopifyStock.adoptImage, { ...a, tries: a.tries + 1 })
+  },
+})
+export const swapImage = internalMutation({
+  args: { productId: v.id("products"), oldUrl: v.string(), newUrl: v.string() },
+  handler: async (ctx, { productId, oldUrl, newUrl }) => {
+    const p = await ctx.db.get(productId)
+    if (!p || p.imageUrl !== oldUrl) return
+    await ctx.db.patch(productId, { imageUrl: newUrl })
+    // only a picture uploaded from a product form, and only if nothing else still shows it
+    const f = await ctx.db.query("webFiles").withIndex("by_url", (q) => q.eq("url", oldUrl)).first()
+    if (!f || f.src !== "product" || !f.storageId) return
+    const vs = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
+    if (vs.some((x) => x.imageUrl === oldUrl)) return
+    await ctx.storage.delete(f.storageId)
+    await ctx.db.delete(f._id)
+  },
+})
 
 export const flush = internalAction({
   args: {},

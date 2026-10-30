@@ -77,4 +77,21 @@ describe("Ops → Shopify product creation", () => {
     const bulk = calls.find((c) => c.q.includes("productVariantsBulkCreate"))!
     expect(bulk.v.v.map((x: any) => x.sku)).toEqual(["BB-TP-42"])
   })
+
+  it("once Shopify holds the photo, Ops points at Shopify's copy and deletes its own file", async () => {
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    const { productId, fileId, storageId } = await t.run(async (ctx) => {
+      await ctx.db.insert("settings", { key: "shopifyApi", value: { shop: "x.myshopify.com", clientId: "c", on: true } })
+      await ctx.db.insert("settings", { key: "shopifyApiSecret", value: "shpat_test" })
+      const storageId = await ctx.storage.store(new Blob(["img"]))
+      const url = "https://ops.convex.cloud/api/storage/abc"
+      const productId = await ctx.db.insert("products", { name: "P", active: true, createdAt: 1, imageUrl: url })
+      const fileId = await ctx.db.insert("webFiles", { storageId, url, name: "a.jpg", type: "image/jpeg", size: 3, src: "product", createdAt: 1 })
+      return { productId, fileId, storageId }
+    })
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ data: { product: { featuredMedia: { status: "READY", image: { url: "https://cdn.shopify.com/a.jpg" } } } } }), { status: 200 }))
+    await t.action(internal.shopifyStock.adoptImage, { productId, shopifyProductId: "gid://p/1", oldUrl: "https://ops.convex.cloud/api/storage/abc", tries: 0 })
+    expect(await t.run(async (ctx) => [(await ctx.db.get(productId))!.imageUrl, await ctx.db.get(fileId), await ctx.storage.getUrl(storageId)])).toEqual(["https://cdn.shopify.com/a.jpg", null, null])
+  })
 })
+

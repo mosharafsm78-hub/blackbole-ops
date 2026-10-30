@@ -864,6 +864,7 @@ export default defineSchema({
     w: v.optional(v.number()),
     h: v.optional(v.number()),
     alt: v.optional(v.string()),
+    src: v.optional(v.literal("product")), // uploaded from a product form: Ops lets go of it once Shopify holds its own copy
     createdAt: v.number(),
   }).index("by_created", ["createdAt"]).index("by_url", ["url"]),
 
