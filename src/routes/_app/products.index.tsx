@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TEMPLATE_CSV, mapProductCsv, type ImportRow } from "@/lib/csv"
@@ -27,9 +28,9 @@ export const Route = createFileRoute("/_app/products/")({
 })
 
 type VariantForm = { id?: Id<"variants">; sku: string; title: string; weightKg: number; price: number; purchasePrice: number; active: boolean }
-type ProductForm = { id?: Id<"products">; name: string; category: string; imageUrl: string; active: boolean; preOrder: boolean; preOrderFrom: "china" | "bangladesh"; variants: VariantForm[] }
+type ProductForm = { id?: Id<"products">; name: string; category: string; description: string; imageUrl: string; active: boolean; preOrder: boolean; preOrderFrom: "china" | "bangladesh"; variants: VariantForm[] }
 
-const blank = (): ProductForm => ({ name: "", category: "", imageUrl: "", active: true, preOrder: false, preOrderFrom: "china", variants: [] })
+const blank = (): ProductForm => ({ name: "", category: "", description: "", imageUrl: "", active: true, preOrder: false, preOrderFrom: "china", variants: [] })
 
 function ProductsPage() {
   const can = useCan()
@@ -100,7 +101,7 @@ function ProductsPage() {
                       <td className="p-3 text-right">
                         {can("products.manage") && (
                           <Button variant="ghost" size="sm" onClick={() => setEditing({
-                            id: p._id, name: p.name, category: p.category ?? "", imageUrl: p.imageUrl ?? "", active: p.active, preOrder: !!p.preOrder, preOrderFrom: p.preOrderFrom ?? "china",
+                            id: p._id, name: p.name, category: p.category ?? "", description: p.description ?? "", imageUrl: p.imageUrl ?? "", active: p.active, preOrder: !!p.preOrder, preOrderFrom: p.preOrderFrom ?? "china",
                             variants: p.variants.map((v) => ({ id: v._id, sku: v.sku, title: v.title, weightKg: v.weightKg, price: v.price, purchasePrice: v.purchasePrice, active: v.active })),
                           })}>Edit</Button>
                         )}
@@ -174,6 +175,11 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
               </label>
             </div>
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Description</Label>
+            <Textarea rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="What the customer sees on the product page: material, comfort, fit, care…" />
+            <p className="text-xs text-muted-foreground">Sent to Shopify with the product the first time it goes there.</p>
+          </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> Active (can be sold)</label>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.preOrder} onCheckedChange={(v) => setF({ ...f, preOrder: v })} /> Pre-order product (takes long to arrive — orders go to the Pre-Order tab). SKUs starting with “PO-” count as pre-order automatically.</label>
           <div className="flex items-center gap-2 text-sm">
@@ -230,7 +236,7 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
               setBusy(true)
               try {
                 await save({
-                  id: f.id, name: f.name, category: f.category || undefined, imageUrl: f.imageUrl || undefined, active: f.active, preOrder: f.preOrder, preOrderFrom: f.preOrderFrom,
+                  id: f.id, name: f.name, category: f.category || undefined, description: f.description.trim() || undefined, imageUrl: f.imageUrl || undefined, active: f.active, preOrder: f.preOrder, preOrderFrom: f.preOrderFrom,
                   variants: f.variants.map((v) => ({ ...v, attrs: undefined })),
                 })
                 toast.success("Product saved")

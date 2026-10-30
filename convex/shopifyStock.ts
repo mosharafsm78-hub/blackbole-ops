@@ -234,7 +234,7 @@ export const productGroups = internalQuery({
   args: { variantIds: v.array(v.id("variants")) },
   handler: async (ctx, { variantIds }) => {
     const seen = new Set<string>()
-    const out: { productId: string; name: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
+    const out: { productId: string; name: string; category: string; description: string; image: string; hasImage: boolean; variants: { id: string; sku: string; title: string; price: number; cost: number }[] }[] = []
     for (const id of variantIds) {
       const vr = await ctx.db.get(id)
       if (!vr || seen.has(vr.productId)) continue
@@ -244,7 +244,7 @@ export const productGroups = internalQuery({
       const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
       const image = p.imageUrl ?? vs.find((x) => x.imageUrl)?.imageUrl ?? ""
       out.push({
-        productId: p._id as string, name: p.name, description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
+        productId: p._id as string, name: p.name, category: p.category ?? "", description: p.description ?? "", image, hasImage: /^https:\/\//.test(image),
         variants: vs.map((x) => ({ id: x._id as string, sku: x.sku, title: x.title, price: x.price, cost: x.purchasePrice })),
       })
     }
@@ -294,7 +294,7 @@ async function ensureProducts(ctx: any, rows: { variantId: string; sku: string; 
       if (!have.size) {
         const r = await gql(ctx, `mutation($input: ProductSetInput!) { productSet(input: $input, synchronous: true) { product { id variants(first: 100) { nodes { sku inventoryItem { id } } } } userErrors { field message } } }`, {
           input: {
-            title: g.name, vendor: "BlackBole", descriptionHtml: g.description ? `<p>${esc(g.description)}</p>` : "",
+            title: g.name, vendor: "BlackBole", ...(g.category ? { productType: g.category } : {}), descriptionHtml: g.description ? `<p>${esc(g.description)}</p>` : "",
             status: g.hasImage ? "ACTIVE" : "DRAFT", // no photo yet → draft, so nothing half-finished goes live
             productOptions: opts.names.map((name, k) => ({ name, values: [...new Set(opts.values.map((v) => v[k]))].map((n) => ({ name: n })) })),
             variants: g.variants.map((x: any, i: number) => variantInput(x, i)),
