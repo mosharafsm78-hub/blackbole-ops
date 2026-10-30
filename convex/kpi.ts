@@ -34,7 +34,7 @@ const DAY = 86400000
 export type KpiRuleKey =
   | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
   | "fulfillment.same_day_dispatch" | "fulfillment.clean_grn"
-  | "marketing.delivered_order" | "marketing.roas_hit"
+  | "marketing.delivered_order" | "marketing.roas_hit" | "marketing.target_week_pace" | "marketing.target_month_hit"
   | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.flag_raised" | "ops.overdue_flag"
 
 // Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
@@ -56,6 +56,8 @@ export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; te
 
   // --------------------------------------------------------------------------------------------------- Marketing & Content
   { key: "marketing.delivered_order", label: "An order from a paid channel (Facebook/Instagram) actually completed delivery", points: 3, team: "Marketing", auto: true },
+  { key: "marketing.target_week_pace", label: "Delivered revenue was on pace for the monthly target at the end of the week", points: 15, team: "Marketing", auto: true },
+  { key: "marketing.target_month_hit", label: "The month's revenue target was reached", points: 40, team: "Marketing", auto: true },
   { key: "marketing.roas_hit", label: "Ad spend hit or beat the weekly ROAS target (Settings → KPI)", points: 20, team: "Marketing", auto: true },
 
   // -------------------------------------------------------------------------------------------- Operations / leads

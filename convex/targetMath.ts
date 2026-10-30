@@ -31,6 +31,16 @@ export const monthStartMs = (month: string) => {
 /** First instant of the NEXT month in Dhaka, as epoch ms (use as an exclusive upper bound). */
 export const monthEndMs = (month: string) => monthStartMs(month) + daysInMonth(month) * DAY
 
+export function nextMonthKey(month: string) {
+  const [y, m] = month.split("-").map(Number)
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`
+}
+
+export function prevMonthKey(month: string) {
+  const [y, m] = month.split("-").map(Number)
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`
+}
+
 /** Adds up delivered order rows into a { "YYYY-MM-DD": taka } map by their Dhaka delivery day. */
 export function sumDeliveredByDay(rows: { at: number; total: number }[]) {
   const out: Record<string, number> = {}

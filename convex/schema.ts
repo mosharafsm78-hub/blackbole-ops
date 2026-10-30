@@ -1013,5 +1013,7 @@ export default defineSchema({
     amount: v.number(), // whole taka for the month
     setByName: v.string(),
     updatedAt: v.number(),
+    /** Pairs-per-product plan for the month (targetPlan.ts ProductPlan), re-made weekly. */
+    plan: v.optional(v.any()),
   }).index("by_month", ["month"]),
 })
