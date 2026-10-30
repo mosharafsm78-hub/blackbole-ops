@@ -239,7 +239,7 @@ export const codLead = internalMutation({
     if (now - old.shopUpdatedAt < 5000) return "too fast"
     if (old.isArchived) return "archived" // hidden by the team — do not reopen it behind their back
     if (old.status === "open") {
-      await ctx.db.patch(old._id, { ...data, kind, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
+      await ctx.db.patch(old._id, { ...data, kind, email: data.email ?? old.email, customerName: data.customerName === "Customer" ? old.customerName : data.customerName, address: data.address || old.address, items: items.length ? items : old.items })
       return "updated"
     }
     // came back another time (older lead was ordered / lost / converted): start a fresh lead

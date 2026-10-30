@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { Copy, MessageCircle, Pencil, PhoneCall, RotateCcw, ShoppingCart, ThumbsDown, Undo2 } from "lucide-react"
+import { Copy, Mail, MessageCircle, Pencil, PhoneCall, RotateCcw, ShoppingCart, ThumbsDown, Undo2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Doc, Id } from "@/convex/_generated/dataModel"
@@ -143,7 +143,14 @@ function CartRow({ c, tab, onCall, onOrder, onModify, onLost, onReopen, onAlread
         {c.phone ? (
           <div className="mt-1 flex items-center gap-2"><span className="tabular-nums">{c.phone}</span><ContactButtons phone={c.phone} /></div>
         ) : (
-          <div className="mt-1 text-sm text-tone-red">No phone number{c.email ? ` · ${c.email}` : ""}</div>
+          <div className="mt-1 text-sm text-tone-red">No phone number</div>
+        )}
+        {c.email && (
+          <div className="mt-1 flex items-center gap-2 text-sm">
+            <span className="min-w-0 truncate" data-testid="cart-email">{c.email}</span>
+            <a href={`mailto:${c.email}`} title="Send email" className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent"><Mail className="size-3.5" /></a>
+            <button type="button" title="Copy email" className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background hover:bg-accent" onClick={() => { void navigator.clipboard?.writeText(c.email!); toast.success("Email copied") }}><Copy className="size-3.5" /></button>
+          </div>
         )}
         {c.address && <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{c.address}</div>}
         {c.recoveryStatus && (
