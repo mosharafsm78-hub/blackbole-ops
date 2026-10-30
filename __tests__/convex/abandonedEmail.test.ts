@@ -35,7 +35,7 @@ describe("abandoned cart email", () => {
     const noEmail = await cart(t, { email: undefined })
     const sentToday = await cart(t, { emailSentAt: Date.now() - 5 * H, emailCount: 1 })
     const due = await cart(t, { emailSentAt: Date.now() - 48 * H, emailCount: 1 })
-    const done5 = await cart(t, { emailSentAt: Date.now() - 48 * H, emailCount: 5 })
+    const done5 = await cart(t, { emailSentAt: Date.now() - 48 * H, emailCount: 15 })
     const failed = await cart(t, { emailSentAt: Date.now() - 48 * H, emailCount: 0, emailError: "smtp down" })
     const archived = await cart(t, { isArchived: true })
     const ids = await t.query(internal.abandonedEmail.candidates, {})
@@ -77,5 +77,22 @@ describe("abandoned cart email — 8 products", () => {
     const m = abandonedEmailContent({ customerName: "Rafi", items: [], subtotal: 0, picks })
     for (let i = 1; i <= 8; i++) expect(m.html).toContain(`Boot ${i}<`)
     expect(m.html.match(/width="25%"/g)?.length).toBe(8)
+  })
+})
+
+describe("abandoned cart email — rotating products", () => {
+  it("shows a different 8 products in each email", async () => {
+    const t = makeT()
+    for (let i = 1; i <= 20; i++) {
+      await t.run(async (ctx) => {
+        const id = await ctx.db.insert("products", { name: `P${i}`, active: true, preOrder: true, imageUrl: "https://x.test/a.jpg", handle: `p${i}`, createdAt: i } as any)
+        await ctx.db.insert("variants", { productId: id, sku: `P${i}`, title: "42", price: 3000, purchasePrice: 1000, weightKg: 0.5, active: true } as any)
+      })
+    }
+    const a = await t.query(internal.abandonedEmail.picks, { exclude: [], step: 1 })
+    const b = await t.query(internal.abandonedEmail.picks, { exclude: [], step: 2 })
+    expect(a).toHaveLength(8)
+    expect(b).toHaveLength(8)
+    expect(a.some((x) => b.some((y) => y.name === x.name))).toBe(false)
   })
 })

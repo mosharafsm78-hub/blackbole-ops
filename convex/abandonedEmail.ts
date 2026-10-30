@@ -8,14 +8,14 @@ import { ABANDON_AFTER, laterOrderFor } from "./checkouts"
 
 const BD_OFFSET = 6 * 3600000
 const REPEAT_EVERY = 47 * 3600000 // a reminder every 2 days
-const MAX_EMAILS = 5 // first email + 4 reminders, then stop
-const MAX_AGE = 14 * 3600000 * 24 // carts older than 2 weeks are too cold
+const MAX_EMAILS = 15 // a safety stop: one every 2 days for a month
+const MAX_AGE = 30 * 24 * 3600000 // carts older than a month are too cold
 const PER_RUN = 20
 export const validEmail = (e?: string) => !!e && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e.trim())
 
 export const get = internalQuery({ args: { checkoutId: v.id("checkouts") }, handler: async (ctx, { checkoutId }) => ctx.db.get(checkoutId) })
 
-/** Open carts with an email, left 30+ minutes ago, not ordered since: first email, then one every 2 days (max 5). */
+/** Open carts with an email, left 30+ minutes ago, not ordered since: first email, then one every 2 days until they order (stops after a month). */
 export const candidates = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -70,22 +70,24 @@ export const sendNow = mutation({
   },
 })
 
-/** Other products to show in the email: newest 8 published PRE-ORDER ones with a picture and a price. */
+/** Pre-order products to show in the email. Each email moves on to the next 8 (wrapping round), so the customer sees new ones every time. */
 export const picks = internalQuery({
-  args: { exclude: v.array(v.string()) },
-  handler: async (ctx, { exclude }) => {
-    const out: { name: string; imageUrl?: string; price: number; url: string }[] = []
+  args: { exclude: v.array(v.string()), step: v.optional(v.number()) },
+  handler: async (ctx, { exclude, step }) => {
+    const all: { name: string; imageUrl?: string; price: number; url: string }[] = []
     for await (const p of ctx.db.query("products").order("desc")) {
-      if (out.length >= 8) break
+      if (all.length >= 120) break
       if (exclude.includes(p.name)) continue // already in their cart
       if (!p.active || !p.imageUrl || !p.handle || p.web?.published === false || p.web?.archived) continue
       // pre-order products only (the whole point of this email is to grow the pre-order model)
       if (!p.preOrder && !((p.web?.tags as string[] | undefined) ?? []).some((t) => t.toLowerCase() === "pre-order")) continue
       const v = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).first()
       if (!v) continue
-      out.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
+      all.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
     }
-    return out
+    if (all.length <= 8) return all
+    const start = (((step ?? 1) - 1) * 8) % all.length
+    return Array.from({ length: 8 }, (_, k) => all[(start + k) % all.length])
   },
 })
 
