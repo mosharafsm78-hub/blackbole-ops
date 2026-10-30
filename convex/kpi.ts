@@ -20,27 +20,56 @@ import { currentStaff, requirePerm } from "./lib"
 const DAY = 86400000
 
 export type KpiRuleKey =
-  | "cx.recovered_checkout" | "cx.advance_secured" | "cx.fast_confirmation" | "cx.address_typo"
-  | "fulfillment.pack_speed" | "fulfillment.fast_restock" | "fulfillment.mis_ship"
-  | "marketing.delivered_order" | "marketing.creative_winner" | "marketing.prank_ratio"
-  | "ops.fast_capa" | "ops.wrong_route"
+  | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.fast_confirmation" | "cx.upsell"
+  | "cx.positive_review" | "cx.complaint_defused" | "cx.address_typo" | "cx.slow_response"
+  | "fulfillment.pack_speed" | "fulfillment.same_day_dispatch" | "fulfillment.fast_restock" | "fulfillment.clean_grn"
+  | "fulfillment.mis_ship" | "fulfillment.late_dispatch" | "fulfillment.damage_in_warehouse"
+  | "marketing.content_published" | "marketing.viral_content" | "marketing.delivered_order"
+  | "marketing.creative_winner" | "marketing.roas_hit" | "marketing.prank_ratio" | "marketing.overspend" | "marketing.late_content"
+  | "ops.fast_capa" | "ops.wrong_route" | "ops.clean_week" | "ops.repeat_escalation"
 
+// Every rule below lives in one shared ledger, so a department lead's own score and a frontline agent's score
+// read the same way on the Leaderboard. "Operations" here covers both the ops head (Saju) and the Fulfillment
+// lead (Rafi) for things that are genuinely their call, not an individual packer's.
 export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; team: string; auto: boolean }[] = [
+  // ---------------------------------------------------------------------------------------------------------- CX
   { key: "cx.recovered_checkout", label: "Recovered an abandoned checkout into an approved order", points: 20, team: "Customer Care", auto: true },
   { key: "cx.advance_secured", label: "Advance payment actually cleared on a held order", points: 15, team: "Customer Care", auto: true },
+  { key: "cx.order_confirmed", label: "Confirmed a new order over the phone (Pending → Approved)", points: 5, team: "Customer Care", auto: true },
   { key: "cx.fast_confirmation", label: "First confirmation call completed in under 15 minutes", points: 10, team: "Customer Care", auto: false },
+  { key: "cx.upsell", label: "Upsold the customer to a higher-value item or a bundle", points: 15, team: "Customer Care", auto: false },
+  { key: "cx.positive_review", label: "Got a 5-star review or testimonial naming the agent by name", points: 10, team: "Customer Care", auto: false },
+  { key: "cx.complaint_defused", label: "Defused an angry customer without it becoming an Accountability flag", points: 10, team: "Customer Care", auto: false },
   { key: "cx.address_typo", label: "Address/phone typo caused a failed delivery", points: -25, team: "Customer Care", auto: false },
+  { key: "cx.slow_response", label: "Customer message or call went unanswered past the response SLA", points: -10, team: "Customer Care", auto: false },
+
+  // --------------------------------------------------------------------------------------------------- Fulfillment
   { key: "fulfillment.pack_speed", label: "Packed above baseline speed (40+ pairs/hour)", points: 2, team: "Fulfillment", auto: false },
+  { key: "fulfillment.same_day_dispatch", label: "Order dispatched the same day it was approved", points: 5, team: "Fulfillment", auto: true },
   { key: "fulfillment.fast_restock", label: "Returned parcel scanned and restocked within 12 hours", points: 10, team: "Fulfillment", auto: false },
+  { key: "fulfillment.clean_grn", label: "Supplier shipment received with zero shortage or damage", points: 10, team: "Fulfillment", auto: false },
   // Not auto-wired: the system doesn't track who personally packed an order, so docking this automatically
   // would land on the Fulfillment lead for every mis-ship whether or not it was actually their mistake. Award
   // it by hand once the right person is known.
   { key: "fulfillment.mis_ship", label: "Wrong item, size, or colour shipped (confirmed at-fault return)", points: -50, team: "Fulfillment", auto: false },
+  { key: "fulfillment.late_dispatch", label: "Order sat past the dispatch SLA with no action taken", points: -10, team: "Fulfillment", auto: false },
+  { key: "fulfillment.damage_in_warehouse", label: "Stock damaged in the warehouse through mishandling", points: -15, team: "Fulfillment", auto: false },
+
+  // --------------------------------------------------------------------------------------------- Marketing & Content
+  { key: "marketing.content_published", label: "A planned post/reel/ad went out on schedule", points: 5, team: "Marketing", auto: false },
+  { key: "marketing.viral_content", label: "A post or reel hit a major engagement milestone", points: 20, team: "Marketing", auto: false },
   { key: "marketing.delivered_order", label: "High-intent order resulted in a successful delivery", points: 15, team: "Marketing", auto: false },
   { key: "marketing.creative_winner", label: "Ad creative hit 80%+ delivery success rate", points: 20, team: "Marketing", auto: false },
+  { key: "marketing.roas_hit", label: "A campaign hit or beat its ROAS target for the week", points: 20, team: "Marketing", auto: false },
   { key: "marketing.prank_ratio", label: "High prank/fake order ratio on a campaign angle", points: -30, team: "Marketing", auto: false },
+  { key: "marketing.overspend", label: "Ad spend went over the approved budget without sign-off", points: -20, team: "Marketing", auto: false },
+  { key: "marketing.late_content", label: "A scheduled post or ad missed its deadline", points: -10, team: "Marketing", auto: false },
+
+  // -------------------------------------------------------------------------------------------- Operations / leads
   { key: "ops.fast_capa", label: "Accountability flag resolved within 6 hours with a full CAPA answer", points: 15, team: "Operations", auto: true },
   { key: "ops.wrong_route", label: "Flag had to be re-routed — sent to the wrong department first", points: -20, team: "Operations", auto: true },
+  { key: "ops.clean_week", label: "A full week with no Accountability flag breaching the 2-day SLA", points: 25, team: "Operations", auto: true },
+  { key: "ops.repeat_escalation", label: "The same kind of flag had to be escalated to the ops head again", points: -15, team: "Operations", auto: false },
 ]
 
 const DEFAULTS_BY_KEY = new Map(DEFAULT_RULES.map((r) => [r.key, r]))

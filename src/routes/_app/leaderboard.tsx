@@ -109,14 +109,23 @@ function RecentFeed() {
  *  speed observed on the floor, a mis-ship once the right person is known, a marketing call. */
 function AwardPointsDialog() {
   const staff = useQuery(api.team.listStaff, {})
+  const rules = useQuery(api.kpi.listRules, {})
   const award = useMutation(api.kpi.manualAward)
   const [open, setOpen] = useState(false)
   const [staffName, setStaffName] = useState("")
+  const [ruleKey, setRuleKey] = useState<string>("custom")
   const [points, setPoints] = useState("")
   const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
 
   const active = (staff ?? []).filter((s) => s.active)
+  const manualRules = (rules ?? []).filter((r) => !r.auto && r.active)
+
+  const pickRule = (key: string) => {
+    setRuleKey(key)
+    const r = manualRules.find((x) => x.key === key)
+    if (r) { setPoints(String(r.points)); setReason(r.label) }
+  }
 
   const submit = async () => {
     const n = Number(points)
@@ -125,9 +134,9 @@ function AwardPointsDialog() {
     if (!reason.trim()) { toast.error("Write a reason."); return }
     setBusy(true)
     try {
-      await award({ staffName, points: n, reason: reason.trim() })
+      await award({ staffName, points: n, reason: reason.trim(), ruleKey: ruleKey === "custom" ? undefined : ruleKey })
       toast.success("Awarded")
-      setOpen(false); setStaffName(""); setPoints(""); setReason("")
+      setOpen(false); setStaffName(""); setRuleKey("custom"); setPoints(""); setReason("")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
 
@@ -146,6 +155,17 @@ function AwardPointsDialog() {
                   {active.map((s) => <SelectItem key={s._id} value={s.name}>{s.name} — {s.roleName}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>What for</Label>
+              <Select value={ruleKey} onValueChange={pickRule}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="custom">Something else — write it in</SelectItem>
+                  {manualRules.map((r) => <SelectItem key={r.key} value={r.key}>{r.team} — {r.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Picking one fills in the usual points and reason — both still editable below.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Points (negative to dock)</Label>

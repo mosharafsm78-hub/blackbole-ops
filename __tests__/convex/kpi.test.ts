@@ -118,6 +118,67 @@ describe("advance payment clearing", () => {
     const board = await as.query(api.kpi.leaderboard, {})
     expect(board!.weekly).toEqual([]) // "Auto-approve" isn't a real staff member — nobody gets credited
   })
+
+  it("credits a plain phone confirmation (Pending → Approved, no advance involved)", async () => {
+    const { t, as, asRafi, locationId, v41 } = await setup()
+    const { orderId: id0 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const orderId = id0 as Id<"orders">
+    await asRafi.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+
+    const board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(5)
+  })
+
+  it("credits same-day dispatch, but not a dispatch on a later Bangladesh calendar day", async () => {
+    const { t, as, asRafi, locationId, v41 } = await setup()
+    const { orderId: id0 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const orderId = id0 as Id<"orders">
+    await asRafi.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+    await asRafi.mutation(api.orders.changeStatus, { ids: [orderId], to: "in_transit" })
+
+    let board = await as.query(api.kpi.leaderboard, {})
+    // cx.order_confirmed (5) + fulfillment.same_day_dispatch (5)
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(10)
+
+    // A second order, approved "yesterday" by backdating approvedAt, dispatched today — no same-day credit.
+    const { orderId: id1 } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id))
+    const order2 = id1 as Id<"orders">
+    await asRafi.mutation(api.orders.changeStatus, { ids: [order2], to: "approved" })
+    await t.run((ctx) => ctx.db.patch(order2, { approvedAt: Date.now() - 2 * 86400000 }))
+    await asRafi.mutation(api.orders.changeStatus, { ids: [order2], to: "in_transit" })
+
+    board = await as.query(api.kpi.leaderboard, {})
+    // +5 for the second cx.order_confirmed only — no second same_day_dispatch
+    expect(board!.weekly.find((r) => r.staffName === "Rafi")?.points).toBe(15)
+  })
+})
+
+describe("ops clean-week award", () => {
+  it("awards the ops head when nothing breached the SLA in the last 7 days", async () => {
+    const { t, as } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: {}, opsHead: { name: "Emon", email: "ops@blackbole.com" } })
+    const { internal } = await import("../../convex/_generated/api")
+    await t.mutation(internal.accountability.weeklyCleanCheck, {})
+
+    const board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")?.points).toBe(25)
+  })
+
+  it("withholds it when a flag is still open past the 2-day SLA", async () => {
+    const { t, as } = await setup()
+    await as.mutation(api.accountability.saveOwners, { byTeam: {}, opsHead: { name: "Emon", email: "ops@blackbole.com" } })
+    await t.run((ctx) =>
+      ctx.db.insert("opsFlags", {
+        reason: "Late delivery", team: "Marketing", status: "open",
+        raisedByName: "Care Agent", raisedAt: Date.now() - 3 * 86400000, productNames: [],
+      }),
+    )
+    const { internal } = await import("../../convex/_generated/api")
+    await t.mutation(internal.accountability.weeklyCleanCheck, {})
+
+    const board = await as.query(api.kpi.leaderboard, {})
+    expect(board!.weekly.find((r) => r.staffName === "Emon")).toBeUndefined()
+  })
 })
 
 describe("accountability scoring", () => {

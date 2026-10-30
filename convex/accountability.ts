@@ -595,6 +595,34 @@ export const checkOverdue = internalAction({
   },
 })
 
+/** Runs weekly (see crons.ts). Rewards the ops head for a clean week on their own terms — not "nothing went
+ *  wrong" (plenty can go wrong that never becomes a flag), but specifically "nothing sat past the 2-day SLA":
+ *  no currently-open flag that's crossed it, and no flag resolved this week that took longer than it to answer. */
+export const weeklyCleanCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const since = Date.now() - 7 * DAY
+    const openNow = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "open")).collect()
+    const anyOpenBreach = openNow.some((f) => Date.now() - f.raisedAt >= SLA_DAYS * DAY)
+
+    const resolvedRecently = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "resolved").gte("raisedAt", since)).collect()
+    const anyResolvedBreach = resolvedRecently.some((f) => (f.resolvedAt ?? f.raisedAt) - f.raisedAt > SLA_DAYS * DAY)
+    if (anyOpenBreach || anyResolvedBreach) return
+
+    const owners = await ownersConf(ctx)
+    if (!owners.opsHead?.name) return
+    // Idempotency by time window, not orderId (there's no order behind this one) — skip if already awarded
+    // once in the last 6 days, so a cron that fires twice in the same week can't double-pay it.
+    const already = await ctx.db.query("kpiEvents").withIndex("by_staff", (q) => q.eq("staffName", owners.opsHead!.name).gte("at", Date.now() - 6 * DAY)).collect()
+    if (already.some((e) => e.ruleKey === "ops.clean_week")) return
+
+    await awardPoints(ctx, {
+      staffName: owners.opsHead.name, ruleKey: "ops.clean_week",
+      label: `No Accountability flag breached the ${SLA_DAYS}-day SLA this week`,
+    })
+  },
+})
+
 // ---------------------------------------------------------------------------------------------------------------
 // Business-health flags: not every accountability item should wait for a customer-care call. A daily check
 // (see crons.ts) looks at the whole business — sales trend, return ratio — the way an operations head would,

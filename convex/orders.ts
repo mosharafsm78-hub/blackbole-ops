@@ -9,6 +9,7 @@ import { orderItem, orderStatus } from "./schema"
 import { statsForPhone } from "./customerStats"
 import { raiseAccountabilityFlag } from "./accountability"
 import { awardPoints } from "./kpi"
+import { bdDay } from "./stats"
 import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
@@ -694,8 +695,23 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // clears it — the scheduled wake is spent either way. A same-status reason edit with no new date given also
   // clears it, for the same reason the advance fields do: a re-recorded hold can't silently keep an old promise.
   if (!opts.systemReason) patch.autoApproveAt = to === "on_hold" ? opts.autoApproveAt : undefined
-  if (to === "approved" && !order.approvedAt) patch.approvedAt = now
-  if (to === "in_transit" && !order.shippedAt) patch.shippedAt = now
+  if (to === "approved" && !order.approvedAt) {
+    patch.approvedAt = now
+    // A plain confirmation call — "pending" is a brand-new order nobody has spoken to the customer about yet.
+    // Doesn't overlap cx.advance_secured (a different trigger entirely) or cx.recovered_checkout (that order
+    // is created already-approved from checkouts.convert, so it never passes through "pending" at all).
+    if (from === "pending") {
+      await awardPoints(ctx, { staffName: byName, ruleKey: "cx.order_confirmed", label: `Confirmed ${invoiceLabel(order)} over the phone`, orderId: order._id })
+    }
+  }
+  if (to === "in_transit" && !order.shippedAt) {
+    patch.shippedAt = now
+    // Same Bangladesh calendar day it was approved — not "within 24 hours", since an order approved at 11pm and
+    // dispatched at 7am the next morning is a normal, good turnaround, not a miss.
+    if (order.approvedAt && bdDay(order.approvedAt) === bdDay(now)) {
+      await awardPoints(ctx, { staffName: byName, ruleKey: "fulfillment.same_day_dispatch", label: `Dispatched ${invoiceLabel(order)} same day as approval`, orderId: order._id })
+    }
+  }
   if (isDelivered(to) && !order.deliveredAt) {
     patch.deliveredAt = now
     const codRate = (await getSetting<number>(ctx, "codRate")) ?? 1
