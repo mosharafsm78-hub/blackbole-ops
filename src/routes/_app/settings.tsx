@@ -22,6 +22,7 @@ import { AutoCallSettings } from "@/components/auto-call-settings"
 import { WinBackSettings } from "@/components/win-back-settings"
 import { AccountabilitySettings } from "@/components/accountability-settings"
 import { KpiRulesSettings } from "@/components/kpi-rules-settings"
+import { RevenueTargetSettings } from "@/components/revenue-target-settings"
 
 export const Route = createFileRoute("/_app/settings")({
   component: () => (
@@ -69,7 +70,7 @@ function SettingsPage() {
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="roles"><RolesTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="accountability"><AccountabilitySettings /></TabsContent>}
-        {can("team.manage") && <TabsContent value="kpi"><KpiRulesSettings /></TabsContent>}
+        {can("team.manage") && <TabsContent value="kpi"><div className="space-y-4"><RevenueTargetSettings /><KpiRulesSettings /></div></TabsContent>}
         <TabsContent value="general"><GeneralTab /></TabsContent>
       </Tabs>
     </div>

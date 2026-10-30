@@ -1002,4 +1002,16 @@ export default defineSchema({
     note: v.optional(v.string()),
     createdAt: v.number(),
   }).index("by_month", ["month"]),
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Company revenue target — one row per Dhaka calendar month ("2026-11"). Revenue is delivered orders' total,
+  // counted on the day of delivery; the daily split is worked out live from this plus the orders (see
+  // convex/targetMath.ts), so nothing here ever needs correcting when a late delivery lands.
+  // ---------------------------------------------------------------------------------------------------------------
+  revenueTargets: defineTable({
+    month: v.string(), // "2026-11"
+    amount: v.number(), // whole taka for the month
+    setByName: v.string(),
+    updatedAt: v.number(),
+  }).index("by_month", ["month"]),
 })

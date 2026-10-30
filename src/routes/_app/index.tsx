@@ -6,6 +6,7 @@ import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus, PhoneCall, ShieldAler
 import { usePolledAction } from "@/lib/use-polled-action"
 import { api } from "@/convex/_generated/api"
 import { Guard } from "@/components/app-shell"
+import { RevenueTargetCard } from "@/components/revenue-target-card"
 import { ContactButtons, Loading, StatusPill, TeamTag } from "@/components/bits"
 import { startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -89,6 +90,8 @@ function Dashboard() {
       </div>
 
       <BusinessInsights />
+
+      <RevenueTargetCard />
 
       {/* today's work */}
       <section>
