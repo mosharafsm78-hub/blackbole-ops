@@ -9,6 +9,7 @@ import { internalMutation } from "./functions"
 import { getSetting, setSetting } from "./lib"
 import { shopifyGql } from "./shopifyStock"
 import { webPrice, normSku } from "./website"
+import { snapFromShopify } from "./shopifyPull"
 
 export const forSync = internalQuery({
   args: { productId: v.id("products") },
@@ -44,18 +45,22 @@ export const push = internalAction({
       }
       if (!found) { await ctx.runMutation(internal.shopifyProducts.note, { error: null }); return } // not on Shopify: nothing to update
       const w = d.web
-      const u = await shopifyGql(ctx, `mutation($p:ProductUpdateInput!){ productUpdate(product:$p){ userErrors{ field message } } }`, {
+      const u = await shopifyGql(ctx, `mutation($p:ProductUpdateInput!){ productUpdate(product:$p){ product{ title descriptionHtml vendor productType tags seo{ title description } } userErrors{ field message } } }`, {
         p: { id: found.id, title: w.title || d.name, descriptionHtml: w.html ?? "", vendor: w.vendor ?? "", productType: w.type ?? "", tags: w.tags ?? [], seo: { title: w.seo?.title ?? "", description: w.seo?.description ?? "" } },
       })
       const e1 = u.productUpdate.userErrors
       if (e1?.length) throw new Error(e1.map((e: any) => e.message).join("; "))
       const bySku = new Map(d.variants.map((x: any) => [normSku(x.sku), x]))
       const upd = found.variants.nodes.map((n: any) => { const m: any = bySku.get(normSku(n.sku)); return m ? { id: n.id, price: String(m.price), compareAtPrice: m.compareAt ? String(m.compareAt) : null } : null }).filter(Boolean)
+      let vs: any[] = []
       if (upd.length) {
-        const r = await shopifyGql(ctx, `mutation($id:ID!,$v:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$id, variants:$v){ userErrors{ field message } } }`, { id: found.id, v: upd })
+        const r = await shopifyGql(ctx, `mutation($id:ID!,$v:[ProductVariantsBulkInput!]!){ productVariantsBulkUpdate(productId:$id, variants:$v){ productVariants{ sku price compareAtPrice } userErrors{ field message } } }`, { id: found.id, v: upd })
         const e2 = r.productVariantsBulkUpdate.userErrors
         if (e2?.length) throw new Error(e2.map((e: any) => e.message).join("; "))
+        vs = r.productVariantsBulkUpdate.productVariants ?? []
       }
+      // remember what Shopify now holds, so the Shopify → Ops sync does not mistake this push for a Shopify-side edit
+      if (u.productUpdate.product) await ctx.runMutation(internal.shopifyPull.saveSnapshot, { productId, snap: snapFromShopify({ ...u.productUpdate.product, variants: vs }) })
       await ctx.runMutation(internal.shopifyProducts.note, { error: null })
     } catch (e: any) {
       await ctx.runMutation(internal.shopifyProducts.note, { error: String(e?.message ?? e).slice(0, 400) })

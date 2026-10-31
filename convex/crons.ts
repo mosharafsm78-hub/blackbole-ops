@@ -10,6 +10,8 @@ crons.interval("pathao payment due check", { minutes: 30 }, internal.pathao.cron
 // exchange orders without a Pathao parcel (Pathao booked the exchange under the earlier order number): find and link them
 crons.interval("pathao exchange parcels", { minutes: 60 }, internal.pathao.cronTick, { job: "exchange" })
 // automatic order confirmation calls: start due calls every minute (does nothing while switched off)
+// Shopify → Ops product sync (price, title, description, tags, SEO…): marketing edits in Shopify show up in Ops within minutes
+crons.interval("shopify product pull", { minutes: 5 }, internal.shopifyPull.run, {})
 crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tick, {})
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
 // win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every
