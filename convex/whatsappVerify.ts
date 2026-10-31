@@ -50,9 +50,13 @@ export function summaryText(o: Doc<"orders">): string {
   return `Hi ${first(o.customerName)}, thank you for choosing BlackBole! 🙏 Please tap Confirm to place your order ${invoiceLabel(o)}. If you have changed your mind, tap Cancel.`
 }
 // Wording is written to cut returns: a clear arrival time, a reminder to answer the courier, a size/fit check, and free exchange.
-export const confirmedText = (o: Doc<"orders">, preOrder: boolean) => preOrder
-  ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\nWe will message you the moment it is ready to ship. Please keep this number active so our courier can reach you.\n\nNot the right size or fit? We offer free exchange, so there is nothing to worry about.\n\n— BlackBole`
+// Pre-orders take much longer, so they get their own wording with the pre-order days from Website settings (default "15–20").
+export const confirmedText = (o: Doc<"orders">, preOrder: boolean, preOrderDays = "15–20") => preOrder
+  ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: about ${preOrderDays} days, because your pair is made for you\n• We will message you as soon as it is ready to ship\n• Please keep your phone on and pick up the call from our courier\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay the remaining amount only when you receive your order\n\nThank you for waiting for something special. — BlackBole`
   : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it. — BlackBole`
+const isPre = (o: Doc<"orders">) => !!o.preOrder || o.status.startsWith("pre_order")
+const preDays = async (ctx: any) => String(((await getSetting<any>(ctx, "websiteSettings"))?.preOrderDays ?? "15–20")).trim() || "15–20"
+
 type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] }
 const txt = (body: string): Out => ({ kind: "text", body })
 
@@ -105,7 +109,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
           return record("address_issue", [txt(`Thank you! One more check: ${bad}. Our team will call you shortly to complete it. — BlackBole`)], o._id)
         }
         await markWa(ctx, o, "confirmed", BY)
-        return record("confirmed", [txt(confirmedText(o, o.status.startsWith("pre_order")))], o._id)
+        return record("confirmed", [txt(confirmedText(o, isPre(o), await preDays(ctx)))], o._id)
       }
       if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. If this is a mistake, please contact BlackBole and we will help.`)], o._id)
       return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed and being prepared. — BlackBole`)], o._id)
@@ -131,7 +135,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
     return record("mismatch", [txt("This WhatsApp number does not match the phone number on the order, so we cannot verify it here. Please message from the number you ordered with, or contact BlackBole.")], o._id)
   }
   if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. Please place a new order or contact BlackBole.`)], o._id)
-  if (o.status !== "pending" && o.status !== "on_hold") return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed. ${confirmedText(o, o.status.startsWith("pre_order")).split("! ")[1] ?? ""}`)], o._id)
+  if (o.status !== "pending" && o.status !== "on_hold") return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed. Thank you! — BlackBole`)], o._id)
   const bad = detailsProblem(o)
   if (bad) {
     await logOrder(ctx, o._id, `WhatsApp verify: customer opened verification but ${bad} — please call to complete`, BY)

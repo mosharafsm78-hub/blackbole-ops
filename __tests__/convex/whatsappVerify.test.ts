@@ -2,7 +2,7 @@ import { convexTest } from "convex-test"
 import { describe, expect, it, vi } from "vitest"
 import schema from "../../convex/schema"
 import { api, internal } from "../../convex/_generated/api"
-import { detailsProblem, invoiceFromText, phoneKey } from "../../convex/whatsappVerify"
+import { confirmedText, detailsProblem, invoiceFromText, phoneKey } from "../../convex/whatsappVerify"
 
 async function setup() {
   const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
@@ -53,6 +53,14 @@ describe("WhatsApp order verification", () => {
     const c = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "confirm" }) // tapped twice
     expect(c.result).toBe("already")
     expect(await status(id)).toBe("pending")
+  })
+
+  it("pre-order confirmation shows the pre-order days, never 2–3 days", () => {
+    const o = { customerName: "Rahim Uddin", invoiceNo: 20001 } as any
+    const pre = confirmedText(o, true, "15–20")
+    expect(pre).toMatch(/15–20 days/)
+    expect(pre).not.toMatch(/2–3 days/)
+    expect(confirmedText(o, false)).toMatch(/2–3 days/)
   })
 
   it("Cancel cancels the order", async () => {
