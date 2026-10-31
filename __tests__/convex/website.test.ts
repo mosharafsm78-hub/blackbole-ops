@@ -249,3 +249,23 @@ describe("website product status, bulk edits and Shopify fields", () => {
     expect(rows).toEqual({ "TR-40": [[5, 5]], "TR-41": [] })
   })
 })
+
+describe("booking money", () => {
+  it("changes only China pre-order sizes priced 500 to 200, keeps the full price, and counts first", async () => {
+    const { t, as } = await setup()
+    const mk = (title: string, from: "china" | "bangladesh", price: number, sku: string) => as.mutation(api.website.createProduct, {
+      title, handle: "", html: "<p>x</p>", vendor: "BlackBole", type: "Sneakers", tags: [], seo: { title: "", description: "" }, options: ["Size"], images: [], mf: {},
+      published: true, preOrder: true, preOrderFrom: from, collections: [],
+      variants: [{ sku, title: "40", options: { Size: "40" }, price, fullPrice: 3200, compareAt: 3200, cost: 1400, weightKg: 0.6 }],
+    })
+    const china = await mk("China Pair", "china", 500, "PO-CH-40")
+    const bd = await mk("BD Pair", "bangladesh", 90, "PO-BD-40")
+    const webPrice = async (id: any) => ((await t.run((ctx) => ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", id)).collect()))[0].web as any)
+    expect(await as.mutation(api.website.setBookingMoney, { from: 500, to: 200, apply: false })).toEqual({ products: 1, variants: 1, applied: false })
+    expect((await webPrice(china)).price).toBe(500) // counting changes nothing
+    expect(await as.mutation(api.website.setBookingMoney, { from: 500, to: 200, apply: true })).toEqual({ products: 1, variants: 1, applied: true })
+    expect(await webPrice(china)).toMatchObject({ price: 200, compareAt: 3200 })
+    expect((await webPrice(bd)).price).toBe(90) // Bangladesh delivery advance untouched
+    expect(await as.mutation(api.website.setBookingMoney, { from: 500, to: 200, apply: false })).toMatchObject({ products: 0 })
+  })
+})

@@ -192,6 +192,12 @@ function SettingsForm({ initial }: { initial: S }) {
         </Section>
       </Row>
 
+      <Row title="Booking money" sub="What a customer pays online to book a China pre-order. The rest (minus any gift-box discount) is paid on delivery. Bangladesh pre-orders keep their ৳90 booking.">
+        <Section>
+          <BookingMoney />
+        </Section>
+      </Row>
+
       <Row title="Contact" sub="Shown on the contact page, order confirmation, track-order page and error messages.">
         <Section>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -293,4 +299,41 @@ function Pick({ value, options, onChange }: { value: string; options: string[]; 
 
 function Count({ n, max }: { n: number; max: number }) {
   return <span className={cn("text-xs tabular-nums", n > max ? "text-tone-red" : "text-muted-foreground")}>{n} / {max}</span>
+}
+
+/** Changes the booking money on every China pre-order pair at once; shows how many pairs it will touch first. */
+function BookingMoney() {
+  const set = useMutation(api.website.setBookingMoney)
+  const [from, setFrom] = useState("500")
+  const [to, setTo] = useState("200")
+  const [found, setFound] = useState<{ products: number; variants: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const n = (x: string) => Number(x.replace(/[^\d]/g, "")) || 0
+  const check = async () => {
+    setBusy(true)
+    try { const r = await set({ from: n(from), to: n(to), apply: false }); setFound({ products: r.products, variants: r.variants }) } catch (e) { toast.error(errMsg(e)); setFound(null) } finally { setBusy(false) }
+  }
+  const apply = async () => {
+    setBusy(true)
+    try { const r = await set({ from: n(from), to: n(to), apply: true }); toast.success(`Booking money is now ৳${n(to)} on ${r.products} pairs. Shopify updates over the next few minutes.`); setFound(null) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Now (৳)"><Input value={from} onChange={(e) => { setFrom(e.target.value); setFound(null) }} className="w-28" inputMode="numeric" /></Field>
+        <Field label="Change to (৳)"><Input value={to} onChange={(e) => { setTo(e.target.value); setFound(null) }} className="w-28" inputMode="numeric" /></Field>
+        <Button size="sm" variant="outline" disabled={busy} onClick={check}>Check</Button>
+      </div>
+      {found && (
+        <div className="rounded-md border p-3 text-sm">
+          {found.products === 0 ? <>No China pre-order pair is priced ৳{n(from)} right now.</> : (
+            <>
+              <p>This changes <b>{found.variants}</b> sizes on <b>{found.products}</b> pairs from ৳{n(from)} to ৳{n(to)}. The full price stays the same, and Shopify is updated for you.</p>
+              <Button size="sm" className="mt-2" disabled={busy} onClick={apply}>Change to ৳{n(to)}</Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }

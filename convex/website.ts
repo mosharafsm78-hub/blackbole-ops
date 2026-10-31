@@ -1102,3 +1102,34 @@ export const fileUrl = mutation({
     return url
   },
 })
+
+/** Pre-order booking money, for every China pre-order pair at once (Settings → Booking money). Changes the website price of
+ *  each size that is currently `from` (default Tk 500) to `to` (e.g. Tk 200), keeps the full price (compare-at), and pushes the
+ *  change to Shopify. Bangladesh pre-orders (Tk 90 delivery advance) and anything not priced `from` are left alone.
+ *  `apply: false` only counts what would change. */
+export const setBookingMoney = mutation({
+  args: { from: v.number(), to: v.number(), apply: v.boolean() },
+  handler: async (ctx, { from, to, apply }) => {
+    await requireWebsite(ctx)
+    if (!(from > 0) || !(to > 0) || to > 5000) throw new ConvexError("Booking money must be between Tk 1 and Tk 5,000.")
+    if (from === to) throw new ConvexError("The new amount is the same as the current one.")
+    const prods = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt && p.preOrder && p.preOrderFrom !== "bangladesh")
+    let products = 0, variants = 0
+    const toPush: Id<"products">[] = []
+    for (const p of prods) {
+      const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x: any) => !x.deletedAt)
+      const hit = vs.filter((x: any) => typeof x.web?.price === "number" && Math.round(x.web.price) === from)
+      if (!hit.length) continue
+      products++
+      variants += hit.length
+      if (!apply) continue
+      for (const x of hit) await ctx.db.patch(x._id, { web: { ...x.web, price: to } })
+      toPush.push(p._id)
+    }
+    if (apply && toPush.length) {
+      await queueRebuild(ctx)
+      for (const [i, id] of toPush.entries()) await ctx.scheduler.runAfter(i * 3000, internal.shopifyProducts.push, { productId: id }) // spaced out: Shopify rate limits
+    }
+    return { products, variants, applied: apply }
+  },
+})
