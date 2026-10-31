@@ -7,11 +7,13 @@ const tk = (n: number) => `৳${Math.round(n).toLocaleString("en-US")}`
 /** Gift-box leads are saved with the name "Gift box · won Tk 500 (BB-X9U8UN)": pull the gift out of it. */
 export function parseGift(name: string): { amount: number; code: string } | null {
   const m = /won\s+Tk\s*([\d,]+)\s*\(([A-Za-z0-9-]+)\)/i.exec(name)
-  return m ? { amount: Number(m[1].replace(/,/g, "")), code: m[2].toUpperCase() } : null
+  return m ? { amount: Number(m[1].replace(/,/g, "")), code: PREORDER_CODE } : null
 }
 
 type Item = { name: string; attrs?: string; imageUrl?: string; price: number; qty: number }
 
+/** One permanent Shopify code for every pre-order gift (Tk 500 off pre-order items, once per customer). */
+export const PREORDER_CODE = "PREORDER500"
 export const WELCOME = { amount: 50, code: "WELCOME50" }
 export type EmailKind = "preorder" | "regular" | "welcome"
 export type Pick = { name: string; imageUrl?: string; price: number; url: string }

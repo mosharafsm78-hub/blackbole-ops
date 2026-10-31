@@ -17,10 +17,10 @@ async function cart(t: ReturnType<typeof makeT>, over: Record<string, unknown> =
 
 describe("abandoned cart email", () => {
   it("reads the gift out of the lead name and builds the email", () => {
-    expect(parseGift("Gift box · won Tk 500 (BB-X9U8UN)")).toEqual({ amount: 500, code: "BB-X9U8UN" })
+    expect(parseGift("Gift box · won Tk 500 (BB-X9U8UN)")).toEqual({ amount: 500, code: "PREORDER500" })
     const m = abandonedEmailContent({ customerName: "Gift box · won Tk 500 (BB-X9U8UN)", items: [{ name: "Wave Sneaker", price: 2994, qty: 1, attrs: "43" }], subtotal: 2994, url: "https://blackbole.com/cart?add=1:1" })
     expect(m.subject).toContain("500")
-    expect(m.html).toContain("BB-X9U8UN")
+    expect(m.html).toContain("PREORDER500")
     expect(m.html).toContain("Use this code at checkout")
     expect(m.html).toContain("Go to my pre-order")
     const f = abandonedEmailContent({ customerName: "Rafi Khan", items: [], subtotal: 0, step: 2, picks: [{ name: "Other Boot", price: 3500, url: "https://blackbole.com/products/x" }] })
