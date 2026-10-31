@@ -10,6 +10,7 @@ import type * as admin from "../admin.js";
 import type * as ads from "../ads.js";
 import type * as auth from "../auth.js";
 import type * as catalog from "../catalog.js";
+import type * as checklist from "../checklist.js";
 import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
 import type * as dashboard from "../dashboard.js";
@@ -48,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   ads: typeof ads;
   auth: typeof auth;
   catalog: typeof catalog;
+  checklist: typeof checklist;
   crons: typeof crons;
   customers: typeof customers;
   dashboard: typeof dashboard;

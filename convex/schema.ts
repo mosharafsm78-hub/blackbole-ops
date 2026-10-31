@@ -895,6 +895,23 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_ext", ["extId"]).index("by_handle", ["handle"]).index("by_status", ["status"]),
 
+  // The route to Tk 1 crore a month: a step-by-step checklist with a deadline, a "do" and a "don't" on every step.
+  // Ticked by whoever did it (name + time kept). A step still open after its deadline raises an accountability
+  // flag to the department that owns it, once.
+  checklistItems: defineTable({
+    phase: v.string(),
+    sort: v.number(),
+    title: v.string(),
+    team: v.string(),
+    doText: v.string(),
+    dontText: v.string(),
+    dueAt: v.number(),
+    doneAt: v.optional(v.number()),
+    doneBy: v.optional(v.string()),
+    flaggedAt: v.optional(v.number()),
+    custom: v.optional(v.boolean()),
+  }).index("by_sort", ["sort"]),
+
   // Accountability: once a return call confirms a reason was really our own fault, the department that
   // actually caused it (see ACCOUNTABILITY_ROUTING in rules.ts) gets a flag it has to answer inside this
   // system — not a side chat nobody can trace later. One flag per order per raise; a team member closes it

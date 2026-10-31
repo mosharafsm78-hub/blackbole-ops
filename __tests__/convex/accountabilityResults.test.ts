@@ -63,7 +63,7 @@ describe("accountability results", () => {
     const { t, as } = await setup()
     const first = await flag(t, { status: "resolved", resolvedAt: Date.now() - 5 * 86400000, reviewStatus: "accepted" })
     const again = await t.mutation(internal.accountability.raiseSystem, { team: "Marketing", reason: "Doesn't match description" })
-    const f = await t.run((ctx) => ctx.db.get(again))
+    const f = await t.run((ctx) => ctx.db.get(again as any)) as any
     expect(f?.repeatOfId).toBe(first)
     expect((await t.run((ctx) => ctx.db.get(first)))?.repeatCount).toBe(1)
     const card = await as.query(api.accountability.scorecard, {})

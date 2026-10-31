@@ -39,6 +39,7 @@ crons.daily("accountability daily digest", { hourUTC: 3, minuteUTC: 0 }, interna
 // still smooths out single-day noise) so a real problem is caught within a day, not held until Monday. Raises a
 // flag against the owning department (Marketing for sales, Fulfillment for returns) even when no one logged a
 // call. 9:05 Asia/Dhaka (UTC+6) = 03:05 UTC.
+crons.daily("route to 1 crore: overdue steps", { hourUTC: 3, minuteUTC: 15 }, internal.checklist.flagOverdue, {})
 crons.daily("accountability business health", { hourUTC: 3, minuteUTC: 5 }, internal.accountability.businessHealthCheck, {})
 // Customer Care's own SLAs — the one department whose only accountability flags used to be the ones it raised
 // against everyone else. Checked daily so an overdue call is caught within a day, same spirit as the other

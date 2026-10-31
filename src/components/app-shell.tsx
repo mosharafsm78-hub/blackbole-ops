@@ -38,6 +38,7 @@ const NAV = [
   { to: "/pulse", label: "Pulse", icon: Trophy, perm: null, color: "bg-tone-amber-bg text-tone-amber", group: "" },
   // Open to all staff, like Pulse: the marketing team works from it.
   { to: "/target", label: "Target", icon: Flag, perm: null, color: "bg-tone-blue-bg text-tone-blue", group: "" },
+  { to: "/checklist", label: "Route to 1 Cr", icon: ClipboardCheck, perm: null, color: "bg-tone-green-bg text-tone-green", group: "" },
   { to: "/orders", label: "Orders", icon: ShoppingBag, perm: "orders.view", color: "bg-tone-amber-bg text-tone-amber", group: "Orders" },
   { to: "/new-order", label: "New order", icon: PlusCircle, perm: "orders.create", color: "bg-tone-green-bg text-tone-green", group: "Orders" },
   { to: "/abandoned", label: "Abandoned carts", icon: ShoppingCart, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "Orders" },
