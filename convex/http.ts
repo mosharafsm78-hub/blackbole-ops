@@ -5,7 +5,7 @@ import { webhook as pathaoWebhook } from "./pathao"
 import { orders as apiOrders } from "./publicApi"
 import { handler as migrateHandler } from "./migrate"
 import { codLeadHttp } from "./checkouts"
-import { orders as marketingOrders, product as marketingProduct, stock as marketingStock, target as marketingTarget } from "./marketingFeed"
+import { discount as marketingDiscount, orders as marketingOrders, product as marketingProduct, stock as marketingStock, target as marketingTarget } from "./marketingFeed"
 import { catalogHttp as websiteCatalog } from "./website"
 import { feedHttp as discountFeed, checkHttp as discountCheck } from "./discounts"
 import { statusHttp as orderStatus } from "./orderStatus"
@@ -38,6 +38,7 @@ http.route({ path: "/marketing/orders", method: "GET", handler: marketingOrders 
 http.route({ path: "/marketing/stock", method: "GET", handler: marketingStock })
 http.route({ path: "/marketing/target", method: "GET", handler: marketingTarget })
 http.route({ path: "/marketing/product", method: "GET", handler: marketingProduct })
+http.route({ path: "/marketing/discount", method: "POST", handler: marketingDiscount })
 // Website build reads products + collections from here (same MARKETING_FEED_KEY)
 http.route({ path: "/website/catalog", method: "GET", handler: websiteCatalog })
 // Website discount codes (same key): live list, and the one-per-customer check

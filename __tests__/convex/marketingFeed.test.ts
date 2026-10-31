@@ -146,3 +146,19 @@ describe("push to Marketing OS", () => {
     vi.useRealTimers()
   })
 })
+
+describe("clearance discount for Marketing OS", () => {
+  it("creates a product-scoped percent code and re-points it on the next call", async () => {
+    const t = await setup()
+    vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    const post = (body: unknown) => t.fetch("/marketing/discount", { method: "POST", headers: { "X-Feed-Key": FEED_KEY, "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    expect((await post({ code: "LASTPAIRS10", percent: 10, handles: ["a-shoe"] })).status).toBe(200)
+    const again = await (await post({ code: "LASTPAIRS10", title: "Last pairs – 10% off", percent: 10, handles: ["a-shoe", "b-shoe"], days: 5 })).json()
+    expect(again).toMatchObject({ ok: true, code: "LASTPAIRS10" })
+    const rows = await t.run(async (ctx) => ctx.db.query("discounts").collect())
+    expect(rows.filter((d) => d.code === "LASTPAIRS10")).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ type: "percent", value: 10, scope: "products", items: ["a-shoe", "b-shoe"], active: true })
+    expect((await post({ code: "X", percent: 80, handles: ["a"] })).status).toBe(400)
+    expect((await t.fetch("/marketing/discount", { method: "POST", body: "{}" })).status).toBe(401)
+  })
+})

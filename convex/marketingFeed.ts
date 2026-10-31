@@ -118,6 +118,18 @@ export const stock = httpAction(async (ctx, req) => {
   return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, {}) })
 })
 
+/** Marketing OS → a product-scoped percent code for a clearance ad (POST, feed key). */
+export const discount = httpAction(async (ctx, req) => {
+  if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
+  const b: any = await req.json().catch(() => ({}))
+  const handles = Array.isArray(b.handles) ? b.handles.map(String).filter(Boolean) : []
+  if (!handles.length || !(Number(b.percent) >= 1 && Number(b.percent) <= 50)) return json({ error: "percent (1–50) and product handles are required" }, 400)
+  try {
+    const r = await ctx.runMutation(internal.discounts.upsertMarketing, { code: String(b.code ?? ""), title: String(b.title ?? "Clearance"), percent: Number(b.percent), handles, days: Number(b.days) || 7 })
+    return json({ ok: true, ...r })
+  } catch (e) { return json({ error: e instanceof Error ? e.message.replace(/^.*ConvexError: /, "") : String(e) }, 400) }
+})
+
 /** One product's sizes, prices and stock right now (Marketing OS opens a product: ?name=…). */
 export const product = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)

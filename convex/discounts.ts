@@ -265,6 +265,21 @@ export async function recordAutomaticUses(ctx: { db: any }, raw: unknown) {
   for (const c of [...new Set(raw.slice(0, 5).map((x) => normCode(String(x))))]) if (c.startsWith("AUTO-")) await recordUse(ctx, c)
 }
 
+// ---------------- Marketing OS (clearance ads) ----------------
+/** Marketing OS's AI Brain runs a clearance ad: the same code, re-pointed at today's low-stock products, for `days`
+ *  days. A product-scoped code discount, so every website version honours it. Upserts by code. */
+export const upsertMarketing = internalMutation({
+  args: { code: v.string(), title: v.string(), percent: v.number(), handles: v.array(v.string()), days: v.number() },
+  handler: async (ctx, a) => {
+    const now = Date.now()
+    const row = validateDiscount({ code: a.code, title: a.title, type: "percent", value: a.percent, scope: "products", items: a.handles, active: true, endsAt: now + Math.max(1, Math.min(30, a.days)) * 86400000, kind: "products" } as DiscountInput)
+    const cur = await ctx.db.query("discounts").withIndex("by_code", (q) => q.eq("code", row.code)).first()
+    if (cur) { await ctx.db.replace(cur._id, { ...row, usedCount: cur.usedCount, createdAt: cur.createdAt, updatedAt: now }); return { id: cur._id, code: row.code, endsAt: row.endsAt } }
+    const id = await ctx.db.insert("discounts", { ...row, usedCount: 0, createdAt: now, updatedAt: now })
+    return { id, code: row.code, endsAt: row.endsAt }
+  },
+})
+
 // ---------------- website feed ----------------
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } })
 const feedOk = (req: Request) => { const key = process.env.MARKETING_FEED_KEY; return !!key && key.length >= 24 && req.headers.get("X-Feed-Key") === key }
