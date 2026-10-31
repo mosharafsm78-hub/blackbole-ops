@@ -19,17 +19,18 @@ export const Route = createFileRoute("/_app/stock-check")({
   ),
 })
 
-type Filter = "uncounted" | "counted" | "test" | "all"
+type Filter = "uncounted" | "counted" | "test" | "real" | "all"
 const FILTERS: { key: Filter; label: string }[] = [
-  { key: "uncounted", label: "Not counted yet" },
-  { key: "counted", label: "Counted" },
-  { key: "test", label: "Has fake stock" },
   { key: "all", label: "All products" },
+  { key: "counted", label: "Counted" },
+  { key: "uncounted", label: "Not counted" },
+  { key: "test", label: "Fake stock" },
+  { key: "real", label: "Real stock" },
 ]
 
 function StockCheckPage() {
   const summary = useQuery(api.stockCheck.summary)
-  const [filter, setFilter] = useState<Filter>("uncounted")
+  const [filter, setFilter] = useState<Filter>("all")
   const [search, setSearch] = useState("")
   const [cursors, setCursors] = useState<(string | null)[]>([null])
   const allReal = useMutation(api.stockCheck.markUncountedReal)
