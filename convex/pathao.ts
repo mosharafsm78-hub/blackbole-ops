@@ -792,7 +792,17 @@ export const applyInvoice = internalMutation({
       const o = await ctx.db.query("orders").withIndex("by_consignment", (q) => q.eq("consignmentId", l.cid)).first()
       if (!o) continue
       matched++
-      if (l.type !== "delivery") { if (l.fee && o.courierCost === undefined) await ctx.db.patch(o._id, { courierCost: l.fee }); continue }
+      if (l.type !== "delivery") {
+        // Return parcels: keep Pathao's charge and what the customer paid on the return (often 0, sometimes 110 or 150).
+        // Only on orders that actually came back, so a delivered order's money is never overwritten.
+        const rp: Partial<Doc<"orders">> = {}
+        if (l.fee && o.courierCost === undefined) rp.courierCost = l.fee
+        if (["returned", "pending_returned", "damaged"].includes(o.status) && (o.courierCollected !== l.collected || o.courierPayout !== l.payout || o.courierInvoiceId !== inv.invoiceId)) {
+          rp.courierCollected = l.collected; rp.courierPayout = l.payout; rp.courierInvoiceId = inv.invoiceId
+        }
+        if (Object.keys(rp).length) await ctx.db.patch(o._id, rp)
+        continue
+      }
       const patch: Partial<Doc<"orders">> = { courierInvoiceId: inv.invoiceId, courierCollected: l.collected, courierPayout: l.payout, courierCost: l.fee }
       if (paid) { patch.courierPaid = true; patch.courierPaidAt = o.courierPaidAt ?? inv.createdAt }
       const changed = Object.entries(patch).some(([k, val]) => (o as any)[k] !== val)
@@ -822,6 +832,15 @@ export const knownInvoices = internalQuery({
   },
 })
 
+export const startReturnBackfill = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (await getSetting(ctx, "pathaoReturnBackfill")) return false
+    await setSetting(ctx, "pathaoReturnBackfill", Date.now())
+    return true
+  },
+})
+
 export const saveMoneySync = internalMutation({
   args: { result: v.any() },
   handler: async (ctx, { result }) => { await setSetting(ctx, "pathaoMoneySync", { ...result, at: Date.now() }) },
@@ -831,6 +850,9 @@ export const saveMoneySync = internalMutation({
 export const syncMoney = internalAction({
   args: { days: v.optional(v.number()) },
   handler: async (ctx, { days = 20 }): Promise<any> => {
+    // Once: re-read 120 days of invoices so returned parcels from before this change also get what the customer paid.
+    const refresh = await ctx.runMutation(internal.pathao.startReturnBackfill, {})
+    if (refresh) days = Math.max(days, 120)
     const since = Date.now() - days * 86400000
     let parcels = 0, linked = 0, updated = 0, invoices = 0, paidMoved = 0
     // 1) parcels: link to orders, billing status
@@ -866,7 +888,7 @@ export const syncMoney = internalAction({
         const createdAt = utc(i.invoice_created_at) ?? Date.now()
         if (createdAt < since) { tooOld = true; break }
         const status = String(i.status ?? "")
-        if (known[id] && known[id] === status && status.toLowerCase() === "paid") { knownStreak++; continue }
+        if (!refresh && known[id] && known[id] === status && status.toLowerCase() === "paid") { knownStreak++; continue }
         knownStreak = 0
         const br = await merchantGet(ctx, `${MB}/monetary/invoices/${encodeURIComponent(id)}/breakdown`)
         const lines = (br.json?.data ?? []).map((l: any) => ({
