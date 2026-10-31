@@ -15,7 +15,7 @@ type Seed = [rung: string, team: string, title: string, due: string, doText: str
 /** Where BlackBole stands, read from the ops system (Reports, Dashboard, Meta ad account) on 31 Oct 2026, last 30 days. */
 export const NOW: [string, string][] = [
   ["Delivered revenue", "Tk 4.44 lakh (248 orders)"],
-  ["Booked orders", "431 · about 14 a day · Tk 8.1 lakh"],
+  ["Booked orders", "431 in 30 days (14 a day), but only 9.7 a day in the last 14 days"],
   ["Average order", "Tk 1,883"],
   ["Delivery success", "65% (268 of 413 parcels)"],
   ["Returned / cancelled", "29% returned · 19% cancelled"],
@@ -29,7 +29,7 @@ export const NOW: [string, string][] = [
  *  delivery rate and cost per order are planning figures built from the numbers above (cost per order may rise a
  *  little at each rung). Each rung's month is checked against the Target page on the checklist screen. */
 export const RUNGS: { key: string; title: string; month: string; amount: number; need: { booked: number; delivery: number; cancelMax?: number }; numbers: [string, string][]; gate: string }[] = [
-  { key: "R1", need: { booked: 28, delivery: 72, cancelMax: 14 }, title: "Rung 1 · Tk 12 lakh delivered · November", month: "2026-11", amount: 1200000, numbers: [["Booked orders a day", "28 (now 14)"], ["Delivery success", "72% (now 65%)"], ["Cancelled", "14% or less (now 19%)"], ["Ad spend a day", "about Tk 10,000 (now 4,900)"], ["Cost per booked order", "Tk 350 or less"], ["Pairs a month", "about 840"]], gate: "28 booked orders a day, delivery 72%, cancelled 14% or less, for 2 weeks in a row." },
+  { key: "R1", need: { booked: 28, delivery: 72, cancelMax: 14 }, title: "Rung 1 · Tk 12 lakh delivered · November", month: "2026-11", amount: 1200000, numbers: [["Booked orders a day", "28 (last 14 days: 9.7)"], ["Delivery success", "72% (now 65%)"], ["Cancelled", "14% or less (now 19%)"], ["Ad spend a day", "about Tk 10,000 (now 4,900)"], ["Cost per booked order", "Tk 350 or less"], ["Pairs a month", "about 840"]], gate: "28 booked orders a day, delivery 72%, cancelled 14% or less, for 2 weeks in a row." },
   { key: "R2", need: { booked: 45, delivery: 75, cancelMax: 13 }, title: "Rung 2 · Tk 20 lakh delivered · December", month: "2026-12", amount: 2000000, numbers: [["Booked orders a day", "45"], ["Delivery success", "75%"], ["Repeat buyers", "12%"], ["Ad spend a day", "about Tk 16,500"], ["Cost per booked order", "Tk 370 or less"], ["Pairs a month", "about 1,350"]], gate: "45 booked orders a day, delivery 75%, for 2 weeks in a row." },
   { key: "R3", need: { booked: 65, delivery: 76, cancelMax: 12 }, title: "Rung 3 · Tk 30 lakh delivered · January", month: "2027-01", amount: 3000000, numbers: [["Booked orders a day", "65"], ["Delivery success", "76%"], ["Repeat buyers", "15%"], ["Ad spend a day", "about Tk 25,000"], ["Cost per booked order", "Tk 390 or less"], ["Pairs a month", "about 1,950"]], gate: "65 booked orders a day, delivery 76%, repeat buyers 15%, for 2 weeks in a row." },
   { key: "R4", need: { booked: 95, delivery: 78, cancelMax: 12 }, title: "Rung 4 · Tk 45 lakh delivered · February", month: "2027-02", amount: 4500000, numbers: [["Booked orders a day", "95"], ["Delivery success", "78%"], ["Repeat buyers", "18%"], ["Ad spend a day", "about Tk 39,000"], ["Cost per booked order", "Tk 410 or less"], ["Pairs a month", "about 2,850"]], gate: "95 booked orders a day, delivery 78%, for 2 weeks in a row." },
