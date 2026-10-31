@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
@@ -74,6 +74,9 @@ function StockCheckPage() {
 
 function ProductPage({ filter, search, cursor, first, isLast, onMore }: { filter: Filter; search: string; cursor: string | null; first: boolean; isLast: boolean; onMore: (c: string) => void }) {
   const data = useQuery(api.stockCheck.list, { filter, search: search || undefined, cursor })
+  // A filtered page can come back short because the matching products are spread further down the list: keep looking by itself.
+  const more = !!data && data.isDone === false && isLast && data.products.length < 12 && filter !== "all"
+  useEffect(() => { if (more && data) onMore(data.cursor) }, [more, data?.cursor]) // eslint-disable-line react-hooks/exhaustive-deps
   if (data === undefined) return <Loading />
   if (data === null) return null
   return (
@@ -82,7 +85,7 @@ function ProductPage({ filter, search, cursor, first, isLast, onMore }: { filter
         <Empty title={filter === "uncounted" ? "Everything here has been counted" : "Nothing here"}>{filter === "uncounted" ? "Switch to “All products” to review or change a count." : "Try another filter or search."}</Empty>
       )}
       {data.products.map((p) => <ProductCard key={p.productId} p={p} />)}
-      {isLast && !data.isDone && <Button variant="outline" onClick={() => onMore(data.cursor)}>Load more products</Button>}
+      {isLast && !data.isDone && (more ? <Loading /> : <Button variant="outline" onClick={() => onMore(data.cursor)}>Load more products</Button>)}
     </>
   )
 }
