@@ -8,7 +8,7 @@ import type { Doc } from "./_generated/dataModel"
 
 const MAX_PAGE = 300
 
-function feedOrder(o: Doc<"orders">, c: Doc<"customers"> | null) {
+function feedOrder(o: Doc<"orders">, c: Doc<"customers"> | null, warehouse: string | null) {
   return {
     id: o._id as string,
     invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`,
@@ -17,6 +17,7 @@ function feedOrder(o: Doc<"orders">, c: Doc<"customers"> | null) {
     origin: o.origin ?? null,
     campaignId: o.campaignId ?? null,
     city: o.cityName ?? null,
+    warehouse, // which warehouse the parcel ships from (Pathao charges 55 same city, 95 other city)
     zone: o.zoneName ?? null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
@@ -51,10 +52,11 @@ export const ordersSince = internalQuery({
       .take(Math.min(Math.max(1, limit), MAX_PAGE))
     const customers = new Map<string, Doc<"customers"> | null>()
     const out: ReturnType<typeof feedOrder>[] = []
+    const locations = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
     for (const o of rows) {
       const key = o.customerId as string
       if (!customers.has(key)) customers.set(key, await ctx.db.get(o.customerId))
-      out.push(feedOrder(o, customers.get(key) ?? null))
+      out.push(feedOrder(o, customers.get(key) ?? null, locations.get(o.locationId as string) ?? null))
     }
     return out
   },
