@@ -82,3 +82,20 @@ describe("Shopify → Ops product sync", () => {
     expect(st.since).toBeGreaterThan(0)
   })
 })
+
+describe("Shopify → Ops photos", () => {
+  const imgs = [{ url: "https://cdn.shopify.com/a.jpg", alt: "", w: 800, h: 800 }, { url: "https://cdn.shopify.com/b.jpg", alt: "", w: null, h: null }]
+  it("fills a product with no photo (matched by SKU), and never replaces a photo Ops already has", async () => {
+    const { t, productId, variantId } = await setup()
+    await t.run(async (ctx) => { const p: any = await ctx.db.get(productId); await ctx.db.patch(productId, { handle: undefined, web: { ...p.web, images: [] } }) })
+    const n = await t.mutation(internal.shopifyPull.fillImages, { handle: "other", skus: ["pr-40"].map((s) => s.toUpperCase()), images: imgs, variantImages: [{ sku: "PR-40", url: "https://cdn.shopify.com/v.jpg" }] })
+    expect(n).toBe(3)
+    const p: any = await t.run(async (ctx) => ctx.db.get(productId))
+    expect(p.imageUrl).toBe(imgs[0].url)
+    expect(p.web.images).toHaveLength(2)
+    expect((await t.run(async (ctx) => ctx.db.get(variantId)) as any).imageUrl).toBe("https://cdn.shopify.com/v.jpg")
+    // second pass with different Shopify photos: Ops keeps its own
+    expect(await t.mutation(internal.shopifyPull.fillImages, { handle: "pair", skus: ["PR-40"], images: [{ url: "https://x/new.jpg", alt: "", w: null, h: null }], variantImages: [] })).toBe(0)
+    expect(((await t.run(async (ctx) => ctx.db.get(productId))) as any).imageUrl).toBe(imgs[0].url)
+  })
+})
