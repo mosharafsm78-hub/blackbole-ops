@@ -799,6 +799,7 @@ export const applyInvoice = internalMutation({
         if (l.fee && o.courierCost === undefined) rp.courierCost = l.fee
         if (["returned", "pending_returned", "damaged"].includes(o.status) && (o.courierCollected !== l.collected || o.courierPayout !== l.payout || o.courierInvoiceId !== inv.invoiceId)) {
           rp.courierCollected = l.collected; rp.courierPayout = l.payout; rp.courierInvoiceId = inv.invoiceId
+          rp.updatedAt = Date.now() // so the Marketing OS feed picks it up
         }
         if (Object.keys(rp).length) await ctx.db.patch(o._id, rp)
         continue
@@ -807,7 +808,7 @@ export const applyInvoice = internalMutation({
       if (paid) { patch.courierPaid = true; patch.courierPaidAt = o.courierPaidAt ?? inv.createdAt }
       const changed = Object.entries(patch).some(([k, val]) => (o as any)[k] !== val)
       if (changed) {
-        await ctx.db.patch(o._id, patch)
+        await ctx.db.patch(o._id, { ...patch, updatedAt: Date.now() }) // updatedAt: so the Marketing OS feed picks up the money
         if (paid && !o.courierPaid) await ctx.db.insert("orderEvents", { orderId: o._id, type: "log", text: `Pathao paid us ৳${l.payout} for this parcel (collected ৳${l.collected}, fee ৳${l.fee}) — invoice ${inv.invoiceId}`, byName: "Pathao sync", at: Date.now() })
       }
       if (paid && l.collected > 0 && ["ready_to_ship", "in_transit", "delivered_due"].includes(o.status)) toPaid.push({ id: o._id, status: o.status })
