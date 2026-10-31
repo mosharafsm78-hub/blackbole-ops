@@ -242,3 +242,21 @@ export const purgeRetired = mutation({
     return { purged, kept, more }
   },
 })
+
+/** "Everything not counted yet is real": every stock line nobody has counted is marked as counted with all pairs real.
+ *  Lines already counted (and the test pairs on them) are left exactly as they are. Done in chunks; `more` = run again. */
+export const markUncountedReal = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const me = await requirePerm(ctx, "inventory.adjust")
+    let done = 0, more = false
+    const rows = await ctx.db.query("stock").collect()
+    for (const s of rows) {
+      if (s.countedAt !== undefined || s.available <= 0) continue
+      if (done >= 400) { more = true; break }
+      await setLine(ctx, me.staff.name, s.variantId, s.locationId, s.available, "Marked all real (team updated the stock)")
+      done++
+    }
+    return { done, more }
+  },
+})

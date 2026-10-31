@@ -31,6 +31,9 @@ function StockCheckPage() {
   const [filter, setFilter] = useState<Filter>("uncounted")
   const [search, setSearch] = useState("")
   const [cursors, setCursors] = useState<(string | null)[]>([null])
+  const allReal = useMutation(api.stockCheck.markUncountedReal)
+  const [confirmReal, setConfirmReal] = useState(false)
+  const [realBusy, setRealBusy] = useState(false)
 
   const reset = () => setCursors([null])
   return (

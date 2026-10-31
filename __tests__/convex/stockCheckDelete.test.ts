@@ -112,3 +112,27 @@ describe("clear deleted SKUs", () => {
     expect(await get("BB-O-42")).not.toBeNull()
   })
 })
+
+describe("everything not counted is real", () => {
+  it("counts uncounted lines as real and leaves counted test stock alone", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+    await as.mutation(api.catalog.saveProduct, { name: "Real Sandal", active: true, variants: [
+      { sku: "BB-R-41", title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: true },
+      { sku: "BB-R-42", title: "42", weightKg: 0.4, price: 1, purchasePrice: 1, active: true },
+    ] })
+    const get = (sku: string) => t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first())
+    const a = (await get("BB-R-41"))!, b = (await get("BB-R-42"))!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: a._id, qty: 5, unitCost: 1 }, { variantId: b._id, qty: 5, unitCost: 1 }] })
+    await as.mutation(api.stockCheck.saveCounts, { items: [{ variantId: b._id, locationId, real: 3 }] }) // counted: 2 test pairs
+    const r = await as.mutation(api.stockCheck.markUncountedReal, {})
+    expect(r.done).toBe(1)
+    const row = (v: any) => t.run((ctx) => ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", v._id)).first())
+    expect((await row(a))!.countedAt).toBeDefined()
+    expect((await row(a))!.virtual ?? 0).toBe(0)
+    expect((await row(b))!.virtual).toBe(2)
+  })
+})
