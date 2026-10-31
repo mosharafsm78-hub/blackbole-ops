@@ -5,7 +5,7 @@ import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { currentStaff, invoiceLabel, nextCounter, requirePerm } from "./lib"
-import { STATUS_LABEL, type OrderStatus } from "./rules"
+import { STATUS_LABEL, RETURN_AT_FAULT_REASONS, type OrderStatus } from "./rules"
 
 export const REPORT_TYPES = [
   { key: "sales_creation", label: "Sales Report by Creation", index: "by_created", field: "createdAt" },
@@ -18,6 +18,14 @@ export const REPORT_TYPES = [
   { key: "payments", label: "Payment Transaction Report", index: "", field: "at" },
   { key: "stock_summary", label: "By Product Stock Summary", index: "", field: "" },
   { key: "attribution", label: "Origin/Attribution Based Order Performance Report", index: "by_created", field: "createdAt" },
+  // The feedback and return calls teams log every day (logCsat/logReturnCsat/logRecovery in orders.ts) were
+  // previously write-only: captured per order, worth individual KPI points, maybe an accountability flag — but
+  // never rolled up anywhere, so there was no way to see "is CSAT trending down", "which return reason keeps
+  // coming back", or "is the recovery call actually winning customers back". These three reports turn that data
+  // into dynamic, aggregated business signal instead of leaving it buried in individual order timelines.
+  { key: "csat_trend", label: "Feedback & Return Call Trend (Daily)", index: "by_created", field: "createdAt" },
+  { key: "return_reasons", label: "Return Call Reason Breakdown & Win-Back Rate", index: "by_created", field: "createdAt" },
+  { key: "csat_by_agent", label: "Feedback & Return Call Performance by Agent", index: "by_created", field: "createdAt" },
 ] as const
 
 const BD = 6 * 3600000
@@ -74,7 +82,7 @@ export const saveResult = internalMutation({
   handler: async (ctx, { id, ...rest }) => ctx.db.patch(id, rest),
 })
 
-function build(type: string, orders: Doc<"orders">[], _from: number, _to: number, source?: string) {
+export function build(type: string, orders: Doc<"orders">[], _from: number, _to: number, source?: string) {
   const live = orders.filter((o) => !o.deletedAt && (!source || o.source === source))
   const rows: Record<string, any>[] = []
   const add = (m: Map<string, any>, k: string, init: () => any) => { if (!m.has(k)) m.set(k, init()); return m.get(k) }
@@ -135,6 +143,97 @@ function build(type: string, orders: Doc<"orders">[], _from: number, _to: number
       if (o.status === "cancelled") r.Cancelled++
     }
     rows.push(...[...m.values()].map((r) => ({ ...r, "Delivery rate %": r.Delivered + r.Returned ? Math.round((r.Delivered / (r.Delivered + r.Returned)) * 100) : "" })).sort((a, b) => b.Orders - a.Orders))
+  } else if (type === "csat_trend") {
+    // One row per day the CALL happened (not per day the order was placed) — a feedback or return call made
+    // today about an older order still shows up as today's CSAT signal, which is what "is this trending down
+    // this week" actually needs.
+    const m = new Map<string, any>()
+    const row = (d: string) => add(m, d, () => ({
+      Date: d, "Feedback calls": 0,
+      "Happy — no issues": 0, "Happy — minor issue": 0,
+      "Unhappy — product issue": 0, "Unhappy — delivery issue": 0, "Unhappy — other": 0,
+      "Feedback — could not reach": 0, "Feedback — declined": 0,
+      "Return calls": 0, "Return — at fault": 0,
+      "Recovery calls": 0, Recovered: 0,
+    }))
+    for (const o of live) {
+      const csat = (o as any).csat as { outcome: string; at: number } | undefined
+      if (csat) {
+        const r = row(day(csat.at))
+        r["Feedback calls"]++
+        if (csat.outcome === "Could not reach") r["Feedback — could not reach"]++
+        else if (csat.outcome === "Declined to answer") r["Feedback — declined"]++
+        else if (csat.outcome in r) r[csat.outcome]++
+      }
+      const rc = (o as any).returnCsat as { outcome: string; at: number } | undefined
+      if (rc) {
+        const r = row(day(rc.at))
+        r["Return calls"]++
+        if (RETURN_AT_FAULT_REASONS.includes(rc.outcome)) r["Return — at fault"]++
+      }
+      const rec = (o as any).recovery as { outcome: string; at: number } | undefined
+      if (rec) {
+        const r = row(day(rec.at))
+        r["Recovery calls"]++
+        if (rec.outcome === "Recovered — placed a new order") r.Recovered++
+      }
+    }
+    rows.push(...[...m.values()].map((r) => {
+      const answered = r["Feedback calls"] - r["Feedback — could not reach"] - r["Feedback — declined"]
+      const unhappy = r["Unhappy — product issue"] + r["Unhappy — delivery issue"] + r["Unhappy — other"]
+      return { ...r, "Unhappy %": answered > 0 ? Math.round((unhappy / answered) * 100) : "", "Win-back %": r["Recovery calls"] > 0 ? Math.round((r.Recovered / r["Recovery calls"]) * 100) : "" }
+    }).sort((a, b) => a.Date.localeCompare(b.Date)))
+  } else if (type === "return_reasons") {
+    // Which reason actually keeps coming back, confirmed by the return CALL (not just the category picked when
+    // the return was first raised) — and for the ones that are BlackBole's own fault, did the recovery call
+    // actually win the customer back.
+    const m = new Map<string, any>()
+    let totalCalls = 0
+    for (const o of live) {
+      const rc = (o as any).returnCsat as { outcome: string } | undefined
+      if (!rc) continue
+      totalCalls++
+      const atFault = RETURN_AT_FAULT_REASONS.includes(rc.outcome)
+      const r = add(m, rc.outcome, () => ({ Reason: rc.outcome, "At fault": atFault ? "Yes" : "No", Calls: 0, "Recovery attempted": 0, Recovered: 0 }))
+      r.Calls++
+      const rec = (o as any).recovery as { outcome: string } | undefined
+      if (rec) {
+        r["Recovery attempted"]++
+        if (rec.outcome === "Recovered — placed a new order") r.Recovered++
+      }
+    }
+    rows.push(...[...m.values()].map((r) => ({
+      ...r,
+      "% of return calls": totalCalls ? Math.round((r.Calls / totalCalls) * 100) : 0,
+      "Win-back %": r["Recovery attempted"] ? Math.round((r.Recovered / r["Recovery attempted"]) * 100) : "",
+    })).sort((a, b) => b.Calls - a.Calls))
+  } else if (type === "csat_by_agent") {
+    // Same calls, but by who made them — so a lead can see whose feedback calls are actually catching unhappy
+    // customers (vs. rubber-stamping "Happy") and whose recovery calls are actually winning people back.
+    const m = new Map<string, any>()
+    const agentRow = (name: string) => add(m, name, () => ({ Agent: name, "Feedback calls": 0, Happy: 0, Unhappy: 0, "Could not reach": 0, "Return calls": 0, "Recovery calls": 0, Recovered: 0 }))
+    for (const o of live) {
+      const csat = (o as any).csat as { outcome: string; byName: string } | undefined
+      if (csat) {
+        const r = agentRow(csat.byName)
+        r["Feedback calls"]++
+        if (csat.outcome.startsWith("Happy")) r.Happy++
+        else if (csat.outcome.startsWith("Unhappy")) r.Unhappy++
+        else if (csat.outcome === "Could not reach") r["Could not reach"]++
+      }
+      const rc = (o as any).returnCsat as { byName: string } | undefined
+      if (rc) agentRow(rc.byName)["Return calls"]++
+      const rec = (o as any).recovery as { outcome: string; byName: string } | undefined
+      if (rec) {
+        const r = agentRow(rec.byName)
+        r["Recovery calls"]++
+        if (rec.outcome === "Recovered — placed a new order") r.Recovered++
+      }
+    }
+    rows.push(...[...m.values()].map((r) => {
+      const answered = r["Feedback calls"] - r["Could not reach"]
+      return { ...r, "Happy %": answered > 0 ? Math.round((r.Happy / answered) * 100) : "", "Win-back %": r["Recovery calls"] > 0 ? Math.round((r.Recovered / r["Recovery calls"]) * 100) : "" }
+    }).sort((a, b) => b["Feedback calls"] + b["Return calls"] - (a["Feedback calls"] + a["Return calls"])))
   }
   return rows
 }
