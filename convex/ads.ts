@@ -16,6 +16,12 @@ export const cfg = internalQuery({
   },
 })
 
+/** Meta settings for the Marketing OS feed (no signed-in person). Only used server-side to read spend. */
+export const cfgForFeed = internalQuery({
+  args: {},
+  handler: async (ctx) => (await getSetting<any>(ctx, "metaAds")) ?? null,
+})
+
 export const revenueByDay = internalQuery({
   args: { from: v.number(), to: v.number(), locationId: v.optional(v.string()) },
   handler: async (ctx, { from, to, locationId }) => {

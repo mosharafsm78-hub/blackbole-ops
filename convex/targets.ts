@@ -409,6 +409,25 @@ export const progress = action({
   args: { month: v.optional(v.string()) },
   handler: async (ctx, { month }): Promise<TargetProgress> => {
     await ctx.runQuery(internal.targets.access, {})
+    return computeProgress(ctx, month, false)
+  },
+})
+
+/** The same numbers for BlackBole Marketing OS (feed key, no signed-in person). Never includes salaries, rent or other fixed costs. */
+export const progressForFeed = internalAction({
+  args: {},
+  handler: async (ctx): Promise<TargetProgress> => computeProgress(ctx, undefined, true),
+})
+
+export const costsForFeed = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<{ costs: MonthlyCosts; fixedVisible: boolean }> => {
+    const c = withDefaults(await getSetting<MonthlyCosts>(ctx, "monthlyCosts"))
+    return { costs: { ...c, salary: 0, rent: 0, other: 0 }, fixedVisible: false }
+  },
+})
+
+async function computeProgress(ctx: ActionCtx, month: string | undefined, system: boolean): Promise<TargetProgress> {
     const now = Date.now()
     const current = dhakaMonth(now)
     if (month !== undefined && !isMonthKey(month)) throw new ConvexError("Pick a valid month.")
@@ -430,7 +449,7 @@ export const progress = action({
     // Whether this person may see ad spend at all (the same permission as the Ads page).
     let conf: any = null
     let adsAllowed = true
-    try { conf = await ctx.runQuery(internal.ads.cfg, {}) } catch { adsAllowed = false }
+    try { conf = await ctx.runQuery(system ? internal.ads.cfgForFeed : internal.ads.cfg, {}) } catch { adsAllowed = false }
     const adsConfigured = adsAllowed && !!conf?.token && (conf.accounts?.length ?? 0) > 0
     const wantSpend = adsConfigured && m >= current
 
@@ -536,7 +555,7 @@ export const progress = action({
     let daily: DailyPlan | null = null
     let measured: MeasuredCosts | null = null
     if (marketing?.state === "ok" && marketing.plan.mer && data.stock && snapshot) {
-      const got = await ctx.runQuery(internal.targets.costsForProgress, {})
+      const got = await ctx.runQuery(system ? internal.targets.costsForFeed : internal.targets.costsForProgress, {})
       if (got) {
         // Real numbers beat typed ones: courier cost, payment fee and return rate come from the last 60 days of orders.
         measured = data.ops && data.returned ? measureCosts({ delivered: data.ops, returned: data.returned }) : null
@@ -559,8 +578,7 @@ export const progress = action({
     }
 
     return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null }
-  },
-})
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // KPI: the Marketing lead earns points for hitting the target — automatically, off the same delivered revenue

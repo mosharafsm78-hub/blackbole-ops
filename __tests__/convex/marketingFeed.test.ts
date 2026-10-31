@@ -84,3 +84,13 @@ describe("marketing feed", () => {
     expect(typeof data.stock[0].available).toBe("number")
   })
 })
+
+describe("target feed", () => {
+  it("needs the feed key", async () => {
+    const { convexTest } = await import("convex-test")
+    const schema = (await import("../../convex/schema")).default
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    const res = await t.fetch("/marketing/target", { method: "GET" })
+    expect(res.status).toBe(401)
+  })
+})

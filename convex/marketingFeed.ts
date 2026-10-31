@@ -113,3 +113,24 @@ export const stock = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
   return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, {}) })
 })
+
+/** Today's revenue target, the daily ad budget and how many pairs each product should sell — for the Marketing OS AI Brain.
+ *  Never sends salaries, rent or other fixed costs. */
+export const target = httpAction(async (ctx, req) => {
+  if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
+  const p = await ctx.runAction(internal.targets.progressForFeed, {})
+  const mk = p.marketing?.state === "ok" ? p.marketing.plan : null
+  return json({
+    month: p.month, asOf: p.asOf, auto: p.auto,
+    target: p.target?.amount ?? null,
+    delivered: p.plan?.delivered ?? null, remaining: p.plan?.remaining ?? null, daysLeft: p.plan?.daysLeft ?? null,
+    today: p.plan?.focus ? { day: p.plan.focus.day, target: p.plan.focus.target, delivered: p.plan.focus.delivered, toGo: p.plan.focus.toGo } : null,
+    perDayFromTomorrow: p.plan?.perDayFromTomorrow ?? null,
+    marketing: p.marketing ? { state: p.marketing.state, mer: mk?.mer ?? null, budget: mk?.budget ?? null, spentMtd: mk?.spentMtd ?? null, status: mk?.status ?? null } : null,
+    daily: p.daily ? { adBudget: p.daily.adBudget, adMax: p.daily.adMax, spentToday: p.daily.spentToday, adLeft: p.daily.adLeft, ordersToBook: p.daily.ordersToBook, returnRate: p.daily.returnRate, adsCantPay: p.daily.adsCantPay } : null,
+    products: (p.products ?? []).map((r) => ({
+      key: r.key, name: r.name, group: r.group, price: Math.round(r.price), todayTarget: r.todayTarget, todaySold: r.todaySold, toGo: r.toGo,
+      perDayAfterToday: r.perDayAfterToday, stockUnits: r.stockUnits, sizes: r.sizes, overstock: r.overstock, left: r.left,
+    })),
+  })
+})
