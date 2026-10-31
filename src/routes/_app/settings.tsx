@@ -57,6 +57,7 @@ function SettingsPage() {
           <TabsTrigger value="wa-verify">WhatsApp verify</TabsTrigger>
           <TabsTrigger value="winback">Win-back</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
+          <TabsTrigger value="meta">Meta ads</TabsTrigger>
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
           <TabsTrigger value="roles" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Roles</TabsTrigger>
           <TabsTrigger value="accountability" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Accountability</TabsTrigger>
@@ -70,6 +71,7 @@ function SettingsPage() {
         <TabsContent value="wa-verify"><WhatsAppVerifySettings /></TabsContent>
         <TabsContent value="winback"><WinBackSettings /></TabsContent>
         <TabsContent value="warehouses"><WarehousesTab /></TabsContent>
+        <TabsContent value="meta"><MetaAdsTab /></TabsContent>
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="roles"><RolesTab /></TabsContent>}
         {can("team.manage") && <TabsContent value="accountability"><AccountabilitySettings /></TabsContent>}
@@ -77,6 +79,34 @@ function SettingsPage() {
         <TabsContent value="general"><GeneralTab /></TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+// ---------------- Meta ads ----------------
+// Ad spend for the Target page (daily ad budget, MER) and the Ads page. Reads only; never changes an ad.
+function MetaAdsTab() {
+  const cur = useQuery(api.admin.adsSettings)
+  const save = useMutation(api.admin.saveAdsSettings)
+  const [acc, setAcc] = useState<string | null>(null)
+  const [name, setName] = useState<string | null>(null)
+  const [token, setToken] = useState("")
+  const [busy, setBusy] = useState(false)
+  if (cur === undefined) return <Loading />
+  const first = cur?.accounts[0]
+  const id = acc ?? first?.id ?? "1112103738022472"
+  const label = name ?? first?.name ?? "BlackBole BDT"
+  return (
+    <Section title="Meta ads" sub={<>Lets the Target page read ad spend, so it can work out today&apos;s ad budget and the most you can spend. Use the same token as Marketing OS (Graph API Explorer → Generate → Extend). {cur?.hasToken ? <Pill tone="green">Token saved</Pill> : <Pill tone="amber">No token yet</Pill>}</>}>
+      <div className="grid max-w-xl gap-3">
+        <div className="grid gap-1.5"><Label htmlFor="meta-acc">Ad account number</Label><Input id="meta-acc" value={id} onChange={(e) => setAcc(e.target.value)} /></div>
+        <div className="grid gap-1.5"><Label htmlFor="meta-name">Name</Label><Input id="meta-name" value={label} onChange={(e) => setName(e.target.value)} /></div>
+        <div className="grid gap-1.5"><Label htmlFor="meta-token">Access token</Label><Input id="meta-token" type="password" autoComplete="new-password" placeholder={cur?.hasToken ? "Saved – leave blank to keep" : "EAA…"} value={token} onChange={(e) => setToken(e.target.value)} /></div>
+        <div><Button disabled={busy || !id.trim() || (!token.trim() && !cur?.hasToken)} onClick={async () => {
+          setBusy(true)
+          try { await save({ token: token.trim() || undefined, accounts: [{ id: id.trim(), name: label.trim() || id.trim() }] }); setToken(""); toast.success("Meta ads saved") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+        }}>Save</Button></div>
+      </div>
+    </Section>
   )
 }
 
