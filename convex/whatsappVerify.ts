@@ -1,7 +1,7 @@
 // WhatsApp order verification. After the COD form, the customer taps "Verify on WhatsApp": WhatsApp opens to our
 // business number with "Verify BB-12345" already typed. They press Send; we reply at once with a short message (no
 // order details) and two buttons: Confirm / Cancel.
-//   Confirm → the order is Approved automatically, and a short message tells them when it arrives, to pick up the
+//   Confirm → NOT auto-approved: the order shows "Confirmed on WhatsApp" + a notification in ops; a short message tells them when it arrives, to pick up the
 //             courier's call, and that exchange is free.
 //   Cancel  → the order shows Cancelled in ops, the customer is told customer care will call, and a follow-up is set.
 // The customer's own WhatsApp number must match the order's phone: that proves the number is real and stops anyone
@@ -14,7 +14,7 @@ import { httpAction, internalAction, internalQuery, query } from "./_generated/s
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
-import { currentStaff, getSetting, invoiceLabel, logOrder, requirePerm, setSetting } from "./lib"
+import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, setSetting } from "./lib"
 import { applyStatus } from "./orders"
 import { canTransition } from "./rules"
 
@@ -54,6 +54,13 @@ export const confirmedText = (o: Doc<"orders">, preOrder: boolean) => preOrder
 type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] }
 const txt = (body: string): Out => ({ kind: "text", body })
 
+/** Remember the customer's answer on the order (badge in Orders) and tell the team. Confirm does NOT approve: the team decides. */
+async function markWa(ctx: any, o: Doc<"orders">, result: "confirmed" | "cancelled", by: string) {
+  await ctx.db.patch(o._id, { waVerify: { result, at: Date.now(), by } })
+  if (result === "confirmed") await logOrder(ctx, o._id, "Customer confirmed on WhatsApp", by)
+  await notify(ctx, result === "confirmed" ? "Customer confirmed on WhatsApp" : "Customer cancelled on WhatsApp", `${invoiceLabel(o)} · ${o.customerName}`, o._id, "action")
+}
+
 // ---------- what one customer message does ----------
 async function findOrder(ctx: any, ref: { no?: number; code?: string }): Promise<Doc<"orders"> | null> {
   const rows: Doc<"orders">[] = ref.code
@@ -83,6 +90,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
       return record("mismatch", [txt("This WhatsApp number does not match the phone number on the order, so we cannot change it from here. Please contact BlackBole.")], o._id)
     }
     if (btn[1] === "c") {
+      if (o.waVerify?.result === "confirmed" && (o.status === "pending" || o.status === "on_hold")) return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed. Thank you! — BlackBole`)], o._id)
       if (o.status === "pending" || o.status === "on_hold") {
         const bad = detailsProblem(o)
         if (bad) {
@@ -90,9 +98,8 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
           await ctx.db.patch(o._id, { followUpAt: Date.now() })
           return record("address_issue", [txt(`Thank you! One more check: ${bad}. Our team will call you shortly to complete it. — BlackBole`)], o._id)
         }
-        await applyStatus(ctx, o, "approved", BY, "Customer confirmed on WhatsApp")
-        const after: Doc<"orders"> = (await ctx.db.get(o._id))!
-        return record("confirmed", [txt(confirmedText(o, after.status.startsWith("pre_order")))], o._id)
+        await markWa(ctx, o, "confirmed", BY)
+        return record("confirmed", [txt(confirmedText(o, o.status.startsWith("pre_order")))], o._id)
       }
       if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. If this is a mistake, please contact BlackBole and we will help.`)], o._id)
       return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed and being prepared. — BlackBole`)], o._id)
@@ -100,6 +107,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
     // cancel
     if (canTransition(o.status as any, "cancelled") && !["cancelled"].includes(o.status) && ["pending", "on_hold", "approved"].includes(o.status)) {
       await applyStatus(ctx, o, "cancelled", BY, "Customer cancelled on WhatsApp")
+      await markWa(ctx, o, "cancelled", BY)
       await ctx.db.patch(o._id, { followUpAt: Date.now() }) // customer care calls to check why
       return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. Our customer care team will call you shortly. — BlackBole`)], o._id)
     }
@@ -237,5 +245,21 @@ export const simulate = mutation({
     const wamid = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const r = await handleInbound(ctx, step === "start" ? { waId, wamid, text: `Verify ${invoiceLabel(o)}` } : { waId, wamid, buttonId: `wv:${step === "confirm" ? "c" : "x"}:${o._id}` })
     return { result: r.result, replies: r.out.map((m) => m.body) }
+  },
+})
+
+/** Manual version for while there is no API number: the team reads the WhatsApp chat and records the answer here. */
+export const markManual = mutation({
+  args: { orderId: v.id("orders"), result: v.union(v.literal("confirmed"), v.literal("cancelled")) },
+  handler: async (ctx, { orderId, result }) => {
+    const me = await requirePerm(ctx, "orders.edit")
+    const o = await ctx.db.get(orderId)
+    if (!o || o.deletedAt) throw new ConvexError("Order not found")
+    const by = (me as any)?.name ?? "Staff"
+    if (result === "cancelled" && ["pending", "on_hold", "approved"].includes(o.status)) {
+      await applyStatus(ctx, o, "cancelled", by, "Customer cancelled on WhatsApp")
+      await ctx.db.patch(o._id, { followUpAt: Date.now() })
+    }
+    await markWa(ctx, o, result, by)
   },
 })

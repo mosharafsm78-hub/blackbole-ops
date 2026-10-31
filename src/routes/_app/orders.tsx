@@ -67,6 +67,7 @@ function OrdersPage() {
   const [limit, setLimit] = useState(100)
   const [selected, setSelected] = useState<Set<Id<"orders">>>(new Set())
   const softDelete = useMutation(api.orders.softDelete)
+  const markWa = useMutation(api.whatsappVerify.markManual)
   const findEx = useAction(api.pathao.findExchangeParcels)
   const [findingEx, setFindingEx] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
@@ -500,6 +501,18 @@ function OrdersPage() {
                       }
                       return m[r] ? <div className={cn("whitespace-nowrap font-medium", m[r][1])}>{m[r][0]}</div> : null
                     })()}
+                    {(o as any).waVerify?.result ? (
+                      <div className={cn("whitespace-nowrap font-medium", (o as any).waVerify.result === "confirmed" ? "text-tone-green" : "text-tone-red")}>
+                        {(o as any).waVerify.result === "confirmed" ? "💬 Confirmed on WhatsApp" : "💬 Cancelled on WhatsApp"}
+                      </div>
+                    ) : o.status === "pending" ? (
+                      <Perm perm="orders.edit">
+                        <div className="flex gap-1">
+                          <button type="button" className="rounded border px-1 text-[10px] text-tone-green" title="Customer confirmed on WhatsApp" onClick={() => markWa({ orderId: o._id as Id<"orders">, result: "confirmed" }).catch((e) => toast.error(errMsg(e)))}>WA ✓</button>
+                          <button type="button" className="rounded border px-1 text-[10px] text-tone-red" title="Customer cancelled on WhatsApp" onClick={() => markWa({ orderId: o._id as Id<"orders">, result: "cancelled" }).catch((e) => toast.error(errMsg(e)))}>WA ✗</button>
+                        </div>
+                      </Perm>
+                    ) : null}
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}
                     {o.followUpAt && (
                       <div className={cn("whitespace-nowrap font-medium", o.followUpAt <= Date.now() ? "text-tone-red" : "text-tone-amber")}>

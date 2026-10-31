@@ -34,7 +34,7 @@ describe("WhatsApp order verification", () => {
     expect(detailsProblem({ phone: "01712345678", address: "Dhaka" })).toMatch(/address/)
   })
 
-  it("Verify → summary with Confirm/Cancel → Confirm approves and sends the arrival message", async () => {
+  it("Verify → summary with Confirm/Cancel → Confirm marks "confirmed on WhatsApp", notifies ops and sends the arrival message", async () => {
     const { as, order, status } = await setup()
     const { id, invoice } = await order("01711000001")
     const a = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "start" })
@@ -48,10 +48,10 @@ describe("WhatsApp order verification", () => {
     expect(b.replies[0]).toMatch(/2–3 days/)
     expect(b.replies[0]).toMatch(/courier/)
     expect(b.replies[0]).toMatch(/free exchange/)
-    expect(await status(id)).toBe("approved")
+    expect(await status(id)).toBe("pending") // not auto-approved: the team sees "Confirmed on WhatsApp" and decides
     const c = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "confirm" }) // tapped twice
     expect(c.result).toBe("already")
-    expect(await status(id)).toBe("approved")
+    expect(await status(id)).toBe("pending")
   })
 
   it("Cancel cancels the order", async () => {

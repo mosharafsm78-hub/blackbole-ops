@@ -358,6 +358,7 @@ export default defineSchema({
     courier: v.optional(v.string()), // pathao | manual | pickup
     consignmentId: v.optional(v.string()),
     exchangeCheckedAt: v.optional(v.number()),
+    waVerify: v.optional(v.any()), // WhatsApp verification: { result: confirmed | cancelled, at, by }
     autoCall: v.optional(v.any()), // last automatic confirmation call: { result: confirmed | cancel | agent | no_answer, at, attempts } // last automatic look on Pathao for this exchange's parcels
     csat: v.optional(v.any()), // last post-delivery feedback call: { outcome, note?, byName, at } — separate from callCount/lastCallOutcome, which drive the pre-delivery confirmation-call cron
     csatFollowUpAt: v.optional(v.number()), // feedback call needs a retry (customer didn't pick up etc), mirrors followUpAt
