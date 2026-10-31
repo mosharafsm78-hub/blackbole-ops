@@ -268,4 +268,14 @@ describe("booking money", () => {
     expect((await webPrice(bd)).price).toBe(90) // Bangladesh delivery advance untouched
     expect(await as.mutation(api.website.setBookingMoney, { from: 500, to: 200, apply: false })).toMatchObject({ products: 0 })
   })
+  it("also catches products that are pre-order only by their pre-order tag", async () => {
+    const { t, as } = await setup()
+    const id = await as.mutation(api.website.createProduct, {
+      title: "Tag Pair", handle: "", html: "<p>x</p>", vendor: "BlackBole", type: "Sneakers", tags: ["pre-order"], seo: { title: "", description: "" }, options: ["Size"], images: [], mf: {},
+      published: true, preOrder: false, preOrderFrom: "china", collections: [],
+      variants: [{ sku: "TAG-40", title: "40", options: { Size: "40" }, price: 500, fullPrice: 3200, compareAt: 3200, cost: 1400, weightKg: 0.6 }],
+    })
+    await t.run(async (ctx) => { await ctx.db.patch(id, { preOrder: undefined }) })
+    expect(await as.mutation(api.website.setBookingMoney, { from: 500, to: 200, apply: true })).toEqual({ products: 1, variants: 1, applied: true })
+  })
 })

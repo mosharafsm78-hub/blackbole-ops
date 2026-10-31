@@ -1113,12 +1113,12 @@ export const setBookingMoney = mutation({
     await requireWebsite(ctx)
     if (!(from > 0) || !(to > 0) || to > 5000) throw new ConvexError("Booking money must be between Tk 1 and Tk 5,000.")
     if (from === to) throw new ConvexError("The new amount is the same as the current one.")
-    const prods = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt && p.preOrder && p.preOrderFrom !== "bangladesh")
+    const prods = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt && (p.preOrder || isPreTag((p.web as any)?.tags)) && p.preOrderFrom !== "bangladesh")
     let products = 0, variants = 0
     const toPush: Id<"products">[] = []
     for (const p of prods) {
       const vs = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x: any) => !x.deletedAt)
-      const hit = vs.filter((x: any) => typeof x.web?.price === "number" && Math.round(x.web.price) === from)
+      const hit = vs.filter((x: any) => webPrice(x) === from) // the website price, or the Ops price when no website price is set
       if (!hit.length) continue
       products++
       variants += hit.length
