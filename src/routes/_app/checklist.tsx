@@ -91,9 +91,11 @@ function ChecklistPage() {
   const items = useQuery(api.checklist.list)
   const seed = useMutation(api.checklist.ensureSeeded)
   const ladder = useQuery(api.checklist.ladder)
+  const live = useQuery(api.checklist.actuals)
   const can = useCan()
   useEffect(() => { void seed({}) }, [])
-  if (!items || !ladder) return <Loading />
+  if (!items || !ladder || !live) return <Loading />
+  const working = live.rungs.find((r) => !r.go)?.key
   const done = items.filter((i) => i.doneAt).length
   const overdue = items.filter((i) => !i.doneAt && i.dueAt < Date.now()).length
   const pct = items.length ? Math.round((done / items.length) * 100) : 0
@@ -116,7 +118,7 @@ function ChecklistPage() {
         <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           {ladder.now.map(([k, v]) => <div key={k} className="flex justify-between gap-3 border-b border-dashed py-1"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">Tk 1 crore delivered is about 23 times today. That is why it is a ladder: each rung is reachable from the one before. Live numbers are on the <Link to="/target" className="underline">Target page</Link> and in Reports.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Every rung shows these numbers live against what it needs, and a gate step cannot be ticked until they pass. Tk 1 crore delivered is about 23 times today. That is why it is a ladder: each rung is reachable from the one before. Live numbers are on the <Link to="/target" className="underline">Target page</Link> and in Reports.</p>
       </div>
       {phases.map((ph) => {
         const rows = items.filter((i) => i.phase === ph)
@@ -131,6 +133,15 @@ function ChecklistPage() {
                     {rung.numbers.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><span className="text-muted-foreground">{k}</span><b>{v}</b></div>)}
                   </div>
                   <p className="mt-2"><b>Gate to climb:</b> {rung.gate}</p>
+                  {(() => {
+                    const j = live.rungs.find((r) => r.key === rung.key)
+                    return j ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="rung-live">
+                        <Pill tone={j.go ? "green" : rung.key === working ? "amber" : "gray"}>{j.go ? "GO" : rung.key === working ? "NO-GO · working on this rung" : "NO-GO"}</Pill>
+                        {j.checks.map((c: any) => <span key={c.label} className={c.ok ? "text-xs text-tone-green" : "text-xs text-tone-red"}>{c.label}: {c.have}{c.unit} (need {c.max ? "≤" : "≥"}{c.need}{c.unit}) {c.ok ? "✓" : "✗"}</span>)}
+                      </div>
+                    ) : null
+                  })()}
                   <RungTarget month={rung.month} amount={rung.amount} />
                 </div>
               ) : null

@@ -28,13 +28,13 @@ export const NOW: [string, string][] = [
  *  disagree; each later rung is a month. A rung is climbed only when its numbers hold for two weeks. Order value,
  *  delivery rate and cost per order are planning figures built from the numbers above (cost per order may rise a
  *  little at each rung). Each rung's month is checked against the Target page on the checklist screen. */
-export const RUNGS: { key: string; title: string; month: string; amount: number; numbers: [string, string][]; gate: string }[] = [
-  { key: "R1", title: "Rung 1 · Tk 12 lakh delivered · November", month: "2026-11", amount: 1200000, numbers: [["Booked orders a day", "28 (now 14)"], ["Delivery success", "72% (now 65%)"], ["Cancelled", "14% or less (now 19%)"], ["Ad spend a day", "about Tk 10,000 (now 4,900)"], ["Cost per booked order", "Tk 350 or less"], ["Pairs a month", "about 840"]], gate: "28 booked orders a day, delivery 72%, cancelled 14% or less, for 2 weeks in a row." },
-  { key: "R2", title: "Rung 2 · Tk 20 lakh delivered · December", month: "2026-12", amount: 2000000, numbers: [["Booked orders a day", "45"], ["Delivery success", "75%"], ["Repeat buyers", "12%"], ["Ad spend a day", "about Tk 16,500"], ["Cost per booked order", "Tk 370 or less"], ["Pairs a month", "about 1,350"]], gate: "45 booked orders a day, delivery 75%, for 2 weeks in a row." },
-  { key: "R3", title: "Rung 3 · Tk 30 lakh delivered · January", month: "2027-01", amount: 3000000, numbers: [["Booked orders a day", "65"], ["Delivery success", "76%"], ["Repeat buyers", "15%"], ["Ad spend a day", "about Tk 25,000"], ["Cost per booked order", "Tk 390 or less"], ["Pairs a month", "about 1,950"]], gate: "65 booked orders a day, delivery 76%, repeat buyers 15%, for 2 weeks in a row." },
-  { key: "R4", title: "Rung 4 · Tk 45 lakh delivered · February", month: "2027-02", amount: 4500000, numbers: [["Booked orders a day", "95"], ["Delivery success", "78%"], ["Repeat buyers", "18%"], ["Ad spend a day", "about Tk 39,000"], ["Cost per booked order", "Tk 410 or less"], ["Pairs a month", "about 2,850"]], gate: "95 booked orders a day, delivery 78%, for 2 weeks in a row." },
-  { key: "R5", title: "Rung 5 · Tk 70 lakh delivered · March (Eid-ul-Fitr about 9–10 March)", month: "2027-03", amount: 7000000, numbers: [["Booked orders a day", "145"], ["Delivery success", "80%"], ["Repeat buyers", "22%"], ["Ad spend a day", "about Tk 62,000"], ["Cost per booked order", "Tk 430 or less"], ["Pairs a month", "about 4,350"]], gate: "145 booked orders a day, delivery 80%, for 2 weeks in a row." },
-  { key: "R6", title: "Rung 6 · Tk 1 crore delivered · May–June (Eid-ul-Adha about 17 May)", month: "2027-06", amount: 10000000, numbers: [["Booked orders a day", "210"], ["Delivery success", "80%"], ["Repeat buyers", "25%"], ["Ad spend a day", "about Tk 92,000"], ["Cost per booked order", "Tk 440 or less"], ["Pairs a month", "about 6,300"]], gate: "210 booked orders a day, delivery 80%, for 2 weeks in a row. Then hold it for a full month." },
+export const RUNGS: { key: string; title: string; month: string; amount: number; need: { booked: number; delivery: number; cancelMax?: number }; numbers: [string, string][]; gate: string }[] = [
+  { key: "R1", need: { booked: 28, delivery: 72, cancelMax: 14 }, title: "Rung 1 · Tk 12 lakh delivered · November", month: "2026-11", amount: 1200000, numbers: [["Booked orders a day", "28 (now 14)"], ["Delivery success", "72% (now 65%)"], ["Cancelled", "14% or less (now 19%)"], ["Ad spend a day", "about Tk 10,000 (now 4,900)"], ["Cost per booked order", "Tk 350 or less"], ["Pairs a month", "about 840"]], gate: "28 booked orders a day, delivery 72%, cancelled 14% or less, for 2 weeks in a row." },
+  { key: "R2", need: { booked: 45, delivery: 75, cancelMax: 13 }, title: "Rung 2 · Tk 20 lakh delivered · December", month: "2026-12", amount: 2000000, numbers: [["Booked orders a day", "45"], ["Delivery success", "75%"], ["Repeat buyers", "12%"], ["Ad spend a day", "about Tk 16,500"], ["Cost per booked order", "Tk 370 or less"], ["Pairs a month", "about 1,350"]], gate: "45 booked orders a day, delivery 75%, for 2 weeks in a row." },
+  { key: "R3", need: { booked: 65, delivery: 76, cancelMax: 12 }, title: "Rung 3 · Tk 30 lakh delivered · January", month: "2027-01", amount: 3000000, numbers: [["Booked orders a day", "65"], ["Delivery success", "76%"], ["Repeat buyers", "15%"], ["Ad spend a day", "about Tk 25,000"], ["Cost per booked order", "Tk 390 or less"], ["Pairs a month", "about 1,950"]], gate: "65 booked orders a day, delivery 76%, repeat buyers 15%, for 2 weeks in a row." },
+  { key: "R4", need: { booked: 95, delivery: 78, cancelMax: 12 }, title: "Rung 4 · Tk 45 lakh delivered · February", month: "2027-02", amount: 4500000, numbers: [["Booked orders a day", "95"], ["Delivery success", "78%"], ["Repeat buyers", "18%"], ["Ad spend a day", "about Tk 39,000"], ["Cost per booked order", "Tk 410 or less"], ["Pairs a month", "about 2,850"]], gate: "95 booked orders a day, delivery 78%, for 2 weeks in a row." },
+  { key: "R5", need: { booked: 145, delivery: 80, cancelMax: 12 }, title: "Rung 5 · Tk 70 lakh delivered · March (Eid-ul-Fitr about 9–10 March)", month: "2027-03", amount: 7000000, numbers: [["Booked orders a day", "145"], ["Delivery success", "80%"], ["Repeat buyers", "22%"], ["Ad spend a day", "about Tk 62,000"], ["Cost per booked order", "Tk 430 or less"], ["Pairs a month", "about 4,350"]], gate: "145 booked orders a day, delivery 80%, for 2 weeks in a row." },
+  { key: "R6", need: { booked: 210, delivery: 80, cancelMax: 12 }, title: "Rung 6 · Tk 1 crore delivered · May–June (Eid-ul-Adha about 17 May)", month: "2027-06", amount: 10000000, numbers: [["Booked orders a day", "210"], ["Delivery success", "80%"], ["Repeat buyers", "25%"], ["Ad spend a day", "about Tk 92,000"], ["Cost per booked order", "Tk 440 or less"], ["Pairs a month", "about 6,300"]], gate: "210 booked orders a day, delivery 80%, for 2 weeks in a row. Then hold it for a full month." },
 ]
 const T = (k: string) => RUNGS.find((r) => r.key === k)!.title
 
@@ -50,6 +50,10 @@ export const SEED: Seed[] = [
   [T("R1"), "Marketing", "Ad spend Tk 4,900 → Tk 10,000 a day, on those 5 products", "2026-11-21", "Start at Tk 6,000 on 8 Nov and raise about 20% every 3 days. Keep cost per booked order at Tk 350 or less.", "Don't double the budget overnight. Don't keep an ad with cost per order above Tk 450 for 3 days."],
   [T("R1"), "Marketing", "Win-back: 30 WhatsApp messages tapped every day", "2026-11-05", "1,355 one-time buyers spent Tk 25 lakh and went quiet. Email is automatic; tap the WhatsApp queue daily, links on blackbole.top.", "Don't skip days. Don't message customers who asked to stop."],
   [T("R1"), "Marketing", "Pre-order codes live: PREORDER500 / PREORDER700", "2026-11-14", "Gift-box pre-order offer on the home page and one ad set.", "Don't mix pre-order items into the in-stock ad sets."],
+  [T("R1"), "Marketing", "Weekly review, Sunday 8 Nov", "2026-11-08", "30 minutes: live numbers against this rung, the one thing that failed this week, one fix with an owner and a date. Write it in the step's team chat.", "Don't skip it because the week was good, and don't leave a failure without an owner."],
+  [T("R1"), "Marketing", "Weekly review, Sunday 15 Nov", "2026-11-15", "Same review. Check last week's fix was done.", "Don't carry a fix into a third week."],
+  [T("R1"), "Marketing", "Weekly review, Sunday 22 Nov", "2026-11-22", "Same review. If delivery or cancelled is going the wrong way, stop raising ad spend until it turns.", "Don't raise spend while the leaks are growing."],
+  [T("R1"), "Marketing", "Weekly review, Sunday 29 Nov", "2026-11-29", "Same review, then the gate on 30 Nov.", "Don't argue with the gate numbers."],
   [T("R1"), "Marketing", "GATE: Rung 1 numbers held for 2 weeks", "2026-11-30", "28 booked orders a day, delivery 72%, cancelled 14% or less, and Tk 12 lakh delivered on the Target page. Check on Reports (last 14 days).", "Don't tick it by feel. Don't start Rung 2 spending before this."],
   // ---- Rung 2: Tk 20 lakh ----
   [T("R2"), "Marketing", "Winter push: boots and loafers from 1 Dec", "2026-12-01", "Genuine Leather High Ankle Boot (74 in stock), Pierre Cardin Chelsea Boot, Veyron loafers. Three video creatives a week on these.", "Don't lead with sandals in December."],
@@ -88,6 +92,50 @@ export const SEED: Seed[] = [
   [T("R6"), "Marketing", "GATE: Tk 1 crore delivered in a month", "2027-06-30", "210 booked orders a day, delivery 80%. Delivered revenue Tk 1 crore on the Target page.", "Don't call it done before a full month."],
 ]
 
+
+const DAYMS = 86400000
+const bd = (t: number) => new Date(t + 6 * 3600000).toISOString().slice(0, 10)
+
+/** The real numbers behind every gate, read from the daily scoreboard (the same one the dashboard uses):
+ *  booked orders a day over the last 14 full days; delivery success and cancelled share over the last 30 days. */
+async function readActuals(ctx: any) {
+  const now = Date.now()
+  const rows = await ctx.db.query("dayStats").withIndex("by_day", (q: any) => q.gte("day", bd(now - 30 * DAYMS)).lte("day", bd(now - DAYMS))).collect()
+  const cut14 = bd(now - 14 * DAYMS)
+  let booked14 = 0, delivered = 0, returned = 0, cancelled = 0, all = 0
+  for (const r of rows as { day: string; st: { s: string; n: number }[] }[]) for (const x of r.st) {
+    all += x.n
+    if (x.s === "cancelled") cancelled += x.n
+    else if (r.day >= cut14) booked14 += x.n
+    if (x.s === "delivered_due" || x.s === "delivered_paid") delivered += x.n
+    if (x.s === "pending_returned" || x.s === "returned" || x.s === "damaged") returned += x.n
+  }
+  return {
+    bookedPerDay: Math.round((booked14 / 14) * 10) / 10,
+    deliveryPct: delivered + returned > 0 ? Math.round((delivered / (delivered + returned)) * 1000) / 10 : 0,
+    cancelPct: all > 0 ? Math.round((cancelled / all) * 1000) / 10 : 0,
+  }
+}
+
+function judge(a: { bookedPerDay: number; deliveryPct: number; cancelPct: number }, need: { booked: number; delivery: number; cancelMax?: number }) {
+  const checks = [
+    { label: "Booked orders a day", have: a.bookedPerDay, need: need.booked, ok: a.bookedPerDay >= need.booked, unit: "" },
+    { label: "Delivery success", have: a.deliveryPct, need: need.delivery, ok: a.deliveryPct >= need.delivery, unit: "%" },
+    ...(need.cancelMax !== undefined ? [{ label: "Cancelled", have: a.cancelPct, need: need.cancelMax, ok: a.cancelPct <= need.cancelMax, unit: "%", max: true }] : []),
+  ]
+  return { go: checks.every((c) => c.ok), checks }
+}
+
+/** Live numbers and a GO / NO-GO for every rung. The first rung that is not GO is the one being worked on. */
+export const actuals = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx)
+    const a = await readActuals(ctx)
+    return { ...a, rungs: RUNGS.map((r) => ({ key: r.key, title: r.title, ...judge(a, r.need) })) }
+  },
+})
+
 export const ladder = query({ args: {}, handler: async (ctx) => { await requirePerm(ctx); return { now: NOW, rungs: RUNGS } } })
 
 export const list = query({
@@ -98,7 +146,7 @@ export const list = query({
   },
 })
 
-const LADDER_VERSION = 3
+const LADDER_VERSION = 4
 
 /** Loads the ladder the first time the page is opened. A newer ladder replaces the older built-in steps (steps added by
  *  hand are kept). Does nothing when the current ladder is already loaded. */
@@ -122,6 +170,14 @@ export const tick = mutation({
     const me = await requirePerm(ctx)
     const it = await ctx.db.get(id)
     if (!it) throw new ConvexError("Step not found")
+    if (done && it.title.startsWith("GATE:")) {
+      // A gate is a go / no-go, as in any launch review: it can only be passed on measured numbers, never on feel.
+      const rung = RUNGS.find((r) => r.title === it.phase)
+      if (rung) {
+        const j = judge(await readActuals(ctx), rung.need)
+        if (!j.go) throw new ConvexError(`NO-GO: ${j.checks.filter((c) => !c.ok).map((c) => `${c.label} ${c.have}${c.unit} (need ${(c as any).max ? "at most " : ""}${c.need}${c.unit})`).join(", ")}. The gate opens when the numbers hold.`)
+      }
+    }
     await ctx.db.patch(id, done ? { doneAt: Date.now(), doneBy: me.staff.name } : { doneAt: undefined, doneBy: undefined })
   },
 })
