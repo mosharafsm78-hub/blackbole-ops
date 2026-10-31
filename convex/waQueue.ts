@@ -12,12 +12,11 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
-import { firstName, pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
+import { fill, firstName, pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
 
 const DAY = 86400000
 const BATCH = 100
 
-const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "")
 /** wa.me deep link: opens WhatsApp (app or web) with the chat open and this text already typed in — the staff
  *  member still has to press send themselves inside WhatsApp. */
 const waLink = (local11: string, text: string) => `https://wa.me/88${local11}?text=${encodeURIComponent(text)}`

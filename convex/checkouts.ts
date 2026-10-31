@@ -555,7 +555,7 @@ export const addDemo = internalMutation({
     await ctx.db.insert("checkouts", {
       checkoutId: "demo-1", customerName: "Demo Customer (test)", phone: "01700000000", email: "demo@example.com",
       address: "House 12, Road 5, Dhanmondi, Dhaka", cityName: "Dhaka", items, subtotal, discount: 0, deliveryFee: 90,
-      total: subtotal + 90, recoveryUrl: "https://blackbole.com/", shopCreatedAt: now - 40 * 60000, shopUpdatedAt: now - 35 * 60000,
+      total: subtotal + 90, recoveryUrl: "https://blackbole.top/", shopCreatedAt: now - 40 * 60000, shopUpdatedAt: now - 35 * 60000,
       status: "open", callCount: 0,
     })
     return "added"

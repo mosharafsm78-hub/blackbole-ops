@@ -43,9 +43,9 @@ export type WinbackConf = {
 // with SMS/WhatsApp, so the subject lives here rather than being yet another thing to configure.
 const EMAIL_SUBJECT = "We miss you at BlackBole 💙"
 export const DEFAULT_TEMPLATES = [
-  "Hi {name}! You were one of our favourite customers at BlackBole and we'd love to have you back 💙 Here's {code} for ৳150 off your next order (on ৳1,500+). Shop: blackbole.com · Need help? Call us: 01805070650",
-  "Hi {name}, it's been a while! Come back to BlackBole and grab ৳150 off with code {code} (orders ৳1,500+). Shop: blackbole.com",
-  "{name}, we miss you at BlackBole! Use {code} for ৳150 off your next order (min ৳1,500). Shop now: blackbole.com",
+  "Hi {name}! You were one of our favourite customers at BlackBole and we'd love to have you back 💙 Here's {code} for ৳150 off your next order (on ৳1,500+). Shop: https://blackbole.top · Need help? Call us: 01805070650",
+  "Hi {name}, it's been a while! Come back to BlackBole and grab ৳150 off with code {code} (orders ৳1,500+). Shop: https://blackbole.top",
+  "{name}, we miss you at BlackBole! Use {code} for ৳150 off your next order (min ৳1,500). Shop now: https://blackbole.top",
 ]
 export const DEFAULT_CONF: WinbackConf = { enabled: true, code: CODE, minDays: 10, maxDays: 20, templates: DEFAULT_TEMPLATES, smsSendIndex: 0, waSendIndex: 0, emailSendIndex: 0 }
 const ROTATE_EVERY = 5
@@ -61,7 +61,8 @@ const conf = async (ctx: any): Promise<WinbackConf> => {
       : DEFAULT_TEMPLATES
   return { ...DEFAULT_CONF, ...saved, templates }
 }
-const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "")
+// blackbole.com is down: any saved template that still names it is sent with the working address instead
+export const fill = (tpl: string, vars: Record<string, string>) => tpl.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? "").replace(/(?:https?:\/\/)?(?:www\.)?blackbole\.com\/?/gi, "https://blackbole.top")
 /** Which variant to use for the `n`th message sent on this channel (0-indexed, persisted across runs). */
 export const pickTemplate = (templates: string[], n: number) => templates[Math.floor(n / ROTATE_EVERY) % templates.length]
 

@@ -921,6 +921,7 @@ export const saveProduct = mutation({
       if (JSON.stringify(list) !== JSON.stringify(c.productHandles)) await ctx.db.patch(c._id, { productHandles: list, updatedAt: Date.now() })
     }
     await queueRebuild(ctx)
+    await ctx.scheduler.runAfter(0, internal.shopifyProducts.push, { productId: a.id, oldHandle: oldHandle ?? undefined })
     return handle
   },
 })
