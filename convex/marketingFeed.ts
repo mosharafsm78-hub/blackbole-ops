@@ -71,17 +71,16 @@ export const stockBySku = internalQuery({
     const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
     const variants = await ctx.db.query("variants").collect()
     const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
-    const out: { sku: string; product: string; variant: string; price: number; mrp: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
+    const out: { sku: string; product: string; variant: string; price: number; webPrice: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
     for (const vr of variants) {
       const p = products.get(vr.productId as string)
       if (!vr.active || !p || !p.active || p.deletedAt) continue
       if (only !== undefined && p.name !== only) continue
       const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).collect()
       const available = rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)
-      // price = what a customer pays on the website now (its own website price, e.g. a reduced price), mrp = the Ops price.
-      // Pre-orders: the website price is only the booking money, so the full Ops price is the price.
-      const price = p.preOrder ? Math.round(vr.price) : webPrice(vr)
-      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price, mrp: Math.round(vr.price), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
+      // price = the Ops selling price (what the team edits on Products). webPrice = the price saved for the website,
+      // sent so Marketing OS can flag a mismatch (pre-orders: that is only the booking money, so not sent).
+      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
     }
     return out
   },

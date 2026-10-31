@@ -4,6 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
 import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type PreOrderFrom, type Bucket, type OrderStatus } from "./rules"
+import { marketingChanged } from "./marketingPush"
 
 export type StaffCtx = { staff: Doc<"staff">; perms: string[] }
 
@@ -104,6 +105,7 @@ export async function bumpStock(
   const row = await getStockRow(ctx, args.variantId, args.locationId)
   const current = ((row as any)[args.bucket] as number | undefined) ?? 0
   await ctx.db.patch(row._id, { [args.bucket]: current + args.change })
+  if (args.bucket === "available") await marketingChanged(ctx, { variantId: args.variantId })
   await ctx.db.insert("stockLogs", {
     variantId: args.variantId,
     locationId: args.locationId,

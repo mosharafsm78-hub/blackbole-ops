@@ -12,6 +12,7 @@ import { query, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
+import { marketingChanged } from "./marketingPush"
 
 export const realOf = (s: { available: number; virtual?: number }) => Math.max(0, s.available - Math.max(0, s.virtual ?? 0))
 export const fakeOf = (s: { available: number; virtual?: number }) => Math.min(Math.max(0, s.available), Math.max(0, s.virtual ?? 0))
@@ -152,6 +153,7 @@ export async function applyTestStock(ctx: MutationCtx, items: { variantId: Id<"v
     const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", i.variantId).eq("locationId", locationId)).unique()
     if (row) await ctx.db.patch(row._id, { available: row.available + i.qty, virtual: (row.virtual ?? 0) + i.qty, countedAt: Date.now(), countedBy: byName })
     else await ctx.db.insert("stock", { variantId: i.variantId, locationId, available: i.qty, processing: 0, inTransit: 0, returning: 0, damaged: 0, virtual: i.qty, countedAt: Date.now(), countedBy: byName })
+    await marketingChanged(ctx, { variantId: i.variantId })
     await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId, bucket: "available", change: i.qty, reason: "Fake stock added", note: "Fake stock — not in hand", byName, at: Date.now() })
   }
 }

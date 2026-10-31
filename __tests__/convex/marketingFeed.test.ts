@@ -84,7 +84,7 @@ describe("marketing feed", () => {
     expect(typeof data.stock[0].available).toBe("number")
   })
 
-  it("sends the website price customers pay, and one product live by name", async () => {
+  it("sends the Ops price (and the website price beside it), and one product live by name", async () => {
     const t = await setup()
     vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
     await t.run(async (ctx) => {
@@ -92,7 +92,7 @@ describe("marketing feed", () => {
       await ctx.db.patch(vr._id, { price: 2280, web: { ...(vr.web ?? {}), price: 1980 } })
     })
     const one = await (await t.fetch(`/marketing/product?name=${encodeURIComponent("Harbor Shore Sandal - Black")}`, { headers: { "X-Feed-Key": FEED_KEY } })).json()
-    expect(one.stock).toEqual([expect.objectContaining({ sku: "BB-HSS-41", price: 1980, mrp: 2280 })])
+    expect(one.stock).toEqual([expect.objectContaining({ sku: "BB-HSS-41", price: 2280, webPrice: 1980 })])
     const none = await (await t.fetch("/marketing/product?name=Nope", { headers: { "X-Feed-Key": FEED_KEY } })).json()
     expect(none.stock).toEqual([])
     expect((await t.fetch("/marketing/product?name=x")).status).toBe(401)
@@ -120,6 +120,29 @@ describe("target feed without a signed-in person", () => {
     expect(p.target?.amount).toBe(1200000)
     expect(p.plan?.focus?.target).toBeGreaterThan(0)
     expect(p.profit).toBeNull()
+    vi.useRealTimers()
+  })
+})
+
+describe("push to Marketing OS", () => {
+  it("collects changed products for a few seconds and sends their names once, signed with the feed key", async () => {
+    vi.useFakeTimers()
+    const t = await setup()
+    vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    const calls: { url: string; init: any }[] = []
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: any) => { calls.push({ url, init }); return new Response("{}") }))
+    const { marketingChanged } = await import("../../convex/marketingPush")
+    await t.run(async (ctx) => {
+      const vr = (await ctx.db.query("variants").collect()).find((x) => x.sku === "BB-HSS-41")!
+      await marketingChanged(ctx, { variantId: vr._id })
+      await marketingChanged(ctx, { variantId: vr._id })
+    })
+    vi.advanceTimersByTime(5000)
+    await t.finishInProgressScheduledFunctions()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toMatch(/\/ops\/changed$/)
+    expect(calls[0].init.headers["X-Feed-Key"]).toBe(FEED_KEY)
+    expect(JSON.parse(calls[0].init.body)).toEqual({ products: ["Harbor Shore Sandal - Black"], all: false })
     vi.useRealTimers()
   })
 })

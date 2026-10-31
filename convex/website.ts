@@ -17,6 +17,7 @@ import { currentStaff, getSetting, setSetting } from "./lib"
 import { hasPerm } from "./rules"
 import { applyTestStock } from "./stockCheck"
 import { finishCollections, type Rules, type SortKey } from "./websiteRules"
+import { marketingChanged } from "./marketingPush"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
 const REBUILD_DELAY = 30 * 1000 // short pause so several quick edits go out together
@@ -922,6 +923,7 @@ export const saveProduct = mutation({
     }
     await queueRebuild(ctx)
     await ctx.scheduler.runAfter(0, internal.shopifyProducts.push, { productId: a.id, oldHandle: oldHandle ?? undefined })
+    await marketingChanged(ctx, { productId: a.id })
     return handle
   },
 })
@@ -1127,6 +1129,7 @@ export const setBookingMoney = mutation({
       toPush.push(p._id)
     }
     if (apply && toPush.length) {
+      await marketingChanged(ctx, { all: true })
       await queueRebuild(ctx)
       for (const [i, id] of toPush.entries()) await ctx.scheduler.runAfter(i * 3000, internal.shopifyProducts.push, { productId: id }) // spaced out: Shopify rate limits
     }

@@ -4,6 +4,7 @@ import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { COMMITTED_STATUSES } from "./rules"
+import { marketingChanged } from "./marketingPush"
 
 const variantInput = v.object({
   id: v.optional(v.id("variants")),
@@ -92,6 +93,7 @@ export const saveProduct = mutation({
       if (vr.id) await ctx.db.patch(vr.id, row)
       else await ctx.db.insert("variants", row)
     }
+    await marketingChanged(ctx, { productId })
     return productId
   },
 })
@@ -144,6 +146,7 @@ export const importProducts = mutation({
       }
       created++
     }
+    if (created || updated) await marketingChanged(ctx, { all: true })
     return { created, updated, skipped }
   },
 })

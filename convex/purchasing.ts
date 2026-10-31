@@ -5,6 +5,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { hasPerm } from "./rules"
 import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { awardPoints } from "./kpi"
+import { marketingChanged } from "./marketingPush"
 
 // ---------------- Suppliers ----------------
 const counted = (p: Doc<"purchaseOrders">) => p.status !== "draft" && p.status !== "cancelled"
@@ -420,6 +421,7 @@ export const receivePO = mutation({
           newCost = onHand > 0 && vr.purchasePrice > 0 ? (onHand * vr.purchasePrice + g.qty * g.unitCost) / (onHand + g.qty) : g.unitCost
         }
         await ctx.db.patch(g.variantId, { purchasePrice: Math.round(newCost * 100) / 100 })
+        await marketingChanged(ctx, { variantId: g.variantId })
       }
       if (g.qty > 0) await receiveAvailable(ctx, { variantId: g.variantId, locationId: po.locationId, qty: g.qty, reason: `Received ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
       if (g.damaged) await bumpStock(ctx, { variantId: g.variantId, locationId: po.locationId, bucket: "damaged", change: g.damaged, reason: `Arrived damaged ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
