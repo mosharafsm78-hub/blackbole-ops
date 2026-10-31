@@ -52,6 +52,17 @@ function Step({ it }: { it: any }) {
   )
 }
 
+/** Shows what the Target page says for this rung's month, so the ladder and the target can never quietly disagree. */
+function RungTarget({ month, amount }: { month: string; amount: number }) {
+  const t = useQuery(api.targets.getTarget, { month })
+  if (t === undefined) return null
+  const lakh = (n: number) => `Tk ${(n / 100000).toLocaleString("en-IN", { maximumFractionDigits: 1 })} lakh`
+  if (!t) return <p className="mt-2 text-xs text-muted-foreground" data-testid="rung-target">Target page: not set yet for this month. This rung suggests {lakh(amount)}.</p>
+  return t.amount === amount
+    ? <p className="mt-2 text-xs text-tone-green" data-testid="rung-target">Matches the Target page ({lakh(t.amount)}).</p>
+    : <p className="mt-2 text-xs text-tone-red" data-testid="rung-target">Target page says {lakh(t.amount)} for this month, this rung says {lakh(amount)}. The Target page is the one the team works to: change this rung's number or the target so they agree.</p>
+}
+
 function AddStep({ phases }: { phases: string[] }) {
   const add = useMutation(api.checklist.addStep)
   const [open, setOpen] = useState(false)
@@ -120,6 +131,7 @@ function ChecklistPage() {
                     {rung.numbers.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><span className="text-muted-foreground">{k}</span><b>{v}</b></div>)}
                   </div>
                   <p className="mt-2"><b>Gate to climb:</b> {rung.gate}</p>
+                  <RungTarget month={rung.month} amount={rung.amount} />
                 </div>
               ) : null
             })()}
