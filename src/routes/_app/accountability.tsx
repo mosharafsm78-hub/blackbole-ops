@@ -8,6 +8,7 @@ import { Guard, useCan } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, TeamTag } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { dateTime, errMsg } from "@/lib/format"
@@ -27,6 +28,7 @@ type View = "open" | "closed"
 
 const SLA_DAYS = 2
 const TEAMS = ["Fulfillment", "Marketing", "Customer Care"]
+const ALL_TEAMS = ["Fulfillment", "Marketing", "Customer Care", "Development"]
 
 function daysOpen(raisedAt: number) {
   return Math.floor((Date.now() - raisedAt) / 86400000)
@@ -43,13 +45,17 @@ function Row({ flag, canRespond, canReroute }: { flag: any; canRespond: boolean;
   const [rootCause, setRootCause] = useState("")
   const [correctiveAction, setCorrectiveAction] = useState("")
   const [preventiveAction, setPreventiveAction] = useState("")
+  const [fixOwner, setFixOwner] = useState("")
+  const [fixDays, setFixDays] = useState("14")
+  const [needsFrom, setNeedsFrom] = useState("none")
+  const [needsWhat, setNeedsWhat] = useState("")
   const [busy, setBusy] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const submit = async () => {
     setBusy(true)
     try {
-      await respond({ id: flag._id, rootCause: rootCause.trim(), correctiveAction: correctiveAction.trim(), preventiveAction: preventiveAction.trim() })
-      toast.success("Closed out")
+      await respond({ id: flag._id, rootCause: rootCause.trim(), correctiveAction: correctiveAction.trim(), preventiveAction: preventiveAction.trim(), fixOwner: fixOwner.trim() || undefined, fixDueDays: Number(fixDays), needsFrom: needsFrom === "none" ? undefined : needsFrom, needsWhat: needsFrom === "none" ? undefined : needsWhat.trim() })
+      toast.success("Answer sent for review")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
   /** Soft-archive: the case leaves the open queue but is never deleted, and lands in Closed cases with who did it
@@ -81,6 +87,10 @@ function Row({ flag, canRespond, canReroute }: { flag: any; canRespond: boolean;
             {flag.assignee && <Pill tone="blue">→ {flag.assignee}</Pill>}
             {overdue && <Pill tone="red">{days} day{days === 1 ? "" : "s"} open{flag.escalatedAt ? " · escalated" : ""}</Pill>}
           </div>
+          {flag.reviewStatus === "sent_back" && flag.reviewNote && (
+            <p className="mt-1 rounded-md bg-tone-red/10 p-2 text-sm" data-testid="sent-back-note"><b>Sent back by {flag.reviewedBy}:</b> {flag.reviewNote}</p>
+          )}
+          {flag.repeatOfId && <p className="mt-1"><Pill tone="red">Repeat — the earlier fix did not hold</Pill></p>}
           <p className="mt-1 text-sm font-medium text-tone-red">{flag.reason}</p>
           {(flag as any).productNames?.length > 0 && (
             <p className="mt-0.5 text-sm text-muted-foreground">{(flag as any).productNames.join(", ")}</p>
@@ -119,7 +129,32 @@ function Row({ flag, canRespond, canReroute }: { flag: any; canRespond: boolean;
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preventive action — what stops this happening again</label>
             <Textarea value={preventiveAction} onChange={(e) => setPreventiveAction(e.target.value)} placeholder="A concrete process change, not a promise — e.g. pickers now scan the SKU barcode before sealing every parcel." />
           </div>
-          <Button size="sm" disabled={busy} onClick={() => void submit()}>Close out</Button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Who will make the change</label>
+              <Input value={fixOwner} onChange={(e) => setFixOwner(e.target.value)} placeholder="Name (leave empty if it's you)" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">It will be in place within</label>
+              <Select value={fixDays} onValueChange={setFixDays}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{[3, 7, 14, 30].map((d) => <SelectItem key={d} value={String(d)}>{d} days</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Do you need something from another department?</label>
+            <Select value={needsFrom} onValueChange={setNeedsFrom}>
+              <SelectTrigger className="w-full sm:w-64"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No</SelectItem>
+                {ALL_TEAMS.filter((t) => t !== flag.team).map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {needsFrom !== "none" && <Textarea value={needsWhat} onChange={(e) => setNeedsWhat(e.target.value)} placeholder="Exactly what you need from them — it becomes their own tracked case." />}
+          </div>
+          <p className="text-xs text-muted-foreground">After you send it, someone else reviews your answer. It only counts as closed once accepted, and it is checked again after 30 days.</p>
+          <Button size="sm" disabled={busy} onClick={() => void submit()}>Send for review</Button>
         </div>
       )}
     </div>
@@ -171,6 +206,10 @@ function RaiseQuestion() {
  *  why, and the linked order — no click required, and nothing here is editable. */
 function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
   const unarchive = useMutation(api.accountability.unarchive)
+  const review = useMutation(api.accountability.review)
+  const fixDone = useMutation(api.accountability.markFixDone)
+  const [sendBack, setSendBack] = useState(false)
+  const [reason, setReason] = useState("")
   const [busy, setBusy] = useState(false)
   const archived = c.outcome === "archived"
   const restore = async () => {
@@ -186,7 +225,8 @@ function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <TeamTag team={c.team} />
-            {archived ? <Pill tone="gray">Archived</Pill> : <Pill tone="green">Answered</Pill>}
+            {archived ? <Pill tone="gray">Archived</Pill> : c.reviewStatus === "pending" ? <Pill tone="amber">Waiting for review</Pill> : c.reviewStatus === "accepted" ? <Pill tone="green">Accepted</Pill> : <Pill tone="green">Answered</Pill>}
+            {c.repeatCount > 0 && <Pill tone="red">Came back {c.repeatCount}×</Pill>}
             {c.orderInvoice ? (
               <>
                 <Link to="/order" search={{ id: c.orderId as Id<"orders"> }} className="font-semibold underline underline-offset-2">{c.orderInvoice}</Link>
@@ -220,7 +260,32 @@ function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
               {c.rootCause && <p><span className="font-semibold">Root cause:</span> {c.rootCause}</p>}
               {c.correctiveAction && <p><span className="font-semibold">Fix:</span> {c.correctiveAction}</p>}
               {c.preventiveAction && <p><span className="font-semibold">Prevention:</span> {c.preventiveAction}</p>}
+              {c.fixOwner && c.fixDueAt && (
+                <p><span className="font-semibold">Change by:</span> {c.fixOwner}, by {dateTime(c.fixDueAt)} — {c.fixDoneAt ? <span className="text-tone-green">done</span> : c.fixDueAt < Date.now() ? <span className="text-tone-red">overdue</span> : "in progress"}</p>
+              )}
+              {c.checkDueAt && <p className="text-xs text-muted-foreground">Checked again {dateTime(c.checkDueAt)} — if the same problem returns before then, this fix is counted as not holding.</p>}
             </div>
+          )}
+          {!archived && c.reviewStatus === "pending" && canRestore && (
+            <div className="mt-2 space-y-2">
+              {!sendBack ? (
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={busy} onClick={() => void (async () => { setBusy(true); try { await review({ id: c._id, accept: true }); toast.success("Accepted") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) } })()}>Accept answer</Button>
+                  <Button size="sm" variant="outline" onClick={() => setSendBack(true)}>Send back</Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What is missing? e.g. This is a request, not a fix — name the exact change and who makes it." />
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={busy} onClick={() => void (async () => { setBusy(true); try { await review({ id: c._id, accept: false, note: reason }); toast.success("Sent back"); setSendBack(false); setReason("") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) } })()}>Send back to team</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSendBack(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {!archived && c.fixDueAt && !c.fixDoneAt && canRestore && c.reviewStatus !== "pending" && (
+            <Button className="mt-2" size="sm" variant="outline" onClick={() => void fixDone({ id: c._id }).then(() => toast.success("Marked done"), (e) => toast.error(errMsg(e)))}>The change is in place</Button>
           )}
         </div>
         {archived && canRestore && (
@@ -231,11 +296,31 @@ function ClosedRow({ c, canRestore }: { c: any; canRestore: boolean }) {
   )
 }
 
+function Scorecard() {
+  const rows = useQuery(api.accountability.scorecard)
+  if (!rows || rows.length === 0) return null
+  return (
+    <div className="rounded-lg border bg-card p-3" data-testid="scorecard">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Results by department — what matters is whether problems come back</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {rows.map((r) => (
+          <div key={r.team} className="rounded-md bg-muted/50 p-2 text-sm">
+            <p className="font-semibold">{r.team}</p>
+            <p className={r.cameBack > 0 ? "text-tone-red" : "text-tone-green"}>{r.cameBack} came back</p>
+            <p className="text-xs text-muted-foreground">{r.accepted} accepted · {r.waitingReview} waiting review · {r.open} open{r.fixesOverdue > 0 ? ` · ${r.fixesOverdue} fixes overdue` : ""}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ClosedCases({ canRestore }: { canRestore: boolean }) {
   const [team, setTeam] = useState<string>("all")
   const rows = useQuery(api.accountability.listClosed, team === "all" ? {} : { team })
   return (
     <div className="space-y-3">
+      <Scorecard />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Read-only history — every case that has left the open queue, answered or archived. Nothing here can be edited.</p>
         <Select value={team} onValueChange={setTeam}>

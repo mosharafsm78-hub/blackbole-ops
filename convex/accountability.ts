@@ -59,6 +59,7 @@ export async function raiseAccountabilityFlag(
     flagId = existing._id
   } else {
     flagId = await ctx.db.insert("opsFlags", { orderId: order._id, productNames, reason: outcome, team, note, status: "open", raisedByName: byName, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    await markRepeat(ctx, flagId)
     // Only on a genuinely new flag — reusing/patching an already-open flag for this order (the "existing"
     // branch above) must not dock the department twice for the same underlying mistake. Callers that have
     // their own named rule for this specific kind of miss (cx.bad_confirmation, say) pass it via opts.ruleKey
@@ -259,6 +260,27 @@ export const listOpen = query({
   },
 })
 
+
+const REPEAT_WINDOW_DAYS = 60
+
+/** Did this problem already get an answer in the last 60 days? Same department and same reason (and, when both
+ *  cases name products, at least one product in common). If so the new case is a REPEAT: the earlier fix did
+ *  not hold. This is the number that matters — cases closed says nothing, cases that came back says everything. */
+async function markRepeat(ctx: MutationCtx, newId: Doc<"opsFlags">["_id"]) {
+  const f = await ctx.db.get(newId)
+  if (!f) return
+  const since = Date.now() - REPEAT_WINDOW_DAYS * DAY
+  const done = await ctx.db.query("opsFlags").withIndex("by_status", (q) => q.eq("status", "resolved")).order("desc").collect()
+  const prev = done.find((o) =>
+    o._id !== newId && o.team === f.team && o.reason === f.reason && (o.resolvedAt ?? 0) >= since &&
+    (!f.productNames?.length || !o.productNames?.length || f.productNames.some((n) => o.productNames!.includes(n))),
+  )
+  if (!prev) return
+  await ctx.db.patch(newId, { repeatOfId: prev._id })
+  await ctx.db.patch(prev._id, { repeatCount: (prev.repeatCount ?? 0) + 1, lastRepeatAt: Date.now() })
+  await notify(ctx, `${f.team}: this problem came back`, `"${f.reason}" was answered ${Math.max(0, Math.floor((Date.now() - (prev.resolvedAt ?? Date.now())) / DAY))} days ago and has happened again — the earlier fix did not hold.`, f.orderId, "accountability")
+}
+
 const MIN_CAPA_CHARS = 15
 
 /** A department closes its own flag with a CAPA answer (Corrective & Preventive Action — the standard format
@@ -266,7 +288,7 @@ const MIN_CAPA_CHARS = 15
  *  what concretely changes so it doesn't happen again. All three are required and checked for real substance
  *  (not "fixed it" or "ok") — this is the record of whether the team actually improved, not just closed a ticket. */
 export const respond = mutation({
-  args: { id: v.id("opsFlags"), rootCause: v.string(), correctiveAction: v.string(), preventiveAction: v.string() },
+  args: { id: v.id("opsFlags"), rootCause: v.string(), correctiveAction: v.string(), preventiveAction: v.string(), fixOwner: v.optional(v.string()), fixDueDays: v.optional(v.number()), needsFrom: v.optional(v.string()), needsWhat: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.accountability")
     const flag = await ctx.db.get(a.id)
@@ -277,13 +299,84 @@ export const respond = mutation({
     if (correctiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write what was actually done about this specific case.")
     if (preventiveAction.length < MIN_CAPA_CHARS) throw new ConvexError("Write the concrete change that stops this happening again — not a promise, an action.")
     const response = `Root cause: ${rootCause}\nFix: ${correctiveAction}\nPrevention: ${preventiveAction}`
-    await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now(), closedAt: Date.now() })
+    const fixOwner = a.fixOwner?.trim() || me.staff.name
+    const fixDueAt = Date.now() + Math.min(60, Math.max(1, Math.round(a.fixDueDays ?? 14))) * DAY
+    const needsWhat = a.needsWhat?.trim()
+    if (a.needsFrom && !needsWhat) throw new ConvexError("Say what you need from that department.")
+    await ctx.db.patch(a.id, { status: "resolved", response, rootCause, correctiveAction, preventiveAction, resolvedByName: me.staff.name, resolvedAt: Date.now(), closedAt: Date.now(), fixOwner, fixDueAt, fixDoneAt: undefined, reviewStatus: "pending", reviewNote: undefined, needsFrom: a.needsFrom || undefined })
+    if (a.needsFrom && needsWhat) {
+      // What this team is waiting for becomes its own tracked case in the department that has to supply it.
+      const owner = (await ownersConf(ctx)).byTeam[a.needsFrom]
+      const linked = await ctx.db.insert("opsFlags", { reason: `${flag.team} needs from ${a.needsFrom}: ${needsWhat}`, team: a.needsFrom, note: `Raised while closing "${flag.reason}"`, status: "open", raisedByName: me.staff.name, raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email, linkedFromId: a.id, orderId: flag.orderId, productNames: flag.productNames })
+      await notify(ctx, `${owner?.name ?? a.needsFrom}: ${flag.team} needs something from you`, needsWhat, flag.orderId, "accountability")
+      await sendFlagEmailOnce(ctx, linked, { team: a.needsFrom, owner, subject: "Accountability: another department needs something from you", body: `Hi {first},\n\n${flag.team} is working on "${flag.reason}" and needs this from you:\n\n"${needsWhat}"\n\nPlease open it in Ops → Accountability and answer, within ${SLA_DAYS} days.\n\n— BlackBole Ops` })
+    }
     if (flag.orderId) await logOrder(ctx, flag.orderId, `Accountability resolved by ${flag.team}: ${response}`, me.staff.name)
     const order = flag.orderId ? await ctx.db.get(flag.orderId) : null
     await sendResolvedEmails(ctx, { ...flag, resolvedByName: me.staff.name }, response, order ? invoiceLabel(order) : undefined)
     if (Date.now() - flag.raisedAt <= 6 * 3600000) {
       await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "ops.fast_capa", label: `Resolved "${flag.reason}" within 6 hours with a full CAPA answer`, flagId: a.id })
     }
+  },
+})
+
+/** A closed answer only counts once someone other than the person who wrote it has read it and accepted it.
+ *  Sent back, it returns to the open queue with the reason, so a vague answer ("we need a summary", "next time
+ *  it won't happen") can never quietly become a closed case. Accepted, it starts the 30-day "did it hold?" clock. */
+export const review = mutation({
+  args: { id: v.id("opsFlags"), accept: v.boolean(), note: v.optional(v.string()) },
+  handler: async (ctx, { id, accept, note }) => {
+    const me = await requirePerm(ctx, "orders.accountability")
+    const f = await ctx.db.get(id)
+    if (!f || f.status !== "resolved") throw new ConvexError("This case is not waiting for review.")
+    if (f.reviewStatus === "accepted") return { already: true }
+    if (f.resolvedByName && f.resolvedByName.trim().toLowerCase() === me.staff.name.trim().toLowerCase()) throw new ConvexError("Someone else has to review your answer — you can't accept your own.")
+    const now = Date.now()
+    if (accept) {
+      await ctx.db.patch(id, { reviewStatus: "accepted", reviewedBy: me.staff.name, reviewedAt: now, reviewNote: undefined, checkDueAt: now + 30 * DAY })
+      if (f.orderId) await logOrder(ctx, f.orderId, `Accountability answer accepted by ${me.staff.name}`, me.staff.name)
+      return { already: false }
+    }
+    const reason = note?.trim() ?? ""
+    if (reason.length < 10) throw new ConvexError("Say what is missing — one clear line, so the team knows what to fix.")
+    await ctx.db.patch(id, { status: "open", closedAt: undefined, resolvedAt: undefined, resolvedByName: undefined, reviewStatus: "sent_back", reviewedBy: me.staff.name, reviewedAt: now, reviewNote: reason, sentBackCount: (f.sentBackCount ?? 0) + 1, raisedAt: now, escalatedAt: undefined })
+    if (f.orderId) await logOrder(ctx, f.orderId, `Accountability answer sent back by ${me.staff.name}: ${reason}`, me.staff.name)
+    await notify(ctx, `${f.assignee ?? f.team}: answer sent back`, reason, f.orderId, "accountability")
+    return { already: false }
+  },
+})
+
+/** The preventive action is actually in place (the due date on the case is what it is held to). */
+export const markFixDone = mutation({
+  args: { id: v.id("opsFlags") },
+  handler: async (ctx, { id }) => {
+    await requirePerm(ctx, "orders.accountability")
+    const f = await ctx.db.get(id)
+    if (!f) throw new ConvexError("Case not found")
+    if (!f.fixDoneAt) await ctx.db.patch(id, { fixDoneAt: Date.now() })
+  },
+})
+
+/** Results by department — the number that matters is how often a problem COMES BACK after it was answered,
+ *  not how many cases were closed. */
+export const scorecard = query({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "orders.view")
+    const all = await ctx.db.query("opsFlags").collect()
+    const now = Date.now()
+    const by: Record<string, { team: string; open: number; waitingReview: number; accepted: number; cameBack: number; fixesOverdue: number; sentBack: number }> = {}
+    for (const f of all) {
+      if (f.status === "archived") continue
+      const t = (by[f.team] ??= { team: f.team, open: 0, waitingReview: 0, accepted: 0, cameBack: 0, fixesOverdue: 0, sentBack: 0 })
+      if (f.status === "open") t.open++
+      if (f.status === "resolved" && f.reviewStatus === "pending") t.waitingReview++
+      if (f.status === "resolved" && f.reviewStatus === "accepted") t.accepted++
+      if (f.repeatOfId) t.cameBack++
+      if (f.sentBackCount) t.sentBack += f.sentBackCount
+      if (f.status === "resolved" && f.fixDueAt && !f.fixDoneAt && f.fixDueAt < now) t.fixesOverdue++
+    }
+    return Object.values(by).sort((a, b) => b.cameBack - a.cameBack)
   },
 })
 
@@ -719,6 +812,7 @@ export const raiseSystem = internalMutation({
     const owners = await ownersConf(ctx)
     const owner = owners.byTeam[team]
     const id = await ctx.db.insert("opsFlags", { reason, team, note, status: "open", raisedByName: "BlackBole Ops (automatic)", raisedAt: Date.now(), assignee: owner?.name, assigneeEmail: owner?.email })
+    await markRepeat(ctx, id)
     // Caller (businessHealthCheck) already guards against raising a duplicate open flag for the same signal,
     // so every insert here is a genuinely new flag — safe to dock without an extra "is this new" check.
     if (owner?.name) await awardPoints(ctx, { staffName: owner.name, ruleKey: "ops.flag_raised", label: `Business-health flag: ${reason}`, flagId: id })

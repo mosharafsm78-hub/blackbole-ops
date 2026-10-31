@@ -918,6 +918,22 @@ export default defineSchema({
     assigneeEmail: v.optional(v.string()),
     escalatedAt: v.optional(v.number()), // first time this crossed the 2-day SLA and the ops head got pinged
 
+    // ---- Result tracking: a closed case only counts once it is reviewed, and only "holds" if it does not come back ----
+    fixOwner: v.optional(v.string()), // who is responsible for the preventive action
+    fixDueAt: v.optional(v.number()), // when the preventive action must be in place
+    fixDoneAt: v.optional(v.number()),
+    needsFrom: v.optional(v.string()), // another department this case needed something from (a linked case was raised there)
+    linkedFromId: v.optional(v.id("opsFlags")), // set on a case raised because another department needed something
+    reviewStatus: v.optional(v.string()), // "pending" | "accepted" | "sent_back" — set when an answer is given
+    reviewedBy: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    reviewNote: v.optional(v.string()), // why an answer was sent back
+    sentBackCount: v.optional(v.number()),
+    checkDueAt: v.optional(v.number()), // 30 days after acceptance: the "did it hold?" date
+    repeatOfId: v.optional(v.id("opsFlags")), // this case is the same problem coming back after an earlier answer
+    repeatCount: v.optional(v.number()), // on the earlier case: how many times the problem came back after it was answered
+    lastRepeatAt: v.optional(v.number()),
+
     // ---- Closed-case history (Task 5) ----
     // Every field below is optional, so every flag raised before this feature — and every flag still open —
     // remains a perfectly valid document. A flag with no closedAt is simply still open.
