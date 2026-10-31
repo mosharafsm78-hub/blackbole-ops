@@ -45,12 +45,12 @@ const tk = (n: number) => `Tk ${Math.round(n).toLocaleString("en-IN")}`
 
 /** Short and without order details: the customer only decides Confirm or Cancel. */
 export function summaryText(o: Doc<"orders">): string {
-  return `Hi ${first(o.customerName)}, thank you for ordering from BlackBole! To place your order ${invoiceLabel(o)}, please tap Confirm. If you do not want it, tap Cancel.`
+  return `Hi ${first(o.customerName)}, thank you for choosing BlackBole! 🙏 Please tap Confirm to place your order ${invoiceLabel(o)}. If you have changed your mind, tap Cancel.`
 }
+// Wording is written to cut returns: a clear arrival time, a reminder to answer the courier, a size/fit check, and free exchange.
 export const confirmedText = (o: Doc<"orders">, preOrder: boolean) => preOrder
-  ? `Thank you ${first(o.customerName)}! Your pre-order ${invoiceLabel(o)} is confirmed. We will message you as soon as it is ready to ship. Free exchange is available if anything is not right, so there is nothing to worry about. — BlackBole`
-  : `Thank you ${first(o.customerName)}! Your order ${invoiceLabel(o)} is confirmed and will arrive within 2–3 days. Please pick up the call from our courier when it rings. We also offer free exchange, so there is nothing to worry about. — BlackBole`
-
+  ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\nWe will message you the moment it is ready to ship. Please keep this number active so our courier can reach you.\n\nNot the right size or fit? We offer free exchange, so there is nothing to worry about.\n\n— BlackBole`
+  : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it. — BlackBole`
 type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] }
 const txt = (body: string): Out => ({ kind: "text", body })
 
@@ -109,7 +109,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
       await applyStatus(ctx, o, "cancelled", BY, "Customer cancelled on WhatsApp")
       await markWa(ctx, o, "cancelled", BY)
       await ctx.db.patch(o._id, { followUpAt: Date.now() }) // customer care calls to check why
-      return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. Our customer care team will call you shortly. — BlackBole`)], o._id)
+      return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. Our customer care team will call you shortly. If size, price or delivery time was a worry, we would love to help. — BlackBole`)], o._id)
     }
     if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} is already cancelled.`)], o._id)
     return record("already", [txt(`Order ${invoiceLabel(o)} is already on its way, so it can no longer be cancelled here. Please contact BlackBole.`)], o._id)
