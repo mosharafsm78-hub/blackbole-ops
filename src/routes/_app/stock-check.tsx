@@ -7,6 +7,9 @@ import { Guard } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { MoreHorizontal } from "lucide-react"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -85,6 +88,9 @@ function ProductCard({ p }: { p: Product }) {
   const save = useMutation(api.stockCheck.saveCounts)
   const mark = useMutation(api.stockCheck.markProduct)
   const addTest = useMutation(api.stockCheck.addTestStock)
+  const skip = useMutation(api.stockCheck.skipProduct)
+  const del = useMutation(api.stockCheck.deleteProduct)
+  const [confirmDel, setConfirmDel] = useState(false)
   const [add, setAdd] = useState<Record<string, string>>({})
   const key = (l: Product["lines"][number]) => `${l.variantId}|${l.locationId}`
   const [draft, setDraft] = useState<Record<string, string>>({})
@@ -107,11 +113,36 @@ function ProductCard({ p }: { p: Product }) {
           <p className="text-xs text-muted-foreground">System {p.system} · really in hand {p.real}{p.fake > 0 && <> · <b className="text-tone-amber">{p.fake} test</b></>}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {p.skipped && <Pill tone="gray">Not needed for now</Pill>}
           {p.uncounted ? <Pill tone="amber">Not counted</Pill> : <Pill tone="green">Counted</Pill>}
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "test" }), "Marked as test stock — none in hand")}>None in hand (all test)</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "real" }), "Marked all real")}>All real</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" aria-label="More options" data-testid="product-menu"><MoreHorizontal className="size-4" /></Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void run(() => skip({ productId: p.productId, skip: !p.skipped }), p.skipped ? "Brought back to the count list" : "Hidden from the count list for now")}>
+                {p.skipped ? "Bring back to the count" : "Not needed for now"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-tone-red" onClick={() => setConfirmDel(true)}>Delete product…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{p.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>It disappears from the product list, stock check and the website. If you only want it out of this count list for now, choose “Not needed for now” instead.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void run(() => del({ productId: p.productId }), `Deleted ${p.name}`)}>Delete product</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">

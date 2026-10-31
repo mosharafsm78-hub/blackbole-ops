@@ -91,6 +91,7 @@ export default defineSchema({
     preOrderFrom: v.optional(v.union(v.literal("china"), v.literal("bangladesh"))), // where it comes from (default China)
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
+    stockCheckSkip: v.optional(v.boolean()), // Stock check: "not needed for now" — hidden from the count lists (still under All products)
     // Website (blackbole.com): URL handle + everything the site shows (see convex/website.ts). Optional.
     handle: v.optional(v.string()),
     web: v.optional(v.any()),

@@ -9,6 +9,7 @@
 import { v, ConvexError } from "convex/values"
 import type { Id } from "./_generated/dataModel"
 import { query, type MutationCtx } from "./_generated/server"
+import { internal } from "./_generated/api"
 import { mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
 
@@ -18,7 +19,7 @@ export const fakeOf = (s: { available: number; virtual?: number }) => Math.min(M
 const PAGE = 30
 
 export type CheckLine = { variantId: Id<"variants">; locationId: Id<"locations">; locationName: string; title: string; sku: string; available: number; fake: number; real: number; counted: boolean; countedBy: string | null; countedAt: number | null }
-export type CheckProduct = { productId: Id<"products">; name: string; preOrder: boolean; system: number; fake: number; real: number; uncounted: boolean; lines: CheckLine[] }
+export type CheckProduct = { productId: Id<"products">; name: string; preOrder: boolean; skipped: boolean; system: number; fake: number; real: number; uncounted: boolean; lines: CheckLine[] }
 
 /** A page of products with their size lines: system stock, counted real pairs and the fake remainder. */
 export const list = query({
@@ -37,6 +38,7 @@ export const list = query({
     const out: CheckProduct[] = []
     for (const p of res.page) {
       if (p.deletedAt || !p.active) continue
+      if (p.stockCheckSkip && filter !== "all") continue // "not needed for now" products only show under All products
       const variants = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
       const lines: CheckLine[] = []
       for (const x of variants) {
@@ -61,7 +63,7 @@ export const list = query({
       const uncounted = lines.some((l) => !l.counted && l.available > 0)
       if (filter === "uncounted" && !uncounted) continue
       if (filter === "test" && fake === 0) continue
-      out.push({ productId: p._id, name: p.name, preOrder: !!p.preOrder, system, fake, real: system - fake, uncounted, lines })
+      out.push({ productId: p._id, name: p.name, preOrder: !!p.preOrder, skipped: !!p.stockCheckSkip, system, fake, real: system - fake, uncounted, lines })
     }
     return { products: out, isDone: res.isDone, cursor: res.continueCursor }
   },
@@ -147,5 +149,43 @@ export const addTestStock = mutation({
     const me = await requirePerm(ctx, "inventory.adjust")
     if (items.length === 0 || items.length > 100) throw new ConvexError("Add test pairs to between 1 and 100 sizes at a time.")
     await applyTestStock(ctx, items, me.staff.name)
+  },
+})
+
+
+/** "Not needed for now": hides the product from the Not counted / Test stock lists (it stays under All products), or brings it back. */
+export const skipProduct = mutation({
+  args: { productId: v.id("products"), skip: v.boolean() },
+  handler: async (ctx, { productId, skip }) => {
+    await requirePerm(ctx, "inventory.adjust")
+    const p = await ctx.db.get(productId)
+    if (!p || p.deletedAt) throw new ConvexError("Product not found")
+    await ctx.db.patch(productId, { stockCheckSkip: skip || undefined })
+  },
+})
+
+/** Deletes a product entirely (kept in the database but gone from every list, hidden on the website, URL freed).
+ *  Refused while an order that is still open contains one of its sizes. */
+export const deleteProduct = mutation({
+  args: { productId: v.id("products") },
+  handler: async (ctx, { productId }) => {
+    const me = await requirePerm(ctx, "products.manage")
+    const p = await ctx.db.get(productId)
+    if (!p || p.deletedAt) throw new ConvexError("Product not found")
+    const variants = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
+    const ids = new Set(variants.map((x) => x._id as string))
+    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
+      const open = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
+      const hit = open.find((o) => !o.deletedAt && o.items.some((i: any) => ids.has(i.variantId as string)))
+      if (hit) throw new ConvexError(`Can't delete: an open order (${hit.invoiceCode ?? `BB-${hit.invoiceNo}`}) still has this product. Finish or cancel it first.`)
+    }
+    const now = Date.now()
+    await ctx.db.patch(productId, {
+      deletedAt: now, active: false, handle: undefined, stockCheckSkip: undefined,
+      web: p.web ? { ...p.web, published: false, archived: true, updatedAt: now } : p.web,
+    })
+    for (const x of variants) if (x.active) await ctx.db.patch(x._id, { active: false })
+    await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
+    await ctx.db.insert("archive", { table: "products", data: { name: p.name, id: productId }, reason: "Deleted from Stock check", byName: me.staff.name, at: now })
   },
 })
