@@ -179,3 +179,12 @@ describe("win-back email", () => {
     expect(m.subject).toContain("miss you")
   })
 })
+
+describe("gift prize codes", () => {
+  it("gives each prize its own permanent code and never promises more than the code gives", async () => {
+    const { parseGift } = await import("../../convex/emailTemplates")
+    expect(parseGift("Gift box · won Tk 500 (BB-AAA111)")).toEqual({ amount: 500, code: "PREORDER500" })
+    expect(parseGift("Gift box · won Tk 700 (BB-BYVB7X)")).toEqual({ amount: 700, code: "PREORDER700" })
+    expect(parseGift("Gift box · won Tk 900 (BB-ZZZ999)")).toEqual({ amount: 500, code: "PREORDER500" })
+  })
+})
