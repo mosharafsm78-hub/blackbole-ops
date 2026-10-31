@@ -7,9 +7,7 @@ import { Guard } from "@/components/app-shell"
 import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { MoreHorizontal } from "lucide-react"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -117,18 +115,10 @@ function ProductCard({ p }: { p: Product }) {
           {p.uncounted ? <Pill tone="amber">Not counted</Pill> : <Pill tone="green">Counted</Pill>}
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "test" }), "Marked as test stock — none in hand")}>None in hand (all test)</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "real" }), "Marked all real")}>All real</Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="outline" aria-label="More options" data-testid="product-menu"><MoreHorizontal className="size-4" /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => void run(() => skip({ productId: p.productId, skip: !p.skipped }), p.skipped ? "Brought back to the count list" : "Hidden from the count list for now")}>
-                {p.skipped ? "Bring back to the count" : "Not needed for now"}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-tone-red" onClick={() => setConfirmDel(true)}>Delete product…</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button size="sm" variant="outline" disabled={busy} data-testid="skip-product" onClick={() => void run(() => skip({ productId: p.productId, skip: !p.skipped }), p.skipped ? "Brought back to the count list" : "Hidden from the count list for now")}>
+            {p.skipped ? "Bring back" : "Not needed now"}
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} data-testid="delete-product" className="border-tone-red/40 text-tone-red hover:bg-tone-red/10" onClick={() => setConfirmDel(true)}>Delete</Button>
         </div>
       </div>
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
