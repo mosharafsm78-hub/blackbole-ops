@@ -10,7 +10,8 @@ export default defineConfig({
     tsconfigPaths({ projects: ['./tsconfig.json'] }),
     tailwindcss(),
     tanstackStart(),
-    nitro({ vercel: { functions: { regions: ['sin1'] } } } as any),
+    // Cloudflare Workers Builds set WORKERS_CI=1; Vercel builds keep the Vercel preset
+    nitro({ ...(process.env.WORKERS_CI ? { preset: 'cloudflare_module', cloudflare: { deployConfig: false, nodeCompat: true } } : {}), vercel: { functions: { regions: ['sin1'] } } } as any),
     viteReact(),
   ],
 })

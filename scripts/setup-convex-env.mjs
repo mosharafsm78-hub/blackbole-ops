@@ -28,7 +28,7 @@ if (!get("JWT_PRIVATE_KEY")) {
   console.log("Created Convex Auth signing keys")
 }
 
-const site = process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : ""
+const site = process.env.SITE_URL_PUBLIC || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "")
 if (site && get("SITE_URL") !== site) {
   set("SITE_URL", site)
   console.log(`SITE_URL set to ${site}`)
