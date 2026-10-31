@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { dateTime, errMsg } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { AutoCallSettings } from "@/components/auto-call-settings"
+import { WhatsAppVerifySettings } from "@/components/whatsapp-verify-settings"
 import { WinBackSettings } from "@/components/win-back-settings"
 import { AccountabilitySettings } from "@/components/accountability-settings"
 import { KpiRulesSettings } from "@/components/kpi-rules-settings"
@@ -53,6 +54,7 @@ function SettingsPage() {
           <TabsTrigger value="pathao">Pathao</TabsTrigger>
           <TabsTrigger value="sms">SMS & Email</TabsTrigger>
           <TabsTrigger value="autocall">Auto calls</TabsTrigger>
+          <TabsTrigger value="wa-verify">WhatsApp verify</TabsTrigger>
           <TabsTrigger value="winback">Win-back</TabsTrigger>
           <TabsTrigger value="warehouses">Warehouses</TabsTrigger>
           <TabsTrigger value="team" disabled={!can("team.manage")}>{!can("team.manage") && <Lock className="size-3" />}Team</TabsTrigger>
@@ -65,6 +67,7 @@ function SettingsPage() {
         <TabsContent value="pathao"><PathaoTab /></TabsContent>
         <TabsContent value="sms"><SmsTab /></TabsContent>
         <TabsContent value="autocall"><AutoCallSettings /></TabsContent>
+        <TabsContent value="wa-verify"><WhatsAppVerifySettings /></TabsContent>
         <TabsContent value="winback"><WinBackSettings /></TabsContent>
         <TabsContent value="warehouses"><WarehousesTab /></TabsContent>
         {can("team.manage") && <TabsContent value="team"><TeamTab /></TabsContent>}

@@ -37,6 +37,7 @@ import type * as subscribers from "../subscribers.js";
 import type * as team from "../team.js";
 import type * as themes from "../themes.js";
 import type * as website from "../website.js";
+import type * as whatsappVerify from "../whatsappVerify.js";
 import type * as websiteAnalytics from "../websiteAnalytics.js";
 import type * as websiteCollections from "../websiteCollections.js";
 import type * as websiteInventory from "../websiteInventory.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   team: typeof team;
   themes: typeof themes;
   website: typeof website;
+  whatsappVerify: typeof whatsappVerify;
   websiteAnalytics: typeof websiteAnalytics;
   websiteCollections: typeof websiteCollections;
   websiteInventory: typeof websiteInventory;

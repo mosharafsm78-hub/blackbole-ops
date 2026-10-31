@@ -621,6 +621,16 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_status_next", ["status", "nextAt"]).index("by_order", ["orderId"]).index("by_created", ["createdAt"]),
+  // WhatsApp order verification: what each customer message did (also the "already handled" memory, so a message
+  // WhatsApp delivers twice can never act twice)
+  waVerifyEvents: defineTable({
+    wamid: v.string(),
+    waId: v.string(),
+    orderId: v.optional(v.id("orders")),
+    result: v.string(), // asked | confirmed | cancelled | mismatch | address_issue | already | not_found | ignored
+    out: v.optional(v.array(v.string())), // what we replied (kept so test mode can show it)
+    at: v.number(),
+  }).index("by_wamid", ["wamid"]).index("by_at", ["at"]),
   // deleted records kept here (nothing is lost; can be restored by hand)
   archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
   // products whose Shopify stock must be refreshed (live stock sync)
