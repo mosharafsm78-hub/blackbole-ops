@@ -29,6 +29,11 @@ function feedOrder(o: Doc<"orders">, c: Doc<"customers"> | null) {
     returnedQty: o.returnedQty ?? 0,
     purchaseCost: o.purchaseCost ?? null,
     courierCost: o.courierCost ?? null,
+    codCost: o.codCost ?? null,
+    otherCost: o.otherCost ?? null,
+    courierPaid: !!o.courierPaid,
+    courierCollected: o.courierCollected ?? null, // cash Pathao collected from the customer
+    courierPayout: o.courierPayout ?? null, // what Pathao paid us (collected - fees)
     deleted: !!o.deletedAt,
     phone: o.phone,
     customer: c ? { tag: c.tag, orders: c.orderCount, delivered: c.deliveredCount, returned: c.returnedCount, cancelled: c.cancelledCount } : null,
@@ -63,13 +68,13 @@ export const stockBySku = internalQuery({
     const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
     const variants = await ctx.db.query("variants").collect()
     const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
-    const out: { sku: string; product: string; variant: string; price: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
+    const out: { sku: string; product: string; variant: string; price: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
     for (const vr of variants) {
       const p = products.get(vr.productId as string)
       if (!vr.active || !p || !p.active || p.deletedAt) continue
       const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).collect()
       const available = rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)
-      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: vr.price, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
+      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: vr.price, cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
     }
     return out
   },
