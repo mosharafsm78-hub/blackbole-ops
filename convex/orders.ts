@@ -699,7 +699,15 @@ export async function applyStatus(ctx: MutationCtx, order: Doc<"orders">, to: Or
   // actually confirmed: catching a fake/duplicate order BEFORE ever confirming it (straight from Pending) is
   // Customer Care doing its job right, not a mistake to flag.
   if (to === "cancelled" && reason && !opts.systemReason && order.approvedAt && ACCOUNTABILITY_ROUTING[reason] === "Customer Care") {
-    await raiseAccountabilityFlag(ctx, order, reason, undefined, byName, { ruleKey: "cx.bad_confirmation" })
+    // Route this to the agent who actually ran the confirmation call, not just the CX lead by default — it's
+    // their screening miss specifically. Found via the cx.order_confirmed point they earned for this very
+    // order; falls back to the department lead (inside raiseAccountabilityFlag) if that can't be found, e.g.
+    // a migrated order confirmed before this system existed.
+    const confirmedBy = await ctx.db
+      .query("kpiEvents")
+      .withIndex("by_rule_order", (q) => q.eq("ruleKey", "cx.order_confirmed").eq("orderId", order._id))
+      .first()
+    await raiseAccountabilityFlag(ctx, order, reason, undefined, byName, { ruleKey: "cx.bad_confirmation", assigneeName: confirmedBy?.staffName })
   }
   // Leaving hold/cancel for a live status means the advance question is settled (paid, waived, or the order
   // died) — stamp it so reporting can tell a live promise from an abandoned one, without erasing the amount

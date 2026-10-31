@@ -30,11 +30,27 @@ export async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
  *  department — if one's already open for this order (e.g. the call was re-logged by a Super Admin), it's
  *  reused rather than duplicated, so a department never sees the same order twice in its queue. Looks up the
  *  named owner for that team (Settings → Accountability) and emails them right away, on top of the in-app flag. */
-export async function raiseAccountabilityFlag(ctx: MutationCtx, order: Doc<"orders">, outcome: string, note: string | undefined, byName: string, opts: { ruleKey?: KpiRuleKey } = {}) {
+export async function raiseAccountabilityFlag(
+  ctx: MutationCtx,
+  order: Doc<"orders">,
+  outcome: string,
+  note: string | undefined,
+  byName: string,
+  opts: { ruleKey?: KpiRuleKey; assigneeName?: string } = {},
+) {
   const team = ACCOUNTABILITY_ROUTING[outcome]
   if (!team) return // not an at-fault reason with an owning department (e.g. "Customer changed mind")
+  // Usually the flag goes to whoever leads the owning department (Settings → Accountability) — there's no one
+  // more specific to name for an overdue-call sweep or a courier's failed attempt. But when the caller already
+  // knows exactly WHO made the mistake (e.g. the specific agent whose confirmation call let a duplicate/fake
+  // order through), that person should answer for it directly, not have it land on the department lead by
+  // default just because they happen to run the team. Falls back to the department lead if that named person
+  // can't be found on the active team, so a flag never goes unassigned just because a name didn't resolve.
   const owners = await ownersConf(ctx)
-  const owner = owners.byTeam[team]
+  const named = opts.assigneeName
+    ? (await ctx.db.query("staff").collect()).find((s) => s.active && s.name.trim().toLowerCase() === opts.assigneeName!.trim().toLowerCase())
+    : undefined
+  const owner = named ? { name: named.name, email: named.email } : owners.byTeam[team]
   const existing = await ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", order._id)).filter((q) => q.eq(q.field("status"), "open")).first()
   const productNames = [...new Set(order.items.map((i) => i.name))]
   let flagId
