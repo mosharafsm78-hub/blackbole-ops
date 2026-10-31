@@ -410,7 +410,21 @@ export function resolveReasonToggle(input: { from?: string | null; to: string; a
 
 /** Ordinary reason chips for a move — the shared vocabulary behind the Hold/Cancel/Return pickers. */
 export const CANCEL_REASONS = ["Customer cancelled", "Fake / prank order", "Duplicate order", "Out of stock", "Unreachable after 3 calls", "Price issue", "Other"]
-export const HOLD_REASONS = ["Customer asked to ship on a date", "Customer asked to wait", "Stock not ready", "Address unclear", "Other"]
+export const HOLD_REASONS = [
+  "Phone Number Unreachable", "Call Not Answered", "Follow-up Call Scheduled", "Invalid Phone Number", "Awaiting Customer Decision",
+  "Pre-Order", "Out of Stock", "Awaiting Payment Confirmation", "Additional Product Required", "Delivery Address Updated", "Delivery Date Updated",
+  "Customer asked to ship on a date", "Customer asked to wait", "Stock not ready", "Address unclear", "Other",
+]
+/** The chips under the On Hold tab: the advance-payment reasons first, then every preset, then a catch-all. */
+export const HOLD_NO_REASON = "No reason"
+export const HOLD_CHIPS = () => [...new Set([...HOLD_REASONS.filter((r) => r !== "Other"), ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED, "Other", HOLD_NO_REASON])]
+/** Which chip an on-hold order belongs to: its reason when it is one of the presets, "No reason" when empty, else "Other". */
+export function holdBucket(reason?: string | null): string {
+  const r = (reason ?? "").trim()
+  if (!r) return HOLD_NO_REASON
+  const hit = [...HOLD_REASONS, ADVANCE_REASON_AWAITING, ADVANCE_REASON_PROMISED].find((x) => x.toLowerCase() === r.toLowerCase())
+  return hit ?? "Other"
+}
 
 /**
  * Reason chips for a status. The advance-payment reasons come FIRST on Hold and Cancel so they read as one

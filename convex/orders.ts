@@ -15,7 +15,7 @@ import {
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
 import {
-  ACCOUNTABILITY_ROUTING, CSAT_FOLLOWUP_OUTCOMES, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
+  ACCOUNTABILITY_ROUTING, CSAT_FOLLOWUP_OUTCOMES, HOLD_CHIPS, holdBucket, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
   buildAdvanceFields, isAdvanceReason, advanceReasonCode, type AdvanceFields,
@@ -273,6 +273,19 @@ export const counts = query({
   },
 })
 
+/** On Hold tab chips: how many held orders there are for each reason (every preset shown, even at 0). */
+export const holdReasonCounts = query({
+  args: {},
+  handler: async (ctx) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const rows = (await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", "on_hold")).take(3000)).filter((o) => !o.deletedAt)
+    const out: Record<string, number> = Object.fromEntries(HOLD_CHIPS().map((r) => [r, 0]))
+    for (const o of rows) out[holdBucket(o.reason)] = (out[holdBucket(o.reason)] ?? 0) + 1
+    return { counts: out, total: rows.length, chips: HOLD_CHIPS() }
+  },
+})
+
 /** How far back the urgency panel reaches for feedback-calls/return-reasons — calling a customer about an
  *  order from months ago isn't realistic, so old unresolved ones just age out of this count instead of
  *  piling up forever. (Older orders are still there and still visible via the Orders list filters.) */
@@ -339,6 +352,7 @@ const filterArgs = v.object({
   hasDiscount: v.optional(v.boolean()),
   hasUpsell: v.optional(v.boolean()),
   hasAdvance: v.optional(v.boolean()),
+  holdReason: v.optional(v.string()), // On Hold sub-chip: only orders held for this reason
   printed: v.optional(v.boolean()),
   hasInfo: v.optional(v.boolean()),
   flag: v.optional(v.string()), // nocall | courierError | followUp | exchange
@@ -374,6 +388,7 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   const disc = o.discount + o.items.reduce((s, i) => s + i.discount, 0)
   if (f.hasDiscount !== undefined && (disc > 0) !== f.hasDiscount) return false
   if (f.hasUpsell !== undefined && !!o.hasUpsell !== f.hasUpsell) return false
+  if (f.holdReason && holdBucket(o.reason) !== f.holdReason) return false
   if (f.hasAdvance !== undefined && (o.paidAmount > 0 && !isDelivered(o.status as OrderStatus)) !== f.hasAdvance) return false
   if (f.printed !== undefined && !!o.printedAt !== f.printed) return false
   if (f.hasInfo !== undefined && !!(o.additionalInfo || o.customerNote) !== f.hasInfo) return false
@@ -455,13 +470,14 @@ export const list = query({
     flag: v.optional(v.string()),
     location: v.optional(v.string()),
     status: v.optional(v.string()), // one status inside the tab (sub-tab)
+    holdReason: v.optional(v.string()),
     limit: v.number(),
     filters: v.optional(filterArgs),
   },
   handler: async (ctx, a) => {
     const s = await currentStaff(ctx)
     if (!s) return null
-    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag, locationIds: a.location ? [a.location] : undefined, statuses: a.status ? [a.status] : undefined }
+    const f: Filters = a.filters ?? { tab: a.tab, sources: a.source ? [a.source] : undefined, from: a.from, to: a.to, flag: a.flag, locationIds: a.location ? [a.location] : undefined, statuses: a.status ? [a.status] : undefined, holdReason: a.holdReason }
     const limit = Math.min(a.limit, 2000)
     // Search box: look the order up directly (invoice, phone, consignment, name…), across every status.
     if (a.search?.trim()) {

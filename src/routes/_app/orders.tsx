@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, ClipboardList, Clock, Lock, Download, Print
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, RETURN_AT_FAULT_REASONS, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, moveKey, type OrderStatus } from "@/convex/rules"
+import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, RETURN_AT_FAULT_REASONS, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, holdBucket, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
@@ -19,7 +19,7 @@ import { TAB_TONE, TONE_CLASS, TONE_SOLID, dateTime, errMsg, invoice, startOfDay
 import { cn } from "@/lib/utils"
 import { whTone } from "@/lib/warehouse"
 
-type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string; st?: string }
+type Search = { tab: string; q?: string; source?: string; range?: string; flag?: string; wh?: string; st?: string; hold?: string }
 
 export const Route = createFileRoute("/_app/orders")({
   validateSearch: (s: Record<string, unknown>): Search => ({
@@ -30,6 +30,7 @@ export const Route = createFileRoute("/_app/orders")({
     flag: typeof s.flag === "string" && s.flag ? s.flag : undefined,
     wh: typeof s.wh === "string" && s.wh ? s.wh : undefined,
     st: typeof s.st === "string" && s.st ? s.st : undefined,
+    hold: typeof s.hold === "string" && s.hold ? s.hold : undefined,
   }),
   component: () => (
     <Guard perm="orders.view">
@@ -79,8 +80,9 @@ function OrdersPage() {
   const [checkingDue, setCheckingDue] = useState(false)
   const [pushing, setPushing] = useState(false)
   const data = useQuery(api.orders.list, {
-    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, status: search.st, limit,
+    tab: search.tab, search: search.q, source: search.source, from: rangeFrom(search.range), flag: search.flag, location: search.wh, status: search.st, holdReason: search.tab === "on_hold" ? search.hold : undefined, limit,
   })
+  const holdCounts = useQuery(api.orders.holdReasonCounts, search.tab === "on_hold" ? {} : "skip")
   const locations = useQuery(api.team.listLocations, {})
   const rows = data?.rows ?? []
 
@@ -148,7 +150,7 @@ function OrdersPage() {
           return (
             <button
               key={t.key}
-              onClick={() => set({ tab: t.key, st: undefined })}
+              onClick={() => set({ tab: t.key, st: undefined, hold: undefined })}
               data-testid={`tab-${t.key}`}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-lg border border-transparent px-3.5 py-2 text-sm font-semibold transition",
@@ -195,6 +197,25 @@ function OrdersPage() {
           )
         }
         const tab = STATUS_TABS.find((t) => t.key === search.tab)
+        if (search.tab === "on_hold" && holdCounts) {
+          const all = [{ k: undefined as string | undefined, label: "All", n: holdCounts.total }, ...holdCounts.chips.map((r: string) => ({ k: r as string | undefined, label: r, n: holdCounts.counts[r] ?? 0 }))]
+          return (
+            <div className="-mt-2 mb-4 flex flex-wrap gap-2" data-testid="hold-reasons">
+              {all.map((x) => {
+                const active = search.hold === x.k
+                return (
+                  <button
+                    key={x.k ?? "all"} type="button" onClick={() => set({ hold: x.k })} data-testid={`hold-${x.k ?? "all"}`}
+                    className={cn("flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium", active ? "border-foreground bg-foreground text-background" : x.n ? "bg-card hover:bg-accent" : "bg-card text-muted-foreground hover:bg-accent")}
+                  >
+                    {x.label}
+                    <span className={cn("rounded px-1.5 text-xs tabular-nums", active ? "bg-white/25" : "bg-muted")}>{x.n}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )
+        }
         if (!tab || tab.statuses.length < 2) return null
         const subs = [{ k: undefined as string | undefined, label: "All" }, ...tab.statuses.map((st) => ({ k: st as string | undefined, label: SUB_LABEL[st] ?? STATUS_LABEL[st] }))]
         return (
@@ -540,6 +561,11 @@ function OrdersPage() {
                     <div className="flex flex-col items-start gap-1">
                       <StatusPill status={o.status as OrderStatus} />
                       {o.statusChangedAt && <StatusAge status={o.status as OrderStatus} at={o.statusChangedAt} />}
+                      {o.status === "on_hold" && (
+                        <span className="rounded bg-tone-amber/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-amber" data-testid="hold-reason-chip">
+                          {holdBucket(o.reason) === "Other" && o.reason ? o.reason : holdBucket(o.reason)}
+                        </span>
+                      )}
                       {RETURN_LIKE.includes(o.status as OrderStatus) && !isRealReason(o.reason) && (
                         <span className="rounded bg-tone-red/10 px-1.5 py-0.5 text-[11px] font-semibold text-tone-red">⚠ No reason logged</span>
                       )}
