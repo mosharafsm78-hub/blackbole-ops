@@ -71,7 +71,7 @@ export const stockBySku = internalQuery({
     const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
     const variants = await ctx.db.query("variants").collect()
     const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
-    const out: { sku: string; product: string; variant: string; price: number; webPrice: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
+    const out: { sku: string; product: string; variant: string; price: number; webPrice: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null; handle: string | null }[] = []
     for (const vr of variants) {
       const p = products.get(vr.productId as string)
       if (!vr.active || !p || !p.active || p.deletedAt) continue
@@ -80,7 +80,7 @@ export const stockBySku = internalQuery({
       const available = rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)
       // price = the Ops selling price (what the team edits on Products). webPrice = the price saved for the website,
       // sent so Marketing OS can flag a mismatch (pre-orders: that is only the booking money, so not sent).
-      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
+      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? (p as any).web?.images?.[0]?.url ?? null, handle: p.handle ?? null })
     }
     return out
   },
