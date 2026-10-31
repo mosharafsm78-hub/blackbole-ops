@@ -37,6 +37,8 @@ function StockCheckPage() {
   const [realBusy, setRealBusy] = useState(false)
 
   const reset = () => setCursors([null])
+  const searching = search.trim().length > 0
+  const shown: Filter = searching ? "all" : filter // a search always looks through every product, so say so on the tabs
   return (
     <div className="space-y-4">
       <PageHeader title="Stock check" sub="Count the pairs really in hand. Whatever the system shows beyond that is marked as fake stock." />
@@ -58,10 +60,11 @@ function StockCheckPage() {
       )}
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
-          <Button key={f.key} size="sm" variant={filter === f.key ? "default" : "outline"} onClick={() => { setFilter(f.key); reset() }}>{f.label}</Button>
+          <Button key={f.key} size="sm" variant={shown === f.key ? "default" : "outline"} onClick={() => { setFilter(f.key); setSearch(""); reset() }}>{f.label}</Button>
         ))}
         <Input value={search} onChange={(e) => { setSearch(e.target.value); reset() }} placeholder="Search a product…" className="ml-auto w-full sm:w-64" />
       </div>
+      {searching && <p className="-mt-2 text-xs text-muted-foreground" data-testid="search-note">Showing every product that matches “{search.trim()}”, counted or not. Clear the search to go back to “{FILTERS.find((f) => f.key === filter)?.label}”.</p>}
       {cursors.map((c, i) => (
         <ProductPage key={`${filter}|${search}|${c ?? "first"}`} filter={filter} search={search} cursor={c} first={i === 0} isLast={i === cursors.length - 1} onMore={(next) => setCursors((cs) => [...cs, next])} />
       ))}
