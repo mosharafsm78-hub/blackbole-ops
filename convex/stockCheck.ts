@@ -153,6 +153,23 @@ export const addTestStock = mutation({
 })
 
 
+/** Really removes a size: the size itself, its stock in every warehouse, its stock history and Shopify sync marker.
+ *  Old orders / purchases keep their own copy of the SKU and name, so history still reads fine. */
+async function purgeVariant(ctx: MutationCtx, variantId: Id<"variants">) {
+  for (const r of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", variantId)).collect()) await ctx.db.delete(r._id)
+  for (const r of await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", variantId)).collect()) await ctx.db.delete(r._id)
+  for (const r of await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", variantId)).collect()) await ctx.db.delete(r._id)
+  await ctx.db.delete(variantId)
+}
+async function openOrderWith(ctx: MutationCtx, ids: Set<string>) {
+  for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
+    const open = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
+    const hit = open.find((o) => !o.deletedAt && o.items.some((i: any) => i.variantId && ids.has(i.variantId as string)))
+    if (hit) return hit.invoiceCode ?? `BB-${hit.invoiceNo}`
+  }
+  return null
+}
+
 /** "Not needed for now": hides the product from the Not counted / Test stock lists (it stays under All products), or brings it back. */
 export const skipProduct = mutation({
   args: { productId: v.id("products"), skip: v.boolean() },
@@ -164,50 +181,61 @@ export const skipProduct = mutation({
   },
 })
 
-/** Deletes a product entirely (kept in the database but gone from every list, hidden on the website, URL freed).
- *  Refused while an order that is still open contains one of its sizes. */
+/** Deletes a product for good: the product, every size, all their stock and history. Refused while an open order has it. */
 export const deleteProduct = mutation({
   args: { productId: v.id("products") },
   handler: async (ctx, { productId }) => {
     const me = await requirePerm(ctx, "products.manage")
     const p = await ctx.db.get(productId)
-    if (!p || p.deletedAt) throw new ConvexError("Product not found")
+    if (!p) throw new ConvexError("Product not found")
     const variants = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", productId)).collect()
-    const ids = new Set(variants.map((x) => x._id as string))
-    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
-      const open = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
-      const hit = open.find((o) => !o.deletedAt && o.items.some((i: any) => ids.has(i.variantId as string)))
-      if (hit) throw new ConvexError(`Can't delete: an open order (${hit.invoiceCode ?? `BB-${hit.invoiceNo}`}) still has this product. Finish or cancel it first.`)
-    }
-    const now = Date.now()
-    await ctx.db.patch(productId, {
-      deletedAt: now, active: false, handle: undefined, stockCheckSkip: undefined,
-      web: p.web ? { ...p.web, published: false, archived: true, updatedAt: now } : p.web,
-    })
-    for (const x of variants) if (x.active) await ctx.db.patch(x._id, { active: false })
+    const open = await openOrderWith(ctx, new Set(variants.map((x) => x._id as string)))
+    if (open) throw new ConvexError(`Can't delete: an open order (${open}) still has this product. Finish or cancel it first.`)
+    await ctx.db.insert("archive", { table: "products", data: { name: p.name, handle: p.handle, skus: variants.map((x) => x.sku) }, reason: "Deleted from Stock check", byName: me.staff.name, at: Date.now() })
+    for (const x of variants) await purgeVariant(ctx, x._id)
+    if (p.handle) for (const c of await ctx.db.query("webCollections").collect()) if (c.productHandles.includes(p.handle)) await ctx.db.patch(c._id, { productHandles: c.productHandles.filter((h) => h !== p.handle), updatedAt: Date.now() })
+    await ctx.db.delete(productId)
     await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
-    await ctx.db.insert("archive", { table: "products", data: { name: p.name, id: productId }, reason: "Deleted from Stock check", byName: me.staff.name, at: now })
   },
 })
 
-
-/** Deletes ONE size of a product (all its warehouses): switched off everywhere. Refused while an open order has it,
- *  and for the last size left (delete the whole product instead). */
+/** Deletes ONE size for good (all its warehouses). Refused while an open order has it, and for the last size left. */
 export const deleteSize = mutation({
   args: { variantId: v.id("variants") },
   handler: async (ctx, { variantId }) => {
     const me = await requirePerm(ctx, "products.manage")
     const x = await ctx.db.get(variantId)
-    if (!x || !x.active) throw new ConvexError("Size not found")
-    const siblings = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", x.productId)).collect()).filter((y) => y.active)
-    if (siblings.length <= 1) throw new ConvexError("This is the only size left. Delete the whole product instead.")
-    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
-      const open = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
-      const hit = open.find((o) => !o.deletedAt && o.items.some((i: any) => (i.variantId as string) === (variantId as string)))
-      if (hit) throw new ConvexError(`Can't delete size ${x.title}: an open order (${hit.invoiceCode ?? `BB-${hit.invoiceNo}`}) still has it. Finish or cancel it first.`)
-    }
-    await ctx.db.patch(variantId, { active: false })
-    await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
+    if (!x) throw new ConvexError("Size not found")
+    const siblings = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", x.productId)).collect()).filter((y) => y.active && y._id !== variantId)
+    if (siblings.length === 0) throw new ConvexError("This is the only size left. Delete the whole product instead.")
+    const open = await openOrderWith(ctx, new Set([variantId as string]))
+    if (open) throw new ConvexError(`Can't delete size ${x.title}: an open order (${open}) still has it. Finish or cancel it first.`)
     await ctx.db.insert("archive", { table: "variants", data: { sku: x.sku, title: x.title, productId: x.productId }, reason: "Size deleted from Stock check", byName: me.staff.name, at: Date.now() })
+    await purgeVariant(ctx, variantId)
+    await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
+  },
+})
+
+/** One-time clean-up for the Inventory page: really removes every size that was deleted earlier (switched off, an old
+ *  "-DELETED" SKU, or belonging to a deleted product) and holds no stock. Sizes still holding stock are left alone. */
+export const purgeRetired = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requirePerm(ctx, "products.manage")
+    const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
+    let purged = 0, kept = 0, more = false
+    for (const x of await ctx.db.query("variants").collect()) {
+      const p = products.get(x.productId as string)
+      if (x.active && !/-DELETED$/i.test(x.sku) && p && !p.deletedAt) continue
+      const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+      if (rows.some((r) => r.available || r.processing || r.inTransit || r.returning || r.damaged)) { kept++; continue }
+      if (purged >= 400) { more = true; break }
+      await purgeVariant(ctx, x._id); purged++
+    }
+    for (const p of products.values()) {
+      if (!p.deletedAt) continue
+      if (!(await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).first())) await ctx.db.delete(p._id)
+    }
+    return { purged, kept, more }
   },
 })

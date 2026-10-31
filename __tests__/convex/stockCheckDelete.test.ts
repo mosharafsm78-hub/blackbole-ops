@@ -24,6 +24,9 @@ describe("stock check: not needed for now / delete product", () => {
     expect(await names("uncounted")).toContain("Old Sandal")
     await as.mutation(api.stockCheck.deleteProduct, { productId: variant.productId })
     expect(await names("all")).not.toContain("Old Sandal")
+    expect(await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-D-42")).first())).toBeNull()
+    expect(await t.run((ctx) => ctx.db.get(variant.productId))).toBeNull()
+    expect(await t.run((ctx) => ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", variant._id)).collect())).toHaveLength(0)
   })
 
   it("refuses to delete a product that is on an open order", async () => {
@@ -82,5 +85,30 @@ describe("inventory hides retired sizes", () => {
     const after = await skus()
     expect(after).not.toContain("BB-G-42")
     expect(after).toContain("BB-K-41")
+  })
+})
+
+
+describe("clear deleted SKUs", () => {
+  it("removes retired sizes with no stock for good and keeps ones that hold stock", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+    await as.mutation(api.catalog.saveProduct, { name: "Old", active: true, variants: [
+      { sku: "BB-O-40-DELETED", title: "40", weightKg: 0.4, price: 1, purchasePrice: 1, active: false },
+      { sku: "BB-O-41", title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: false },
+      { sku: "BB-O-42", title: "42", weightKg: 0.4, price: 1, purchasePrice: 1, active: true },
+    ] })
+    const get = (sku: string) => t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first())
+    const v41 = (await get("BB-O-41"))!
+    await t.run((ctx) => ctx.db.insert("stock", { variantId: v41._id, locationId, available: 2, processing: 0, inTransit: 0, returning: 0, damaged: 0 } as any))
+    const r = await as.mutation(api.stockCheck.purgeRetired, {})
+    expect(r.purged).toBe(1)
+    expect(r.kept).toBe(1)
+    expect(await get("BB-O-40-DELETED")).toBeNull()
+    expect(await get("BB-O-41")).not.toBeNull()
+    expect(await get("BB-O-42")).not.toBeNull()
   })
 })

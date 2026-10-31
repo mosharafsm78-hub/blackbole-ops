@@ -10,6 +10,7 @@ import { InventoryReport } from "@/components/inventory-report"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -53,6 +54,7 @@ function InventoryPage() {
             {locations?.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}
           </SelectContent>
         </Select>
+        <ClearDeleted />
       </PageHeader>
       <Tabs defaultValue="stock">
         <TabsList className="mb-3">
@@ -189,5 +191,41 @@ function AdjustDialog({ target, locationId, onClose }: { target: { variantId: Id
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+
+/** Really removes every size that was deleted earlier and holds no stock (they only clutter this list). */
+function ClearDeleted() {
+  const can = useCan()
+  const canDelete = can("products.manage")
+  const purge = useMutation(api.stockCheck.purgeRetired)
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  if (!canDelete) return null
+  const go = async () => {
+    setBusy(true)
+    try {
+      let total = 0, kept = 0
+      for (let i = 0; i < 20; i++) { const r = await purge({}); total += r.purged; kept = r.kept; if (!r.more) break }
+      toast.success(`Removed ${total} deleted SKU${total === 1 ? "" : "s"} for good${kept ? ` (${kept} still hold stock, kept)` : ""}`)
+    } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false); setOpen(false) }
+  }
+  return (
+    <>
+      <Button size="sm" variant="outline" data-testid="clear-deleted" onClick={() => setOpen(true)}>Clear deleted SKUs</Button>
+      <AlertDialog open={open} onOpenChange={setOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove all deleted SKUs for good?</AlertDialogTitle>
+            <AlertDialogDescription>Every size that was deleted earlier (including the “-DELETED” ones) and has no stock is removed from the system permanently. It can't be brought back. Sizes that still hold stock are kept.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={(e) => { e.preventDefault(); void go() }}>{busy ? "Removing…" : "Remove them"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
