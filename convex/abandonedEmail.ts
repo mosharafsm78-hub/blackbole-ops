@@ -3,6 +3,7 @@ import { v } from "convex/values"
 import { internalAction, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
+import { SITE } from "./emailTemplates"
 import { currentStaff, requirePerm } from "./lib"
 import { ABANDON_AFTER, laterOrderFor } from "./checkouts"
 
@@ -95,7 +96,7 @@ export const picks = internalQuery({
         if (!inStock) continue
       }
       // pre-order web price is only the booking money, so show the pair's full price
-      all.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: wantPre ? v.price : (v.web?.price as number) || v.price, url: `https://blackbole.com/products/${p.handle}` })
+      all.push({ name: p.web?.title || p.name, imageUrl: p.imageUrl, price: wantPre ? v.price : (v.web?.price as number) || v.price, url: `${SITE}/products/${p.handle}` })
     }
     if (all.length <= 8) return all
     const start = (((step ?? 1) - 1) * 8) % all.length
@@ -117,7 +118,7 @@ export const context = internalQuery({
       const vr = i.variantId ? await ctx.db.get(i.variantId) : null
       const p = vr ? await ctx.db.get(vr.productId) : null
       if (!p) continue
-      if (!productUrl && p.handle) productUrl = `https://blackbole.com/products/${p.handle}`
+      if (!productUrl && p.handle) productUrl = `${SITE}/products/${p.handle}`
       if (p.preOrder || ((p.web?.tags as string[] | undefined) ?? []).some((t) => t.toLowerCase() === "pre-order")) kind = "preorder"
     }
     return { kind, productUrl }
@@ -132,7 +133,7 @@ export const productUrl = internalQuery({
     for (const i of c?.items ?? []) {
       const vr = i.variantId ? await ctx.db.get(i.variantId) : null
       const p = vr ? await ctx.db.get(vr.productId) : null
-      if (p?.handle) return `https://blackbole.com/products/${p.handle}`
+      if (p?.handle) return `${SITE}/products/${p.handle}`
     }
     return null
   },

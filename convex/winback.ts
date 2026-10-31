@@ -12,6 +12,8 @@ import { shopifyGql } from "./shopifyStock"
 
 const DAY = 86400000
 const BD_OFFSET = 6 * 3600000
+/** First real word of a customer name: "- Rasul" or "(Dr) Aziz" must not become "Hi -". */
+export const firstName = (n: string) => (n.split(/\s+/).find((w) => /[\p{L}\p{N}]/u.test(w)) ?? "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")
 // Nothing sends before this moment (2026-10-28 13:00 Asia/Dhaka = 07:00 UTC) — moved up to start today, at
 // the user's request, instead of waiting for the next afternoon.
 const START_AT = Date.UTC(2026, 9, 28, 7, 0, 0)
@@ -238,7 +240,7 @@ export const run = internalAction({
     const list = await ctx.runQuery(internal.winback.candidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
       const error = await sendSms(sms, cust.phone, text)
       await ctx.runMutation(internal.winback.logSent, { customerId: cust._id, phone: cust.phone, text, error })
       idx++
@@ -267,8 +269,8 @@ export const runEmail = internalAction({
     const list = await ctx.runQuery(internal.winback.emailCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
-      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
+      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text, name: firstName(cust.name), code })
       idx++
     }
     if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "email", count: list.length })
@@ -295,7 +297,7 @@ export const run2 = internalAction({
     const list = await ctx.runQuery(internal.winback.candidates2, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.smsSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
       const error = await sendSms(sms, cust.phone, text)
       await ctx.runMutation(internal.winback.logSent2, { customerId: cust._id, phone: cust.phone, text, error })
       idx++
@@ -321,8 +323,8 @@ export const runEmail2 = internalAction({
     const list = await ctx.runQuery(internal.winback.email2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
-      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
+      await ctx.runAction(internal.emailNode.sendWinbackEmail, { customerId: cust._id, to: cust.email!, subject: EMAIL_SUBJECT, text, name: firstName(cust.name), code })
       idx++
     }
     if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "email", count: list.length })
@@ -392,9 +394,12 @@ export const settings = query({
       _id: r._id, at: r.at, phone: r.phone, status: r.status, error: r.error, tier: r.channel === "winback2" ? 2 : 1,
       name: r.customerId ? (await ctx.db.get(r.customerId))?.name ?? "—" : "—",
     })))
-    const sentTotal = scan.filter((r) => (r.channel === "winback" || r.channel === "winback2") && r.status === "sent").length
+    const all = (await ctx.db.query("smsLogs").withIndex("by_at").order("desc").take(5000)).filter((r) => r.channel === "winback" || r.channel === "winback2")
+    const sentTotal = all.filter((r) => r.status === "sent").length
+    const emailSent = all.filter((r) => r.status === "sent" && r.phone.includes("@")).length
+    const emailFailed = all.filter((r) => r.status !== "sent" && r.phone.includes("@")).length
     return {
-      conf: c, startAt: START_AT, redeemed, sentTotal, recent: withNames,
+      conf: c, startAt: START_AT, redeemed, sentTotal, smsSent: sentTotal - emailSent, emailSent, emailFailed, recent: withNames,
       currentCode: codeForMonth(c.code, Date.now()), repeat1Days: REPEAT1_DAYS, tier2FirstDays: TIER2_FIRST_DAYS, tier2RepeatDays: TIER2_REPEAT_DAYS,
     }
   },
@@ -414,7 +419,7 @@ export const refreshPendingQueueText = internalMutation({
       .filter((r) => r.source === "winback" || r.source === "winback2")
       .sort((x, y) => x.createdAt - y.createdAt)
     for (let i = 0; i < pendingWinback.length; i++) {
-      const text = fill(pickTemplate(templates, i), { name: pendingWinback[i].name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(templates, i), { name: firstName(pendingWinback[i].name) || "there", code })
       if (text !== pendingWinback[i].text) await ctx.db.patch(pendingWinback[i]._id, { text })
     }
   },

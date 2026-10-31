@@ -17,10 +17,10 @@ async function cart(t: ReturnType<typeof makeT>, over: Record<string, unknown> =
 
 describe("abandoned cart email", () => {
   it("reads the gift out of the lead name and builds the email", () => {
-    expect(parseGift("Gift box · won Tk 500 (BB-X9U8UN)")).toEqual({ amount: 500, code: "BB-X9U8UN" })
+    expect(parseGift("Gift box · won Tk 500 (BB-X9U8UN)")).toEqual({ amount: 500, code: "PREORDER500" })
     const m = abandonedEmailContent({ customerName: "Gift box · won Tk 500 (BB-X9U8UN)", items: [{ name: "Wave Sneaker", price: 2994, qty: 1, attrs: "43" }], subtotal: 2994, url: "https://blackbole.com/cart?add=1:1" })
     expect(m.subject).toContain("500")
-    expect(m.html).toContain("BB-X9U8UN")
+    expect(m.html).toContain("PREORDER500")
     expect(m.html).toContain("Use this code at checkout")
     expect(m.html).toContain("Go to my pre-order")
     const f = abandonedEmailContent({ customerName: "Rafi Khan", items: [], subtotal: 0, step: 2, picks: [{ name: "Other Boot", price: 3500, url: "https://blackbole.com/products/x" }] })
@@ -161,5 +161,21 @@ describe("abandoned cart email — numbers for the page", () => {
     await cart(t, {})
     const st = await as.query((await import("../../convex/_generated/api")).api.abandonedEmail.stats, {})
     expect(st).toMatchObject({ carts: 3, emails: 3, today: 1, failed: 1, won: 1, waiting: 1 })
+  })
+})
+
+describe("win-back email", () => {
+  it("builds the designed win-back email and a clean first name", async () => {
+    const { winbackEmailContent } = await import("../../convex/emailTemplates")
+    const { firstName } = await import("../../convex/winback")
+    expect(firstName("- Rasul")).toBe("Rasul")
+    expect(firstName("(Dr) Aziz Khan")).toBe("Dr")
+    expect(firstName("- ")).toBe("")
+    const m = winbackEmailContent({ name: "Rasul", code: "COMEBACK150-2610", amount: 150, minOrder: 1500, picks: [{ name: "Boot", price: 2000, url: "https://blackbole.com/products/b" }] })
+    expect(m.html).toContain("COMEBACK150-2610")
+    expect(m.html).toContain("Tk 150 OFF")
+    expect(m.html).toContain("See what's new")
+    expect(m.html).toContain("Use this code at checkout")
+    expect(m.subject).toContain("miss you")
   })
 })
