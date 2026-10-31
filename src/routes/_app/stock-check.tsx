@@ -127,7 +127,7 @@ function ProductCard({ p }: { p: Product }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete size {sizeDel?.title} of “{p.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>Only this size is removed (in every warehouse). The other sizes stay. It can't be deleted while an open order has it.</AlertDialogDescription>
+            <AlertDialogDescription>Only this size is removed, in every warehouse and in Shopify. The other sizes stay. It can't be undone, and it can't be deleted while an open order has it.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
@@ -139,7 +139,7 @@ function ProductCard({ p }: { p: Product }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete “{p.name}”?</AlertDialogTitle>
-            <AlertDialogDescription>It disappears from the product list, stock check and the website. If you only want it out of this count list for now, choose “Not needed for now” instead.</AlertDialogDescription>
+            <AlertDialogDescription>It is deleted for good from Ops, the website and Shopify. It can't be undone. If you only want it out of this count list for now, choose “Not needed for now” instead.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>

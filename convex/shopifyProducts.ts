@@ -62,3 +62,33 @@ export const push = internalAction({
     }
   },
 })
+
+/** Ops delete → Shopify delete. `whole` removes the product in Shopify (found by URL handle); otherwise only the
+ *  sizes with these SKUs are removed from it. Best effort: the reason is kept for Settings if Shopify refuses. */
+export const remove = internalAction({
+  args: { handle: v.optional(v.string()), skus: v.array(v.string()), whole: v.boolean() },
+  handler: async (ctx, { handle, skus, whole }) => {
+    if (!handle || !(await ctx.runQuery(internal.shopifyProducts.isOn, {}))) return
+    try {
+      const r = await shopifyGql(ctx, `query($q:String!){ products(first:1, query:$q){ nodes { id handle variants(first:100){ nodes { id sku } } } } }`, { q: `handle:${handle}` })
+      const found = r.products.nodes[0]
+      if (!found || found.handle !== handle) { await ctx.runMutation(internal.shopifyProducts.note, { error: null }); return } // not on Shopify
+      if (whole) {
+        const d = await shopifyGql(ctx, `mutation($i:ProductDeleteInput!){ productDelete(input:$i){ userErrors{ message } } }`, { i: { id: found.id } })
+        const e = d.productDelete.userErrors
+        if (e?.length) throw new Error(e.map((x: any) => x.message).join("; "))
+      } else {
+        const want = new Set(skus.map(normSku))
+        const ids = found.variants.nodes.filter((n: any) => want.has(normSku(n.sku))).map((n: any) => n.id)
+        if (ids.length && ids.length < found.variants.nodes.length) {
+          const d = await shopifyGql(ctx, `mutation($id:ID!,$v:[ID!]!){ productVariantsBulkDelete(productId:$id, variantsIds:$v){ userErrors{ message } } }`, { id: found.id, v: ids })
+          const e = d.productVariantsBulkDelete.userErrors
+          if (e?.length) throw new Error(e.map((x: any) => x.message).join("; "))
+        }
+      }
+      await ctx.runMutation(internal.shopifyProducts.note, { error: null })
+    } catch (e: any) {
+      await ctx.runMutation(internal.shopifyProducts.note, { error: `Delete in Shopify failed: ${String(e?.message ?? e).slice(0, 360)}` })
+    }
+  },
+})

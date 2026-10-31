@@ -192,6 +192,7 @@ export const deleteProduct = mutation({
     const open = await openOrderWith(ctx, new Set(variants.map((x) => x._id as string)))
     if (open) throw new ConvexError(`Can't delete: an open order (${open}) still has this product. Finish or cancel it first.`)
     await ctx.db.insert("archive", { table: "products", data: { name: p.name, handle: p.handle, skus: variants.map((x) => x.sku) }, reason: "Deleted from Stock check", byName: me.staff.name, at: Date.now() })
+    await ctx.scheduler.runAfter(0, internal.shopifyProducts.remove, { handle: p.handle, skus: variants.map((x) => x.sku), whole: true })
     for (const x of variants) await purgeVariant(ctx, x._id)
     if (p.handle) for (const c of await ctx.db.query("webCollections").collect()) if (c.productHandles.includes(p.handle)) await ctx.db.patch(c._id, { productHandles: c.productHandles.filter((h) => h !== p.handle), updatedAt: Date.now() })
     await ctx.db.delete(productId)
@@ -211,6 +212,8 @@ export const deleteSize = mutation({
     const open = await openOrderWith(ctx, new Set([variantId as string]))
     if (open) throw new ConvexError(`Can't delete size ${x.title}: an open order (${open}) still has it. Finish or cancel it first.`)
     await ctx.db.insert("archive", { table: "variants", data: { sku: x.sku, title: x.title, productId: x.productId }, reason: "Size deleted from Stock check", byName: me.staff.name, at: Date.now() })
+    const parent = await ctx.db.get(x.productId)
+    await ctx.scheduler.runAfter(0, internal.shopifyProducts.remove, { handle: parent?.handle, skus: [x.sku], whole: false })
     await purgeVariant(ctx, variantId)
     await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
   },
