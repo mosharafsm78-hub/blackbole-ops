@@ -61,3 +61,26 @@ describe("stock check: not needed for now / delete product", () => {
     await expect(as.mutation(api.stockCheck.deleteSize, { variantId: v42._id })).rejects.toThrow(/only size left/)
   })
 })
+
+describe("inventory hides retired sizes", () => {
+  it("does not list deleted sizes or deleted products with no stock", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    await as.mutation(api.catalog.saveProduct, { name: "Gone Sandal", active: true, variants: [
+      { sku: "BB-G-41", title: "41", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true },
+      { sku: "BB-G-42", title: "42", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true },
+    ] })
+    await as.mutation(api.catalog.saveProduct, { name: "Kept Sandal", active: true, variants: [{ sku: "BB-K-41", title: "41", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true }] })
+    const skus = async () => ((await as.query(api.catalog.inventory, {}))!.rows.map((r) => r.sku))
+    expect(await skus()).toEqual(expect.arrayContaining(["BB-G-41", "BB-G-42", "BB-K-41"]))
+    const v41 = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-G-41")).unique()))!
+    await as.mutation(api.stockCheck.deleteSize, { variantId: v41._id })
+    expect(await skus()).not.toContain("BB-G-41")
+    await as.mutation(api.stockCheck.deleteProduct, { productId: v41.productId })
+    const after = await skus()
+    expect(after).not.toContain("BB-G-42")
+    expect(after).toContain("BB-K-41")
+  })
+})

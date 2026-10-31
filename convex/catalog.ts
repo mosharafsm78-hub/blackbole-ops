@@ -232,7 +232,17 @@ export const inventory = query({
       list.push({ name: locName.get(r.locationId) ?? "Warehouse", available: r.available })
       whOf.set(r.variantId, list)
     }
-    const rows = variants.map((vr) => {
+    // Retired sizes (deleted, switched off, or an old "-DELETED" SKU) and sizes of deleted products are not listed
+    // any more — unless some stock is still sitting on them, which must never be hidden.
+    const retired = (vr: (typeof variants)[number]) => {
+      const p = pmap.get(vr.productId)
+      return !vr.active || /-DELETED$/i.test(vr.sku) || !p || !!p.deletedAt || p.active === false
+    }
+    const rows = variants.filter((vr) => {
+      if (!retired(vr)) return true
+      const st = stock.get(vr._id) ?? emptySum()
+      return !!(st.available || st.processing || st.inTransit || st.returning || st.damaged)
+    }).map((vr) => {
       const st = stock.get(vr._id) ?? emptySum()
       const p = pmap.get(vr.productId)
       return {
