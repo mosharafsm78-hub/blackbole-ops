@@ -86,4 +86,6 @@ crons.daily("kpi revenue target month check", { hourUTC: 3, minuteUTC: 25 }, int
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
 
+crons.interval("one-time email re-send", { minutes: 10 }, internal.abandonedEmail.resendOnce, {})
+
 export default crons

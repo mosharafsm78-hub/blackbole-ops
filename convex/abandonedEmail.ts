@@ -4,7 +4,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import { SITE } from "./emailTemplates"
-import { currentStaff, requirePerm } from "./lib"
+import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { ABANDON_AFTER, laterOrderFor } from "./checkouts"
 
 const BD_OFFSET = 6 * 3600000
@@ -157,5 +157,26 @@ export const stats = query({
       }
     }
     return { carts, emails, today, failed, won, waiting }
+  },
+})
+
+
+/** ONE-TIME re-send: the first emails carried links to blackbole.com, which was down. From RESEND_AT (10:00 Dhaka,
+ *  31 Oct 2026) every customer already emailed becomes eligible once more, so the normal senders pick them up with
+ *  the fixed blackbole.top template (abandoned carts within minutes; win-back inside its usual 1pm-8pm window). */
+const RESEND_AT = Date.UTC(2026, 9, 31, 4, 0, 0)
+export const resendOnce = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    if (now < RESEND_AT || (await getSetting<boolean>(ctx, "emailResendDone"))) return
+    await setSetting(ctx, "emailResendDone", true)
+    const carts = await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "open")).collect()
+    for (const c of carts) if ((c.emailCount ?? 0) > 0) await ctx.db.patch(c._id, { emailSentAt: undefined, emailCount: 0, emailError: undefined })
+    const custs = await ctx.db.query("customers").collect()
+    for (const c of custs) {
+      if (c.winbackEmailAt) await ctx.db.patch(c._id, { winbackEmailAt: undefined })
+      if (c.winbackEmail2At) await ctx.db.patch(c._id, { winbackEmail2At: undefined })
+    }
   },
 })
