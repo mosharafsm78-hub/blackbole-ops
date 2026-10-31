@@ -19,9 +19,10 @@ export const Route = createFileRoute("/_app/stock-check")({
   ),
 })
 
-type Filter = "uncounted" | "test" | "all"
+type Filter = "uncounted" | "counted" | "test" | "all"
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "uncounted", label: "Not counted yet" },
+  { key: "counted", label: "Counted" },
   { key: "test", label: "Has fake stock" },
   { key: "all", label: "All products" },
 ]
@@ -113,7 +114,7 @@ function ProductCard({ p }: { p: Product }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{p.name}</h2>
-          <p className="text-xs text-muted-foreground">System {p.system} · really in hand {p.real}{p.fake > 0 && <> · <b className="text-tone-amber">{p.fake} fake</b></>}</p>
+          <p className="text-xs text-muted-foreground">System {p.system} · really in hand {p.real}{p.fake > 0 && <> · <b className="text-tone-amber">{p.fake} fake</b></>}{(() => { const c = p.lines.filter((l) => l.countedAt).sort((a, b) => (b.countedAt ?? 0) - (a.countedAt ?? 0))[0]; return c && !p.uncounted ? <> · counted by {c.countedBy ?? "the team"}, {new Date(c.countedAt!).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</> : null })()}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {p.skipped && <Pill tone="gray">Not needed for now</Pill>}

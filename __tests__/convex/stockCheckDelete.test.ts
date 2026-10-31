@@ -153,3 +153,22 @@ describe("fake-stock filter is not cut short by pagination", () => {
     expect(r.products[0].fake).toBe(10)
   })
 })
+
+describe("counted filter", () => {
+  it("lists only fully counted products", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+    for (const n of ["Counted One", "Not Yet Two"]) {
+      await as.mutation(api.catalog.saveProduct, { name: n, active: true, variants: [{ sku: `BB-${n.slice(0, 3)}-41`, title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: true }] })
+      const v = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `BB-${n.slice(0, 3).toUpperCase()}-41`)).first()))!
+      await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: v._id, qty: 4, unitCost: 1 }] })
+      if (n === "Counted One") await as.mutation(api.stockCheck.saveCounts, { items: [{ variantId: v._id, locationId, real: 4 }] })
+    }
+    const names = async (f: "counted" | "uncounted") => ((await as.query(api.stockCheck.list, { filter: f, cursor: null }))!.products.map((p) => p.name))
+    expect(await names("counted")).toEqual(["Counted One"])
+    expect(await names("uncounted")).toEqual(["Not Yet Two"])
+  })
+})

@@ -23,7 +23,7 @@ export type CheckProduct = { productId: Id<"products">; name: string; preOrder: 
 
 /** A page of products with their size lines: system stock, counted real pairs and the fake remainder. */
 export const list = query({
-  args: { search: v.optional(v.string()), filter: v.union(v.literal("all"), v.literal("uncounted"), v.literal("test")), cursor: v.union(v.string(), v.null()) },
+  args: { search: v.optional(v.string()), filter: v.union(v.literal("all"), v.literal("uncounted"), v.literal("counted"), v.literal("test")), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { search, filter: chosen, cursor }) => {
     if (!(await currentStaff(ctx))) return null
     // Looking for a particular product must always find it (a brand-new one has no stock yet), whatever tab is open.
@@ -73,6 +73,7 @@ export const list = query({
       const fake = lines.reduce((t, l) => t + l.fake, 0)
       const uncounted = lines.some((l) => !l.counted && l.available > 0)
       if (filter === "uncounted" && !uncounted) continue
+      if (filter === "counted" && uncounted) continue
       if (filter === "test" && fake === 0) continue
       out.push({ productId: p._id, name: p.name, preOrder: !!p.preOrder, skipped: !!p.stockCheckSkip, system, fake, real: system - fake, uncounted, lines })
     }
