@@ -137,6 +137,15 @@ export const readCache = internalQuery({
     return row ? { at: row.at, value: row.value } : null
   },
 })
+/** Same cache, for server jobs with no signed-in person (the Marketing OS feed). */
+export const readCacheSystem = internalQuery({
+  args: { key: v.string() },
+  handler: async (ctx, { key }) => {
+    const row = await ctx.db.query("cache").withIndex("by_key", (q) => q.eq("key", key)).unique()
+    return row ? { at: row.at, value: row.value } : null
+  },
+})
+
 export const writeCache = internalMutation({
   args: { key: v.string(), value: v.any() },
   handler: async (ctx, { key, value }) => {

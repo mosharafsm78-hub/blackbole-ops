@@ -455,7 +455,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
 
     // ---- gathered data (cached a few minutes, shared) ----
     const key = `target-data:${m}:${period.first}`
-    const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
+    const hit = await ctx.runQuery(system ? internal.dashboard.readCacheSystem : internal.dashboard.readCache, { key })
     let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
     let dirty = false
     if (!data) { data = await gather(ctx, m, row.start, now, current); dirty = true }

@@ -94,3 +94,18 @@ describe("target feed", () => {
     expect(res.status).toBe(401)
   })
 })
+
+describe("target feed without a signed-in person", () => {
+  it("computes the month for Marketing OS", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-11-03T06:00:00Z"))
+    const { convexTest } = await import("convex-test")
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    await t.run(async (ctx) => { await ctx.db.insert("revenueTargets", { month: "2026-11", amount: 1200000, setByName: "Emon", updatedAt: 0, start: "2026-11-01" }) })
+    const p = await t.action((await import("../../convex/_generated/api")).internal.targets.progressForFeed, {})
+    expect(p.target?.amount).toBe(1200000)
+    expect(p.plan?.focus?.target).toBeGreaterThan(0)
+    expect(p.profit).toBeNull()
+    vi.useRealTimers()
+  })
+})
