@@ -221,16 +221,17 @@ export const adsSettings = query({
     const s = await currentStaff(ctx)
     if (!s) return null
     const m = (await getSetting<any>(ctx, "metaAds")) ?? {}
-    return { accounts: (m.accounts ?? []) as { id: string; name: string; locationId?: string }[], hasToken: !!m.token }
+    return { accounts: (m.accounts ?? []) as { id: string; name: string; locationId?: string }[], hasToken: !!m.token, pixelId: (m.pixelId ?? "") as string, capi: m.capi !== false }
   },
 })
 
 export const saveAdsSettings = mutation({
-  args: { token: v.optional(v.string()), accounts: v.array(v.object({ id: v.string(), name: v.string(), locationId: v.optional(v.string()) })) },
+  args: { token: v.optional(v.string()), accounts: v.array(v.object({ id: v.string(), name: v.string(), locationId: v.optional(v.string()) })), pixelId: v.optional(v.string()), capi: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
     const old = (await getSetting<any>(ctx, "metaAds")) ?? {}
-    await setSetting(ctx, "metaAds", { token: a.token?.trim() || old.token, accounts: a.accounts.map((x) => ({ ...x, id: x.id.replace(/^act_/, "") })) })
+    const pixelId = (a.pixelId ?? old.pixelId ?? "").replace(/\D/g, "")
+    await setSetting(ctx, "metaAds", { token: a.token?.trim() || old.token, accounts: a.accounts.map((x) => ({ ...x, id: x.id.replace(/^act_/, "") })), pixelId: pixelId || undefined, capi: a.capi ?? old.capi ?? true })
   },
 })
 

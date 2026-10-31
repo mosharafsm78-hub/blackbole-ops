@@ -3,6 +3,7 @@ import { getAuthUserId } from "@convex-dev/auth/server"
 import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
+import type { CapiEvent } from "./metaCapi"
 import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type PreOrderFrom, type Bucket, type OrderStatus } from "./rules"
 import { marketingChanged } from "./marketingPush"
 
@@ -207,6 +208,9 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   }
   // Automatic confirmation call for a new Pending order (checks its own on/off switch)
   if (status === "pending") await ctx.scheduler.runAfter(0, internal.autoCalls.queue, { orderId })
+  // Meta Conversions API: a confirmed order is the Purchase Meta should learn from; delivery and returns follow (needs the pixel ID in Settings → Meta ads)
+  const capi: CapiEvent | null = status === "approved" ? "Purchase" : status === "delivered_paid" || status === "delivered_due" ? "Delivered" : status === "returned" ? "Returned" : null
+  if (capi) await ctx.scheduler.runAfter(0, internal.metaCapi.send, { orderId, event: capi })
   // Same message by email when the customer gave an email address (checked in the action)
   const email = await getSetting<any>(ctx, "email")
   if (email?.enabled && (sms?.statuses ?? []).includes(status)) {

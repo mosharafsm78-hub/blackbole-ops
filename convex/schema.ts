@@ -388,6 +388,7 @@ export default defineSchema({
     reasonAt: v.optional(v.number()),
     // ---- Nuport parity ----
     invoiceCode: v.optional(v.string()), // legacy codes like SO-0005
+    metaEvents: v.optional(v.any()), // Conversions API: { Purchase: { at, ok, note? }, Delivered…, Returned… }
     deliveryPartnerId: v.optional(v.id("deliveryPartners")),
     deliveryPartnerName: v.optional(v.string()),
     followUpAt: v.optional(v.number()),

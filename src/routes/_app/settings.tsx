@@ -90,9 +90,13 @@ function MetaAdsTab() {
   const [acc, setAcc] = useState<string | null>(null)
   const [name, setName] = useState<string | null>(null)
   const [token, setToken] = useState("")
+  const [pixel, setPixel] = useState<string | null>(null)
+  const [capi, setCapi] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   if (cur === undefined) return <Loading />
   const first = cur?.accounts[0]
+  const pixelId = pixel ?? cur?.pixelId ?? ""
+  const capiOn = capi ?? cur?.capi ?? true
   const id = acc ?? first?.id ?? "1112103738022472"
   const label = name ?? first?.name ?? "BlackBole BDT"
   return (
@@ -101,9 +105,14 @@ function MetaAdsTab() {
         <div className="grid gap-1.5"><Label htmlFor="meta-acc">Ad account number</Label><Input id="meta-acc" value={id} onChange={(e) => setAcc(e.target.value)} /></div>
         <div className="grid gap-1.5"><Label htmlFor="meta-name">Name</Label><Input id="meta-name" value={label} onChange={(e) => setName(e.target.value)} /></div>
         <div className="grid gap-1.5"><Label htmlFor="meta-token">Access token</Label><Input id="meta-token" type="password" autoComplete="new-password" placeholder={cur?.hasToken ? "Saved – leave blank to keep" : "EAA…"} value={token} onChange={(e) => setToken(e.target.value)} /></div>
+        <div className="grid gap-1.5"><Label htmlFor="meta-pixel">Pixel (dataset) ID</Label><Input id="meta-pixel" inputMode="numeric" placeholder="Events Manager → your pixel → Settings" value={pixelId} onChange={(e) => setPixel(e.target.value)} /></div>
+        <label className="flex items-start gap-2 rounded-lg border p-3 text-sm">
+          <input type="checkbox" className="mt-1" checked={capiOn} onChange={(e) => setCapi(e.target.checked)} />
+          <span><b>Tell Meta about confirmed orders (Conversions API)</b><br /><span className="text-xs text-muted-foreground">When an order is Approved, Ops sends Meta a Purchase for it (with the order&apos;s own time, the phone number hashed, the order value); Delivered and Returned follow. The ads then learn from people who really take the parcel, not from everyone who places a COD order. Needs the pixel ID above.</span></span>
+        </label>
         <div><Button disabled={busy || !id.trim() || (!token.trim() && !cur?.hasToken)} onClick={async () => {
           setBusy(true)
-          try { await save({ token: token.trim() || undefined, accounts: [{ id: id.trim(), name: label.trim() || id.trim() }] }); setToken(""); toast.success("Meta ads saved") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          try { await save({ token: token.trim() || undefined, accounts: [{ id: id.trim(), name: label.trim() || id.trim() }], pixelId: pixelId.trim(), capi: capiOn }); setToken(""); toast.success("Meta ads saved") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
         }}>Save</Button></div>
       </div>
     </Section>
