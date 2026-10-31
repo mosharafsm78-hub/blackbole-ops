@@ -83,6 +83,20 @@ describe("marketing feed", () => {
     expect(data.stock).toEqual([expect.objectContaining({ sku: "BB-HSS-41", product: "Harbor Shore Sandal - Black", variant: "41" })])
     expect(typeof data.stock[0].available).toBe("number")
   })
+
+  it("sends the website price customers pay, and one product live by name", async () => {
+    const t = await setup()
+    vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    await t.run(async (ctx) => {
+      const vr = (await ctx.db.query("variants").collect()).find((x) => x.sku === "BB-HSS-41")!
+      await ctx.db.patch(vr._id, { price: 2280, web: { ...(vr.web ?? {}), price: 1980 } })
+    })
+    const one = await (await t.fetch(`/marketing/product?name=${encodeURIComponent("Harbor Shore Sandal - Black")}`, { headers: { "X-Feed-Key": FEED_KEY } })).json()
+    expect(one.stock).toEqual([expect.objectContaining({ sku: "BB-HSS-41", price: 1980, mrp: 2280 })])
+    const none = await (await t.fetch("/marketing/product?name=Nope", { headers: { "X-Feed-Key": FEED_KEY } })).json()
+    expect(none.stock).toEqual([])
+    expect((await t.fetch("/marketing/product?name=x")).status).toBe(401)
+  })
 })
 
 describe("target feed", () => {

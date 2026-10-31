@@ -5,6 +5,7 @@ import { httpAction, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
+import { webPrice } from "./website"
 
 const MAX_PAGE = 300
 
@@ -64,19 +65,23 @@ export const ordersSince = internalQuery({
 
 /** Sellable stock per SKU, summed across active warehouses. */
 export const stockBySku = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { product: v.optional(v.string()) },
+  handler: async (ctx, { product: only }) => {
     const locations = await ctx.db.query("locations").collect()
     const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
     const variants = await ctx.db.query("variants").collect()
     const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
-    const out: { sku: string; product: string; variant: string; price: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
+    const out: { sku: string; product: string; variant: string; price: number; mrp: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null }[] = []
     for (const vr of variants) {
       const p = products.get(vr.productId as string)
       if (!vr.active || !p || !p.active || p.deletedAt) continue
+      if (only !== undefined && p.name !== only) continue
       const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).collect()
       const available = rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)
-      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: vr.price, cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
+      // price = what a customer pays on the website now (its own website price, e.g. a reduced price), mrp = the Ops price.
+      // Pre-orders: the website price is only the booking money, so the full Ops price is the price.
+      const price = p.preOrder ? Math.round(vr.price) : webPrice(vr)
+      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price, mrp: Math.round(vr.price), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder, imageUrl: vr.imageUrl ?? p.imageUrl ?? null })
     }
     return out
   },
@@ -112,6 +117,14 @@ export const orders = httpAction(async (ctx, req) => {
 export const stock = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
   return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, {}) })
+})
+
+/** One product's sizes, prices and stock right now (Marketing OS opens a product: ?name=…). */
+export const product = httpAction(async (ctx, req) => {
+  if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
+  const name = new URL(req.url).searchParams.get("name")?.trim()
+  if (!name) return json({ error: "name is required" }, 400)
+  return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, { product: name }), at: Date.now() })
 })
 
 /** Today's revenue target, the daily ad budget and how many pairs each product should sell — for the Marketing OS AI Brain.
