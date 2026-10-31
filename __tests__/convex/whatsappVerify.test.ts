@@ -39,9 +39,9 @@ describe("WhatsApp order verification", () => {
     const { id, invoice } = await order("01711000001")
     const a = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "start" })
     expect(a.result).toBe("asked")
-    expect(a.replies[0]).toContain("Rahim Uddin")
-    expect(a.replies[0]).toContain("01711000001")
-    expect(a.replies[0]).toContain("Lalmatia")
+    expect(a.replies[0]).toContain("Rahim")
+    expect(a.replies[0]).not.toContain("01711000001") // no order details shown
+    expect(a.replies[0]).not.toContain("Lalmatia")
     expect(await status(id)).toBe("pending")
     const b = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "confirm" })
     expect(b.result).toBe("confirmed")
@@ -60,6 +60,7 @@ describe("WhatsApp order verification", () => {
     await as.mutation(api.whatsappVerify.simulate, { invoice, step: "start" })
     const r = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "cancel" })
     expect(r.result).toBe("cancelled")
+    expect(r.replies[0]).toMatch(/customer care team will call/)
     expect(await status(id)).toBe("cancelled")
   })
 

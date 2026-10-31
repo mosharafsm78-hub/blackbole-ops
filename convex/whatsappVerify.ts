@@ -1,9 +1,9 @@
 // WhatsApp order verification. After the COD form, the customer taps "Verify on WhatsApp": WhatsApp opens to our
-// business number with "Verify BB-12345" already typed. They press Send; we reply at once with a summary of their
-// order (name, phone, address, items, amount) and two buttons: Confirm / Cancel.
+// business number with "Verify BB-12345" already typed. They press Send; we reply at once with a short message (no
+// order details) and two buttons: Confirm / Cancel.
 //   Confirm → the order is Approved automatically, and a short message tells them when it arrives, to pick up the
 //             courier's call, and that exchange is free.
-//   Cancel  → the order is Cancelled.
+//   Cancel  → the order shows Cancelled in ops, the customer is told customer care will call, and a follow-up is set.
 // The customer's own WhatsApp number must match the order's phone: that proves the number is real and stops anyone
 // from confirming or cancelling someone else's order. An order whose address or phone looks incomplete gets no
 // buttons: the team is asked to call instead, so a wrong address is never "confirmed".
@@ -43,21 +43,9 @@ export function detailsProblem(o: { phone: string; address: string; cityName?: s
 const first = (name: string) => (name || "").trim().split(/\s+/)[0] || "there"
 const tk = (n: number) => `Tk ${Math.round(n).toLocaleString("en-IN")}`
 
+/** Short and without order details: the customer only decides Confirm or Cancel. */
 export function summaryText(o: Doc<"orders">): string {
-  const lines = o.items.slice(0, 6).map((i) => `• ${i.name}${i.attrs ? ` (${i.attrs})` : ""} × ${i.qty}`)
-  if (o.items.length > 6) lines.push(`• and ${o.items.length - 6} more`)
-  return [
-    `Hi ${first(o.customerName)}, please check your order ${invoiceLabel(o)}:`,
-    "",
-    ...lines,
-    "",
-    `Name: ${o.customerName}`,
-    `Phone: ${o.phone}`,
-    `Address: ${o.address}${o.cityName ? `, ${o.cityName}` : ""}`,
-    `Pay on delivery: ${tk(o.due > 0 ? o.due : o.total)}`,
-    "",
-    "Is everything correct? Tap Confirm to place the order, or Cancel.",
-  ].join("\n").slice(0, 1000)
+  return `Hi ${first(o.customerName)}, thank you for ordering from BlackBole! To place your order ${invoiceLabel(o)}, please tap Confirm. If you do not want it, tap Cancel.`
 }
 export const confirmedText = (o: Doc<"orders">, preOrder: boolean) => preOrder
   ? `Thank you ${first(o.customerName)}! Your pre-order ${invoiceLabel(o)} is confirmed. We will message you as soon as it is ready to ship. Free exchange is available if anything is not right, so there is nothing to worry about. — BlackBole`
@@ -112,7 +100,8 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
     // cancel
     if (canTransition(o.status as any, "cancelled") && !["cancelled"].includes(o.status) && ["pending", "on_hold", "approved"].includes(o.status)) {
       await applyStatus(ctx, o, "cancelled", BY, "Customer cancelled on WhatsApp")
-      return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. If this was a mistake, just message us here and we will help. — BlackBole`)], o._id)
+      await ctx.db.patch(o._id, { followUpAt: Date.now() }) // customer care calls to check why
+      return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. Our customer care team will call you shortly. — BlackBole`)], o._id)
     }
     if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} is already cancelled.`)], o._id)
     return record("already", [txt(`Order ${invoiceLabel(o)} is already on its way, so it can no longer be cancelled here. Please contact BlackBole.`)], o._id)
