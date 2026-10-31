@@ -189,3 +189,25 @@ export const deleteProduct = mutation({
     await ctx.db.insert("archive", { table: "products", data: { name: p.name, id: productId }, reason: "Deleted from Stock check", byName: me.staff.name, at: now })
   },
 })
+
+
+/** Deletes ONE size of a product (all its warehouses): switched off everywhere. Refused while an open order has it,
+ *  and for the last size left (delete the whole product instead). */
+export const deleteSize = mutation({
+  args: { variantId: v.id("variants") },
+  handler: async (ctx, { variantId }) => {
+    const me = await requirePerm(ctx, "products.manage")
+    const x = await ctx.db.get(variantId)
+    if (!x || !x.active) throw new ConvexError("Size not found")
+    const siblings = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", x.productId)).collect()).filter((y) => y.active)
+    if (siblings.length <= 1) throw new ConvexError("This is the only size left. Delete the whole product instead.")
+    for (const st of ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"] as const) {
+      const open = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).collect()
+      const hit = open.find((o) => !o.deletedAt && o.items.some((i: any) => (i.variantId as string) === (variantId as string)))
+      if (hit) throw new ConvexError(`Can't delete size ${x.title}: an open order (${hit.invoiceCode ?? `BB-${hit.invoiceNo}`}) still has it. Finish or cancel it first.`)
+    }
+    await ctx.db.patch(variantId, { active: false })
+    await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
+    await ctx.db.insert("archive", { table: "variants", data: { sku: x.sku, title: x.title, productId: x.productId }, reason: "Size deleted from Stock check", byName: me.staff.name, at: Date.now() })
+  },
+})

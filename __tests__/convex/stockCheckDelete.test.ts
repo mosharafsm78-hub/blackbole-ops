@@ -41,4 +41,23 @@ describe("stock check: not needed for now / delete product", () => {
     })
     await expect(as.mutation(api.stockCheck.deleteProduct, { productId: variant.productId })).rejects.toThrow(/open order/)
   })
+
+  it("deletes one size only, and keeps the last size", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+    await as.mutation(api.catalog.saveProduct, { name: "Sized Sandal", active: true, variants: [
+      { sku: "BB-S-41", title: "41", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true },
+      { sku: "BB-S-42", title: "42", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true },
+    ] })
+    const get = (sku: string) => t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).unique())
+    const v41 = (await get("BB-S-41"))!, v42 = (await get("BB-S-42"))!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: v41._id, qty: 2, unitCost: 520 }, { variantId: v42._id, qty: 2, unitCost: 520 }] })
+    await as.mutation(api.stockCheck.deleteSize, { variantId: v41._id })
+    const p = (await as.query(api.stockCheck.list, { filter: "all", cursor: null }))!.products.find((x) => x.name === "Sized Sandal")!
+    expect(p.lines.map((l) => l.title)).toEqual(["42"])
+    await expect(as.mutation(api.stockCheck.deleteSize, { variantId: v42._id })).rejects.toThrow(/only size left/)
+  })
 })

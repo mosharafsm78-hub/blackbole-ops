@@ -89,6 +89,8 @@ function ProductCard({ p }: { p: Product }) {
   const skip = useMutation(api.stockCheck.skipProduct)
   const del = useMutation(api.stockCheck.deleteProduct)
   const [confirmDel, setConfirmDel] = useState(false)
+  const delSize = useMutation(api.stockCheck.deleteSize)
+  const [sizeDel, setSizeDel] = useState<Product["lines"][number] | null>(null)
   const [add, setAdd] = useState<Record<string, string>>({})
   const key = (l: Product["lines"][number]) => `${l.variantId}|${l.locationId}`
   const [draft, setDraft] = useState<Record<string, string>>({})
@@ -118,9 +120,21 @@ function ProductCard({ p }: { p: Product }) {
           <Button size="sm" variant="outline" disabled={busy} data-testid="skip-product" onClick={() => void run(() => skip({ productId: p.productId, skip: !p.skipped }), p.skipped ? "Brought back to the count list" : "Hidden from the count list for now")}>
             {p.skipped ? "Bring back" : "Not needed now"}
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} data-testid="delete-product" className="border-tone-red/40 text-tone-red hover:bg-tone-red/10" onClick={() => setConfirmDel(true)}>Delete</Button>
+          <Button size="sm" variant="outline" disabled={busy} data-testid="delete-product" className="border-tone-red/40 text-tone-red hover:bg-tone-red/10" onClick={() => setConfirmDel(true)}>Delete product</Button>
         </div>
       </div>
+      <AlertDialog open={!!sizeDel} onOpenChange={(o) => { if (!o) setSizeDel(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete size {sizeDel?.title} of “{p.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>Only this size is removed (in every warehouse). The other sizes stay. It can't be deleted while an open order has it.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { const l = sizeDel; if (l) void run(() => delSize({ variantId: l.variantId }), `Deleted size ${l.title}`) }}>Delete size</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -136,7 +150,7 @@ function ProductCard({ p }: { p: Product }) {
       <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Test</th><th className="px-3 py-1.5 text-right font-medium">Add test pairs</th></tr>
+            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Test</th><th className="px-3 py-1.5 text-right font-medium">Add test pairs</th><th className="w-10 px-2 py-1.5"></th></tr>
           </thead>
           <tbody>
             {p.lines.map((l) => {
@@ -153,6 +167,9 @@ function ProductCard({ p }: { p: Product }) {
                   <td className={cn("px-3 py-1.5 text-right tabular-nums", fake > 0 && "font-semibold text-tone-amber")}>{fake}</td>
                   <td className="px-3 py-1.5 text-right">
                     <Input type="number" inputMode="numeric" min={0} placeholder="+" value={add[key(l)] ?? ""} onChange={(e) => setAdd({ ...add, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Test pairs to add for ${p.name} size ${l.title}`} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right">
+                    <Button size="sm" variant="ghost" disabled={busy} title={`Delete size ${l.title}`} aria-label={`Delete size ${l.title}`} data-testid="delete-size" className="h-8 px-2 text-tone-red hover:bg-tone-red/10" onClick={() => setSizeDel(l)}>✕</Button>
                   </td>
                 </tr>
               )
