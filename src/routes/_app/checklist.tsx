@@ -79,9 +79,10 @@ function AddStep({ phases }: { phases: string[] }) {
 function ChecklistPage() {
   const items = useQuery(api.checklist.list)
   const seed = useMutation(api.checklist.ensureSeeded)
+  const ladder = useQuery(api.checklist.ladder)
   const can = useCan()
-  useEffect(() => { if (items && items.length === 0) void seed({}) }, [items === undefined ? -1 : items.length])
-  if (!items) return <Loading />
+  useEffect(() => { void seed({}) }, [])
+  if (!items || !ladder) return <Loading />
   const done = items.filter((i) => i.doneAt).length
   const overdue = items.filter((i) => !i.doneAt && i.dueAt < Date.now()).length
   const pct = items.length ? Math.round((done / items.length) * 100) : 0
@@ -89,7 +90,7 @@ function ChecklistPage() {
   const next = items.filter((i) => !i.doneAt).sort((a, b) => a.dueAt - b.dueAt)[0]
   return (
     <div className="mx-auto max-w-3xl space-y-4">
-      <PageHeader title="Route to Tk 1 crore a month" sub="Step by step: what to do, what not to do, and the deadline. Tick a step when it is really done. A step that misses its deadline goes to Accountability." />
+      <PageHeader title="The ladder to Tk 1 crore a month" sub="Six rungs, one at a time. Each rung has its numbers, its steps, a deadline on every step, and a gate: the numbers must hold for 2 weeks before you climb. A missed deadline goes to Accountability." />
       <div className="rounded-xl border bg-card p-4" data-testid="progress">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-2xl font-bold tabular-nums">{done} <span className="text-base font-medium text-muted-foreground">of {items.length} steps done</span></p>
@@ -97,13 +98,31 @@ function ChecklistPage() {
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full bg-tone-green" style={{ width: `${pct}%` }} /></div>
         {next && <p className="mt-2 text-sm text-muted-foreground">Next deadline: <b className="text-foreground">{next.title}</b> · {dm(next.dueAt)}</p>}
-        <p className="mt-1 text-xs text-muted-foreground">The money maths: Tk 1 crore is about Tk 3.3 lakh a day. At an order value near Tk 1,800 that is roughly 185 delivered orders a day. Watch the real numbers on the <Link to="/target" className="underline">Target page</Link>.</p>
+
+      </div>
+      <div className="rounded-xl border bg-card p-4" data-testid="now">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Where we are now · last 30 days to 31 Oct</p>
+        <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          {ladder.now.map(([k, v]) => <div key={k} className="flex justify-between gap-3 border-b border-dashed py-1"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}
+        </dl>
+        <p className="mt-2 text-xs text-muted-foreground">Tk 1 crore delivered is about 23 times today. That is why it is a ladder: each rung is reachable from the one before. Live numbers are on the <Link to="/target" className="underline">Target page</Link> and in Reports.</p>
       </div>
       {phases.map((ph) => {
         const rows = items.filter((i) => i.phase === ph)
         return (
           <section key={ph} className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{ph} · {rows.filter((r) => r.doneAt).length}/{rows.length}</h2>
+            <h2 className="text-base font-bold">{ph} <span className="text-sm font-medium text-muted-foreground">· {rows.filter((r) => r.doneAt).length}/{rows.length} steps</span></h2>
+            {(() => {
+              const rung = ladder.rungs.find((r) => r.title === ph)
+              return rung ? (
+                <div className="rounded-lg bg-muted/50 p-3 text-sm" data-testid="rung-numbers">
+                  <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                    {rung.numbers.map(([k, v]) => <div key={k} className="flex justify-between gap-3"><span className="text-muted-foreground">{k}</span><b>{v}</b></div>)}
+                  </div>
+                  <p className="mt-2"><b>Gate to climb:</b> {rung.gate}</p>
+                </div>
+              ) : null
+            })()}
             {rows.map((it) => <Step key={it._id} it={it} />)}
           </section>
         )
