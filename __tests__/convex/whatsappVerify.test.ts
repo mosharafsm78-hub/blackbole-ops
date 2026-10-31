@@ -26,6 +26,7 @@ async function setup() {
 describe("WhatsApp order verification", () => {
   it("reads order numbers and phone numbers from messy input", () => {
     expect(invoiceFromText("Verify BB-12345")).toEqual({ no: 12345 })
+    expect(invoiceFromText("Hi, I just placed order #29482 (Tk 2,990). I confirm my order.")).toEqual({ ext: "#29482" }) // COD Lion's button
     expect(invoiceFromText("verify bb12345 please")).toEqual({ no: 12345 })
     expect(invoiceFromText("hello")).toBeNull()
     expect(phoneKey("+8801712345678")).toBe(phoneKey("01712345678"))

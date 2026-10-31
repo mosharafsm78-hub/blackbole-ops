@@ -28,11 +28,13 @@ const secrets = async (ctx: any): Promise<Secrets> => (await getSetting<Secrets>
 /** The last 10 digits of a phone number, so 8801712345678, +8801712345678 and 01712345678 all compare equal. */
 export const phoneKey = (s: string) => (s ?? "").replace(/\D/g, "").slice(-10)
 /** The order number in a customer's message: "Verify BB-12345" → { no: 12345 }; legacy codes like SO-0005 → { code }. */
-export function invoiceFromText(text: string): { no?: number; code?: string } | null {
+export function invoiceFromText(text: string): { no?: number; code?: string; ext?: string } | null {
   const bb = /\bBB-?\s?(\d{1,9})\b/i.exec(text)
   if (bb) return { no: Number(bb[1]) }
   const legacy = /\b([A-Z]{2,4}-\d{2,9})\b/i.exec(text)
-  return legacy ? { code: legacy[1].toUpperCase() } : null
+  if (legacy) return { code: legacy[1].toUpperCase() }
+  const ext = /#\s?(\d{3,9})\b/.exec(text) // COD Lion's WhatsApp button sends the Shopify order number, e.g. "#29482"
+  return ext ? { ext: `#${ext[1]}` } : null
 }
 /** Why this order can't simply be "confirmed" by the customer, or null when phone and address look usable. */
 export function detailsProblem(o: { phone: string; address: string; cityName?: string }): string | null {
@@ -62,7 +64,11 @@ async function markWa(ctx: any, o: Doc<"orders">, result: "confirmed" | "cancell
 }
 
 // ---------- what one customer message does ----------
-async function findOrder(ctx: any, ref: { no?: number; code?: string }): Promise<Doc<"orders"> | null> {
+async function findOrder(ctx: any, ref: { no?: number; code?: string; ext?: string }): Promise<Doc<"orders"> | null> {
+  if (ref.ext) {
+    const recent: Doc<"orders">[] = await ctx.db.query("orders").withIndex("by_created").order("desc").take(3000)
+    return recent.find((r) => !r.deletedAt && r.externalName === ref.ext) ?? null
+  }
   const rows: Doc<"orders">[] = ref.code
     ? await ctx.db.query("orders").withIndex("by_invoice_code", (q: any) => q.eq("invoiceCode", ref.code)).collect()
     : await ctx.db.query("orders").withIndex("by_invoice", (q: any) => q.eq("invoiceNo", ref.no)).collect()
