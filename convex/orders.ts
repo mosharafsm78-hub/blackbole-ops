@@ -1301,18 +1301,28 @@ export const pickList = query({
         map.set(i.sku, row)
       }
     }
-    // Available stock per variant, summed across every warehouse for the headline number, but also broken down
+    // Physical stock per variant, summed across every warehouse for the headline number, but also broken down
     // by warehouse so the team can see WHERE to actually go pick it — "it's available" is no help by itself
     // when it's sitting in a warehouse nobody on this run is standing in.
+    //
+    // This checklist is normally run on an already-Approved batch, right before printing invoices — but once
+    // an order is approved its units move OUT of the `available` bucket and INTO `processing` (that's exactly
+    // what "approved" means: reserved for this order). Counting `available` alone made every approved batch
+    // look short, even when the pairs were sitting right there, just earmarked. So this sums `available +
+    // processing`: free stock plus whatever's already reserved for orders — i.e. everything still physically
+    // in the warehouse that hasn't shipped out yet. A real shortage (oversold at approval time, or lost since)
+    // still shows up, because that total genuinely won't cover what the batch needs.
     const neededVariants = new Set([...map.values()].map((r) => r.variantId).filter((x): x is string => !!x))
     const available = new Map<string, number>()
     const byWarehouse = new Map<string, Map<string, number>>() // variantId -> locationId -> available
     if (neededVariants.size) {
       for (const r of await ctx.db.query("stock").collect()) {
-        if (!neededVariants.has(r.variantId as string) || r.available <= 0) continue
-        available.set(r.variantId as string, (available.get(r.variantId as string) ?? 0) + r.available)
+        if (!neededVariants.has(r.variantId as string)) continue
+        const onHand = r.available + r.processing
+        if (onHand <= 0) continue
+        available.set(r.variantId as string, (available.get(r.variantId as string) ?? 0) + onHand)
         const perLoc = byWarehouse.get(r.variantId as string) ?? new Map<string, number>()
-        perLoc.set(r.locationId as string, (perLoc.get(r.locationId as string) ?? 0) + r.available)
+        perLoc.set(r.locationId as string, (perLoc.get(r.locationId as string) ?? 0) + onHand)
         byWarehouse.set(r.variantId as string, perLoc)
       }
     }

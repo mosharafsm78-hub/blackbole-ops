@@ -124,4 +124,20 @@ describe("pick list", () => {
       ]),
     )
   })
+
+  it("doesn't flag an already-Approved batch as short just because approval moved its stock out of 'available'", async () => {
+    // This is the normal real-world use: select an Approved batch and open the checklist right before printing
+    // invoices. Approving an order reserves its units into the `processing` bucket (out of `available`), so a
+    // checklist that only looked at `available` would call every approved order "short" even though its exact
+    // stock is sitting right there, just earmarked for it.
+    const { as, locationId, v41 } = await setup() // v41 has 10 available
+    const { orderId } = await as.mutation(api.orders.create, baseOrder(locationId, v41._id, 4))
+    await as.mutation(api.orders.changeStatus, { ids: [orderId], to: "approved" })
+
+    const rows = (await as.query(api.orders.pickList, { ids: [orderId] }))!
+    const hss41 = rows.find((r) => r.sku === "BB-HSS-41")!
+    expect(hss41.qty).toBe(4)
+    expect(hss41.availableQty).toBe(10) // 6 still free + 4 reserved for this very order
+    expect(hss41.shortageQty).toBe(0)
+  })
 })
