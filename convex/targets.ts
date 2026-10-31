@@ -421,9 +421,10 @@ export const progressForFeed = internalAction({
 
 export const costsForFeed = internalQuery({
   args: {},
-  handler: async (ctx): Promise<{ costs: MonthlyCosts; fixedVisible: boolean }> => {
+  handler: async (ctx): Promise<{ costs: MonthlyCosts; fixedVisible: boolean; fixedMonthly: number }> => {
     const c = withDefaults(await getSetting<MonthlyCosts>(ctx, "monthlyCosts"))
-    return { costs: { ...c, salary: 0, rent: 0, other: 0 }, fixedVisible: false }
+    // One combined monthly total only (the owner asked for it in each product's ad sum); never the salary / rent split.
+    return { costs: { ...c, salary: 0, rent: 0, other: 0 }, fixedVisible: false, fixedMonthly: Math.round(fixedTotal(c)) }
   },
 })
 

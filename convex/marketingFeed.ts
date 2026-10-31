@@ -115,12 +115,16 @@ export const stock = httpAction(async (ctx, req) => {
 })
 
 /** Today's revenue target, the daily ad budget and how many pairs each product should sell — for the Marketing OS AI Brain.
- *  Never sends salaries, rent or other fixed costs. */
+ *  Never sends salaries, rent or other fixed costs one by one – only their combined monthly total. */
 export const target = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
   const p = await ctx.runAction(internal.targets.progressForFeed, {})
   const mk = p.marketing?.state === "ok" ? p.marketing.plan : null
+  // Per-order costs and ONE combined monthly fixed-cost total (never salary / rent / other one by one):
+  // Marketing OS uses them in each product's profit sum.
+  const { costs: c, fixedMonthly } = await ctx.runQuery(internal.targets.costsForFeed, {})
   return json({
+    costs: { packaging: c.packaging ?? 0, payFeePct: c.payFeePct ?? 0, delivery: c.delivery ?? 0, returnPct: c.returnPct ?? 0, fixedMonthly },
     month: p.month, asOf: p.asOf, auto: p.auto,
     target: p.target?.amount ?? null,
     delivered: p.plan?.delivered ?? null, remaining: p.plan?.remaining ?? null, daysLeft: p.plan?.daysLeft ?? null,
