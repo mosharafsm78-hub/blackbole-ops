@@ -12,7 +12,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import { requirePerm } from "./lib"
-import { pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
+import { firstName, pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
 
 const DAY = 86400000
 const BATCH = 100
@@ -76,7 +76,7 @@ export const run = internalAction({
     const list = await ctx.runQuery(internal.waQueue.winbackCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
     let idx = c.waSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
       await ctx.runMutation(internal.waQueue.enqueueOne, { customerId: cust._id, phone: cust.phone, name: cust.name, text, source: "winback" })
       idx++
     }
@@ -95,7 +95,7 @@ export const run2 = internalAction({
     const list = await ctx.runQuery(internal.waQueue.winback2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
     let idx = c.waSendIndex ?? 0
     for (const cust of list) {
-      const text = fill(pickTemplate(c.templates, idx), { name: cust.name.split(" ")[0] || "there", code })
+      const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
       await ctx.runMutation(internal.waQueue.enqueueOne, { customerId: cust._id, phone: cust.phone, name: cust.name, text, source: "winback2", tier: 2 })
       idx++
     }

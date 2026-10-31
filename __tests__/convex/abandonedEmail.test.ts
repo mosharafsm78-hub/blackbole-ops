@@ -163,3 +163,19 @@ describe("abandoned cart email — numbers for the page", () => {
     expect(st).toMatchObject({ carts: 3, emails: 3, today: 1, failed: 1, won: 1, waiting: 1 })
   })
 })
+
+describe("win-back email", () => {
+  it("builds the designed win-back email and a clean first name", async () => {
+    const { winbackEmailContent } = await import("../../convex/emailTemplates")
+    const { firstName } = await import("../../convex/winback")
+    expect(firstName("- Rasul")).toBe("Rasul")
+    expect(firstName("(Dr) Aziz Khan")).toBe("Dr")
+    expect(firstName("- ")).toBe("")
+    const m = winbackEmailContent({ name: "Rasul", code: "COMEBACK150-2610", amount: 150, minOrder: 1500, picks: [{ name: "Boot", price: 2000, url: "https://blackbole.com/products/b" }] })
+    expect(m.html).toContain("COMEBACK150-2610")
+    expect(m.html).toContain("Tk 150 OFF")
+    expect(m.html).toContain("See what's new")
+    expect(m.html).toContain("Use this code at checkout")
+    expect(m.subject).toContain("miss you")
+  })
+})

@@ -7,7 +7,7 @@ import { action, internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { invoiceLabel } from "./lib"
 import { orderMessage } from "./outbound"
-import { abandonedEmailContent } from "./emailTemplates"
+import { SITE, abandonedEmailContent, winbackEmailContent } from "./emailTemplates"
 
 const SUBJECT: Record<string, string> = {
   pending: "Your BlackBole order {invoice} is received 🎉",
@@ -27,7 +27,7 @@ function html(text: string, hotline?: string) {
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff">
 <tr><td style="background:#1c1915;color:#ffffff;padding:18px 24px;font-size:20px;letter-spacing:4px;font-weight:bold">BLACKBOLE</td></tr>
 <tr><td style="padding:28px 24px;font-size:15px;line-height:1.6">${body}</td></tr>
-<tr><td style="padding:16px 24px;border-top:1px solid #eee;font-size:12px;color:#7a746b">BlackBole · blackbole.com${hotline ? ` · Help: ${esc(hotline)}` : ""}</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #eee;font-size:12px;color:#7a746b">BlackBole${hotline ? ` · Help: ${esc(hotline)}` : ""}</td></tr>
 </table></td></tr></table></body></html>`
 }
 
@@ -64,11 +64,18 @@ export const sendOrderEmail = internalAction({
 /** Win-back email — same discount push as the SMS/WhatsApp channels, sent fully automatically (no WhatsApp-style
  *  ban risk for email, so no human queue needed). Called from winback.ts's hourly runEmail action. */
 export const sendWinbackEmail = internalAction({
-  args: { customerId: v.id("customers"), to: v.string(), subject: v.string(), text: v.string() },
-  handler: async (ctx, { customerId, to, subject, text }) => {
+  args: { customerId: v.id("customers"), to: v.string(), subject: v.string(), text: v.string(), name: v.optional(v.string()), code: v.optional(v.string()) },
+  handler: async (ctx, { customerId, to, subject, text, name, code }) => {
     const email = await ctx.runQuery(internal.outbound.emailSettingsRaw, {})
     const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
-    const error = await send(email, to, subject, text, contact?.hotline)
+    // A designed email (coupon box, button, 8 products); the plain text stays as the fallback
+    let htmlBody: string | undefined, subj = subject, plain = text
+    if (code) {
+      const picks = await ctx.runQuery(internal.abandonedEmail.picks, { exclude: [], kind: "regular", step: new Date().getUTCDate() })
+      const m = winbackEmailContent({ name: name ?? "", code, amount: 150, minOrder: 1500, hotline: contact?.hotline, picks })
+      htmlBody = m.html; subj = m.subject; plain = m.text
+    }
+    const error = await send(email, to, subj, plain, contact?.hotline, htmlBody)
     await ctx.runMutation(internal.winback.logSentEmail, { customerId, email: to, text, error })
   },
 })
@@ -145,7 +152,7 @@ export const sendAbandonedEmail = internalAction({
     const kind = info?.kind ?? "preorder"
     const picks = await ctx.runQuery(internal.abandonedEmail.picks, { exclude: c.items.map((i: any) => i.name), step: (c.emailCount ?? 0) + 1, kind })
     // pre-order: back to the pre-order product page · normal: back to their cart · welcome: the shop
-    const url = kind === "preorder" ? (info?.productUrl ?? c.recoveryUrl) : kind === "regular" ? (c.recoveryUrl ?? info?.productUrl) : "https://blackbole.com"
+    const url = kind === "preorder" ? (info?.productUrl ?? c.recoveryUrl) : kind === "regular" ? (c.recoveryUrl ?? info?.productUrl) : SITE
     const m = abandonedEmailContent({ customerName: c.customerName, items: c.items, subtotal: c.subtotal, url, hotline: contact?.hotline, step: (c.emailCount ?? 0) + 1, picks, kind })
     const error = await send(email, c.email, m.subject, m.text, contact?.hotline, m.html)
     await ctx.runMutation(internal.abandonedEmail.markResult, { checkoutId, subject: m.subject, error: error ?? undefined })

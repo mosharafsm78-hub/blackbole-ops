@@ -51,8 +51,9 @@ export function WinBackSettings() {
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">{started ? "Running since" : "Starts"} {dateTime(data.startAt)}{!started && " (Asia/Dhaka) — nothing sends before then."} · This month's code: <span className="font-mono">{data.currentCode}</span></p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <Stat label="Messages sent" value={data.sentTotal} />
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <Stat label="SMS sent" value={data.smsSent} />
+          <Stat label="Emails sent" value={data.emailSent} tone={data.emailFailed ? "text-tone-red" : undefined} />
           <Stat label="Discount redeemed" value={data.redeemed} tone="text-tone-green" />
           <Stat label="Repeats every" value={`${data.repeat1Days}d (1st-time) / ${data.tier2RepeatDays}d (repeat buyers)`} />
         </div>
