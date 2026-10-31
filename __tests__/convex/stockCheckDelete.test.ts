@@ -136,3 +136,20 @@ describe("everything not counted is real", () => {
     expect((await row(b))!.virtual).toBe(2)
   })
 })
+
+describe("fake-stock filter is not cut short by pagination", () => {
+  it("finds a fake-stock product even when 40 other products come before it", async () => {
+    const t = makeT()
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Emon" })
+    const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+    for (let i = 0; i < 40; i++) await as.mutation(api.catalog.saveProduct, { name: `Plain ${i}`, active: true, variants: [{ sku: `BB-P-${i}`, title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: true }] })
+    await as.mutation(api.catalog.saveProduct, { name: "Fakey Sandal", active: true, variants: [{ sku: "BB-F-41", title: "41", weightKg: 0.4, price: 1, purchasePrice: 1, active: true }] })
+    const v = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-F-41")).first()))!
+    await as.mutation(api.stockCheck.addTestStock, { items: [{ variantId: v._id, locationId, qty: 10 }] })
+    const r = (await as.query(api.stockCheck.list, { filter: "test", cursor: null }))!
+    expect(r.products.map((p) => p.name)).toEqual(["Fakey Sandal"])
+    expect(r.products[0].fake).toBe(10)
+  })
+})

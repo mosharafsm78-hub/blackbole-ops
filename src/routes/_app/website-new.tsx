@@ -237,10 +237,10 @@ export function NewProduct({ embedded, onCreated }: { embedded?: boolean; onCrea
           <Section title="Inventory">
             <label className="flex items-center gap-2 text-sm"><Checkbox checked disabled /> Track quantity</label>
             <p className="mt-1 text-xs text-muted-foreground">{f.preOrder ? "Pre-orders don't need stock." : "Stock is added in Ops through Purchases and Stock in. Until then the product shows as sold out."}</p>
-            {!f.preOrder && !embedded && <p className="mt-2 rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground"><b className="text-foreground">Test (fake) pairs:</b> for a product you are only testing in marketing. They count as stock on the website and in Shopify so people can order, but Ops marks them “Test (fake) — not in hand” and keeps them out of the real stock and the target plan. {hasVariants ? "Type the pairs for each size in the Test pairs column below." : ""}</p>}
+            {!f.preOrder && !embedded && <p className="mt-2 rounded-lg bg-muted/40 p-2.5 text-xs text-muted-foreground"><b className="text-foreground">Fake pairs:</b> for a product you are only testing in marketing. They count as stock on the website and in Shopify so people can order, but Ops marks them “Test (fake) — not in hand” and keeps them out of the real stock and the target plan. {hasVariants ? "Type the pairs for each size in the Test pairs column below." : ""}</p>}
             {!hasVariants && (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {!f.preOrder && !embedded && <Field label="Test (fake) pairs"><Input type="number" min={0} step={1} value={f.test} placeholder="0" onChange={(e) => set("test", e.target.value)} /></Field>}
+                {!f.preOrder && !embedded && <Field label="Fake pairs"><Input type="number" min={0} step={1} value={f.test} placeholder="0" onChange={(e) => set("test", e.target.value)} /></Field>}
                 <Field label="SKU (Stock Keeping Unit)"><Input value={f.sku} placeholder={prefix} onChange={(e) => set("sku", e.target.value.toUpperCase().replace(/\s+/g, ""))} className={cn("font-mono text-xs", taken.includes(variants[0].sku) && "border-tone-red")} /></Field>
                 <Field label="Barcode (ISBN, UPC, GTIN, etc.)"><Input value={f.barcode} onChange={(e) => set("barcode", e.target.value)} /></Field>
               </div>

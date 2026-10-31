@@ -160,7 +160,7 @@ function SellList({ data }: { data: TargetProgress }) {
   )
 }
 
-/** Real stock vs test stock: a nudge to count what is not yet counted, and the products being tested without stock. */
+/** Real stock vs fake stock: a nudge to count what is not yet counted, and the products being tested without stock. */
 function StockNotes({ data }: { data: TargetProgress }) {
   const can = useCan()
   const c = data.stockCheck
@@ -172,7 +172,7 @@ function StockNotes({ data }: { data: TargetProgress }) {
         <div className="flex items-start gap-2 rounded-lg border border-tone-amber/40 bg-tone-amber-bg/40 p-3 text-xs">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-amber" />
           <span>
-            <b>{left} of {c.lines} stock lines haven't been counted yet.</b> Until they are, some test (fake) stock may still be inside this plan as if it were in hand.{" "}
+            <b>{left} of {c.lines} stock lines haven't been counted yet.</b> Until they are, some fake stock may still be inside this plan as if it were in hand.{" "}
             {can("inventory.adjust") && <Link to="/stock-check" className="font-medium text-tone-blue hover:underline">Count them in Stock check →</Link>}
           </span>
         </div>
@@ -180,11 +180,11 @@ function StockNotes({ data }: { data: TargetProgress }) {
       {data.tests.length > 0 && (
         <section className="rounded-xl border bg-card p-4" data-testid="target-tests">
           <h2 className="text-sm font-semibold">Marketing tests — stock not in hand</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Test pairs are advertised and can be ordered, but aren't planned: there are no real pairs to deliver. A product that gets {5}+ orders in a week has proven demand — buy it from the supplier in Purchases, and it joins the plan by itself once received.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Fake pairs are advertised and can be ordered, but aren't planned: there are no real pairs to deliver. A product that gets {5}+ orders in a week has proven demand — buy it from the supplier in Purchases, and it joins the plan by itself once received.</p>
           <div className="mt-2 overflow-x-auto rounded-lg border">
             <table className="w-full min-w-[480px] text-sm">
               <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Test pairs</th><th className="px-3 py-1.5 text-right font-medium">In hand</th><th className="px-3 py-1.5 text-right font-medium">Ordered (7 days)</th><th className="px-3 py-1.5 text-right font-medium">Decision</th></tr>
+                <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Fake pairs</th><th className="px-3 py-1.5 text-right font-medium">In hand</th><th className="px-3 py-1.5 text-right font-medium">Ordered (7 days)</th><th className="px-3 py-1.5 text-right font-medium">Decision</th></tr>
               </thead>
               <tbody>
                 {data.tests.slice(0, 20).map((t) => (

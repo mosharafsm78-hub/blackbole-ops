@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_app/stock-check")({
 type Filter = "uncounted" | "test" | "all"
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "uncounted", label: "Not counted yet" },
-  { key: "test", label: "Has test stock" },
+  { key: "test", label: "Has fake stock" },
   { key: "all", label: "All products" },
 ]
 
@@ -38,13 +38,13 @@ function StockCheckPage() {
   const reset = () => setCursors([null])
   return (
     <div className="space-y-4">
-      <PageHeader title="Stock check" sub="Count the pairs really in hand. Whatever the system shows beyond that is marked as test stock." />
+      <PageHeader title="Stock check" sub="Count the pairs really in hand. Whatever the system shows beyond that is marked as fake stock." />
       <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
-        <b className="text-foreground">How it works.</b> Type the number of pairs you can physically see for each size. The rest is test stock:
+        <b className="text-foreground">How it works.</b> Type the number of pairs you can physically see for each size. The rest is fake stock:
         it stays on the website and in orders exactly as before, but the target plan and the stock reports treat it as <b>not in hand</b>. When
-        a purchase is received the real count rises by itself, so test stock turns real with nothing more to do.
-        <br /><b className="text-foreground">New test products:</b> type the pairs in “Add test pairs” and press the button. They are added to the stock
-        <i> and</i> marked as test in one step, with no counting needed. (Adding stock any other way, for example an Inventory adjustment, shows up
+        a purchase is received the real count rises by itself, so fake stock turns real with nothing more to do.
+        <br /><b className="text-foreground">New fake products:</b> type the pairs in “Add fake pairs” and press the button. They are added to the stock
+        <i> and</i> marked as fake in one step, with no counting needed. (Adding stock any other way, for example an Inventory adjustment, shows up
         here as “Not counted” so it gets checked.)
       </div>
       {summary && (
@@ -52,7 +52,7 @@ function StockCheckPage() {
           <Stat label="Counted" value={`${summary.counted} / ${summary.lines}`} hint="stock lines" tone={summary.counted === summary.lines ? "green" : "amber"} />
           <Stat label="System shows" value={summary.systemPairs} hint="pairs" />
           <Stat label="Really in hand" value={summary.realPairs} hint="pairs" tone="green" />
-          <Stat label="Test (fake) stock" value={summary.fakePairs} hint="pairs" tone={summary.fakePairs > 0 ? "amber" : undefined} />
+          <Stat label="Fake stock" value={summary.fakePairs} hint="pairs" tone={summary.fakePairs > 0 ? "amber" : undefined} />
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
@@ -113,12 +113,12 @@ function ProductCard({ p }: { p: Product }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{p.name}</h2>
-          <p className="text-xs text-muted-foreground">System {p.system} · really in hand {p.real}{p.fake > 0 && <> · <b className="text-tone-amber">{p.fake} test</b></>}</p>
+          <p className="text-xs text-muted-foreground">System {p.system} · really in hand {p.real}{p.fake > 0 && <> · <b className="text-tone-amber">{p.fake} fake</b></>}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {p.skipped && <Pill tone="gray">Not needed for now</Pill>}
           {p.uncounted ? <Pill tone="amber">Not counted</Pill> : <Pill tone="green">Counted</Pill>}
-          <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "test" }), "Marked as test stock — none in hand")}>None in hand (all test)</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "test" }), "Marked as fake stock — none in hand")}>None in hand (all fake)</Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => mark({ productId: p.productId, mode: "real" }), "Marked all real")}>All real</Button>
           <Button size="sm" variant="outline" disabled={busy} data-testid="skip-product" onClick={() => void run(() => skip({ productId: p.productId, skip: !p.skipped }), p.skipped ? "Brought back to the count list" : "Hidden from the count list for now")}>
             {p.skipped ? "Bring back" : "Not needed now"}
@@ -153,7 +153,7 @@ function ProductCard({ p }: { p: Product }) {
       <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Test</th><th className="px-3 py-1.5 text-right font-medium">Add test pairs</th><th className="w-10 px-2 py-1.5"></th></tr>
+            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Fake</th><th className="px-3 py-1.5 text-right font-medium">Add fake pairs</th><th className="w-10 px-2 py-1.5"></th></tr>
           </thead>
           <tbody>
             {p.lines.map((l) => {
@@ -183,8 +183,8 @@ function ProductCard({ p }: { p: Product }) {
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         <Button
           size="sm" variant="outline" disabled={busy || toAdd.length === 0}
-          onClick={() => void run(() => addTest({ items: toAdd }), `Added ${toAdd.reduce((t, i) => t + i.qty, 0)} test pairs to ${p.name}`)}
-        >Add test pairs</Button>
+          onClick={() => void run(() => addTest({ items: toAdd }), `Added ${toAdd.reduce((t, i) => t + i.qty, 0)} fake pairs to ${p.name}`)}
+        >Add fake pairs</Button>
         <Button size="sm" disabled={busy || !needsSave} onClick={() => void run(() => save({ items: p.lines.map((l) => ({ variantId: l.variantId, locationId: l.locationId, real: Number(val(l)) })) }), `Saved the count for ${p.name}`)}>Save count</Button>
       </div>
     </section>

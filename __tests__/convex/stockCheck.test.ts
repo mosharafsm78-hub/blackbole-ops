@@ -152,7 +152,7 @@ describe("adding test stock, and when it earns a purchase", () => {
     await asAdmin.mutation(api.stockCheck.addTestStock, { items: [{ variantId, locationId, qty: 5 }] })
     expect(await stockRow(variantId)).toMatchObject({ available: 25, virtual: 25 })
     const logs = await t.run((ctx) => ctx.db.query("stockLogs").collect())
-    expect(logs.map((l) => [l.reason, l.change])).toEqual([["Test stock added", 20], ["Test stock added", 5]])
+    expect(logs.map((l) => [l.reason, l.change])).toEqual([["Fake stock added", 20], ["Fake stock added", 5]])
     const after = (await asAdmin.query(api.stockCheck.list, { filter: "test", cursor: null }))!.products[0]
     expect(after).toMatchObject({ system: 25, fake: 25, real: 0 })
   })

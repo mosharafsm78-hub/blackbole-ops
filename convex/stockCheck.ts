@@ -7,7 +7,7 @@
 // (Purchases → receive) raises `available`, which raises real stock by itself: fake pairs turn real with no extra step.
 // The revenue-target plan reads real pairs only (targets.ts).
 import { v, ConvexError } from "convex/values"
-import type { Id } from "./_generated/dataModel"
+import type { Doc, Id } from "./_generated/dataModel"
 import { query, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { mutation } from "./functions"
@@ -28,15 +28,26 @@ export const list = query({
     if (!(await currentStaff(ctx))) return null
     // Looking for a particular product must always find it (a brand-new one has no stock yet), whatever tab is open.
     const filter = search?.trim() ? "all" : chosen
-    const base = search?.trim()
-      ? ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", search.trim()))
-      : ctx.db.query("products")
-    const res = await base.paginate({ cursor, numItems: PAGE })
+    // Searching uses the search index (one page). Browsing walks the products in creation order and keeps going past
+    // products that don't match the filter until a page is full, so "Has fake stock" never shows a near-empty page.
+    let scan: Doc<"products">[]
+    let scanDone: boolean
+    let scanCursor: string
+    if (search?.trim()) {
+      const res = await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", search.trim())).paginate({ cursor, numItems: PAGE })
+      scan = res.page; scanDone = res.isDone; scanCursor = res.continueCursor
+    } else {
+      const SCAN = filter === "all" ? PAGE : 150
+      const after = cursor ? Number(cursor) : null
+      scan = await ctx.db.query("products").withIndex("by_creation_time", (q) => (after === null ? q : q.gt("_creationTime", after))).take(SCAN)
+      scanDone = scan.length < SCAN; scanCursor = scan.length ? String(scan[scan.length - 1]._creationTime) : ""
+    }
     const allLocs = await ctx.db.query("locations").collect()
     const locs = new Map(allLocs.map((l) => [l._id as string, l.name]))
     const home = allLocs.find((l) => l.isDefault && l.active) ?? allLocs.find((l) => l.active && !l.noCourier) // where new test stock goes
     const out: CheckProduct[] = []
-    for (const p of res.page) {
+    for (const [pi, p] of scan.entries()) {
+      if (out.length >= PAGE && !search?.trim()) { scanDone = false; scanCursor = String(scan[pi - 1]._creationTime); break }
       if (p.deletedAt || !p.active) continue
       if (p.stockCheckSkip && filter !== "all") continue // "not needed for now" products only show under All products
       const variants = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
@@ -65,7 +76,7 @@ export const list = query({
       if (filter === "test" && fake === 0) continue
       out.push({ productId: p._id, name: p.name, preOrder: !!p.preOrder, skipped: !!p.stockCheckSkip, system, fake, real: system - fake, uncounted, lines })
     }
-    return { products: out, isDone: res.isDone, cursor: res.continueCursor }
+    return { products: out, isDone: scanDone, cursor: scanCursor }
   },
 })
 
@@ -118,7 +129,7 @@ export const markProduct = mutation({
     for (const x of variants) {
       for (const s of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) {
         if (s.available <= 0 && !(s.virtual ?? 0)) continue
-        await setLine(ctx, me.staff.name, x._id, s.locationId, mode === "test" ? 0 : Math.max(0, s.available), mode === "test" ? "Marked as test stock — none in hand" : "Marked all real")
+        await setLine(ctx, me.staff.name, x._id, s.locationId, mode === "test" ? 0 : Math.max(0, s.available), mode === "test" ? "Marked as fake stock — none in hand" : "Marked all real")
       }
     }
   },
@@ -131,15 +142,15 @@ export async function applyTestStock(ctx: MutationCtx, items: { variantId: Id<"v
   const locs = await ctx.db.query("locations").collect()
   const home = locs.find((l) => l.isDefault && l.active) ?? locs.find((l) => l.active && !l.noCourier)
   for (const i of items) {
-    if (!Number.isInteger(i.qty) || i.qty <= 0 || i.qty > 10000) throw new ConvexError("Test pairs must be a whole number above zero.")
+    if (!Number.isInteger(i.qty) || i.qty <= 0 || i.qty > 10000) throw new ConvexError("Fake pairs must be a whole number above zero.")
     const variant = await ctx.db.get(i.variantId)
     if (!variant) throw new ConvexError("That size no longer exists.")
     const locationId = i.locationId ?? home?._id
-    if (!locationId) throw new ConvexError("No active warehouse to put test stock in.")
+    if (!locationId) throw new ConvexError("No active warehouse to put fake stock in.")
     const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", i.variantId).eq("locationId", locationId)).unique()
     if (row) await ctx.db.patch(row._id, { available: row.available + i.qty, virtual: (row.virtual ?? 0) + i.qty, countedAt: Date.now(), countedBy: byName })
     else await ctx.db.insert("stock", { variantId: i.variantId, locationId, available: i.qty, processing: 0, inTransit: 0, returning: 0, damaged: 0, virtual: i.qty, countedAt: Date.now(), countedBy: byName })
-    await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId, bucket: "available", change: i.qty, reason: "Test stock added", note: "Test (fake) stock — not in hand", byName, at: Date.now() })
+    await ctx.db.insert("stockLogs", { variantId: i.variantId, locationId, bucket: "available", change: i.qty, reason: "Fake stock added", note: "Fake stock — not in hand", byName, at: Date.now() })
   }
 }
 
