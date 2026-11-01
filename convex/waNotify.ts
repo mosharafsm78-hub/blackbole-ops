@@ -21,7 +21,9 @@ export const TEMPLATES: Record<Kind, { name: string; params: (m: Params) => stri
 }
 /** Out for delivery with the rider's name and phone (from Pathao) when we have them; otherwise the plain version. */
 const OUT_WITH_RIDER = { name: "out_for_delivery_v2", params: (m: Params) => [m.first, m.invoice, m.rider, m.riderPhone, m.amount] }
-const KINDS = new Set<string>(Object.keys(TEMPLATES))
+// "returned" is switched off for now: it is a Marketing message (about Tk 9 each). Put it back here to turn it on again.
+const OFF = new Set<string>(["returned"])
+const KINDS = new Set<string>(Object.keys(TEMPLATES).filter((k) => !OFF.has(k)))
 
 const first = (name: string) => (name || "").trim().split(/\s+/)[0] || "there"
 /** WhatsApp variables can't hold line breaks or long runs of spaces. */
