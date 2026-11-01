@@ -15,7 +15,7 @@ import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
 import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, setSetting } from "./lib"
-import { applyStatus } from "./orders"
+import { applyStatus, insertOrder } from "./orders"
 import { canTransition } from "./rules"
 
 export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number }
@@ -89,17 +89,45 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
   }
   const mismatch = (o: Doc<"orders">) => phoneKey(a.waId) !== phoneKey(o.phone)
 
-  // ---- returned parcel: "Yes, order again" / "No thanks" ----
-  const again = a.buttonId ? /^wv:(r|n):(.+)$/.exec(a.buttonId) : null
+  // ---- returned parcel: "Yes, order again" → same product or a different one ----
+  const again = a.buttonId ? /^wv:(r|n|s|d):(.+)$/.exec(a.buttonId) : null
   if (again) {
     const id = ctx.db.normalizeId("orders", again[2])
     const o: Doc<"orders"> | null = id ? await ctx.db.get(id) : null
     if (!o || o.deletedAt || mismatch(o)) return record("not_found", [txt("Sorry, we could not find this order. Please contact BlackBole and we will help right away.")])
-    if (again[1] === "n") return record("reorder_no", [txt("No problem, thank you for letting us know. We hope to see you again. — BlackBole")], o._id)
-    await logOrder(ctx, o._id, "Customer asked on WhatsApp to order again after the return — call them to place a new order", BY)
-    await ctx.db.patch(o._id, { recoveryFollowUpAt: Date.now() })
-    await notify(ctx, "Returned customer wants to order again", `${invoiceLabel(o)} · ${o.customerName} · ${o.phone}`, o._id, "action")
-    return record("reorder_yes", [txt(`Thank you ${first(o.customerName)}! 🙏 Our team will call you shortly to place your new order. — BlackBole`)], o._id)
+    const kind = again[1]
+    if (kind === "n") return record("reorder_no", [txt("No problem, thank you for letting us know. We hope to see you again. — BlackBole")], o._id)
+    if (kind === "r") {
+      await logOrder(ctx, o._id, "Customer said Yes on WhatsApp to ordering again after the return — asked same or different product", BY)
+      await ctx.db.patch(o._id, { recoveryFollowUpAt: Date.now() })
+      await notify(ctx, "Returned customer wants to order again", `${invoiceLabel(o)} · ${o.customerName} · ${o.phone}`, o._id, "action")
+      return record("reorder_yes", [{ kind: "buttons", body: `Thank you ${first(o.customerName)}! 🙏 Would you like the same product as before, or a different one?`, buttons: [{ id: `wv:s:${o._id}`, title: "Same product" }, { id: `wv:d:${o._id}`, title: "Different product" }] }], o._id)
+    }
+    if (kind === "d") {
+      await logOrder(ctx, o._id, "Returned customer wants a DIFFERENT product (WhatsApp) — message them to help choose", BY)
+      await ctx.db.patch(o._id, { recoveryFollowUpAt: Date.now() })
+      await notify(ctx, "Returned customer wants a different product", `${invoiceLabel(o)} · ${o.customerName} · ${o.phone}`, o._id, "action")
+      return record("reorder_different", [txt("Sure! Our customer team will message you shortly to help you choose. — BlackBole")], o._id)
+    }
+    // same product: place a fresh pending order with the same items, once per returned order
+    const key = `reorder-same-${o._id}`
+    if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q: any) => q.eq("wamid", key)).first()) return record("reorder_dup", [txt("Your new order is already placed — our team will call you to confirm it. — BlackBole")], o._id)
+    try {
+      const res = await insertOrder(ctx, {
+        source: o.source, customerName: o.customerName, phone: o.phone, email: o.email, address: o.address, cityName: o.cityName,
+        pathaoCityId: o.pathaoCityId, pathaoZoneId: o.pathaoZoneId, pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName,
+        locationId: o.locationId, deliveryType: o.deliveryType, items: o.items, discount: 0, deliveryFee: o.deliveryFee ?? 0,
+        additionalInfo: `REORDER of returned ${invoiceLabel(o)} — customer asked on WhatsApp for the same product. Please call to confirm.`, followUpAt: Date.now(),
+      }, BY)
+      await ctx.db.insert("waVerifyEvents", { wamid: key, waId: a.waId, orderId: o._id, result: "reorder_marker", out: [], at: Date.now() })
+      await logOrder(ctx, o._id, `Customer asked for the same product again on WhatsApp — new order BB-${res.invoiceNo} created`, BY)
+      await notify(ctx, "Returned customer re-ordered the same product", `New BB-${res.invoiceNo} · ${o.customerName} · ${o.phone} — please call to confirm`, res.orderId, "action")
+      return record("reorder_same", [txt(`Done! We have placed a new order BB-${res.invoiceNo} with the same product. Our team will call you shortly to confirm it. — BlackBole`)], res.orderId)
+    } catch (e) {
+      await logOrder(ctx, o._id, "Customer wants the same product again (WhatsApp) but the new order could not be created automatically — call them", BY)
+      await notify(ctx, "Returned customer wants the same product", `${invoiceLabel(o)} · ${o.customerName} · ${o.phone} — create the order`, o._id, "action")
+      return record("reorder_same_manual", [txt("Thank you! Our team will call you shortly to place your new order. — BlackBole")], o._id)
+    }
   }
 
   // ---- a button was tapped: Confirm / Cancel ----
