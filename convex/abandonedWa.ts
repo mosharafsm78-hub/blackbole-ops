@@ -117,8 +117,9 @@ export const previewCount = query({
   },
 })
 
-/** Submit the "cart_reminder" Utility template to Meta for review. Safe to call again — Meta treats a
- *  resubmission of the same name+language+category as an update, not a duplicate. */
+/** Submit the "cart_reminder" Utility template to Meta for review. Safe to call again: Meta refuses to recreate a
+ *  name that already has English content (even a rejected one), so this first deletes any existing version of the
+ *  name, then creates fresh — a genuine resubmission, not an update. */
 export const createTemplate = action({
   args: {},
   handler: async (ctx): Promise<{ ok: boolean; message: string }> => {
@@ -130,6 +131,9 @@ export const createTemplate = action({
       components: [{ type: "BODY", text: BODY }],
     }
     try {
+      // Clear out any earlier (e.g. rejected) version under this name first — ignore the result, a 404 here
+      // just means there was nothing to remove.
+      await fetch(`https://graph.facebook.com/v21.0/${WABA_ID}/message_templates?name=${TEMPLATE_NAME}`, { method: "DELETE", headers: { Authorization: `Bearer ${sec.token}` } }).catch(() => {})
       const r = await fetch(`https://graph.facebook.com/v21.0/${WABA_ID}/message_templates`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sec.token}` }, body: JSON.stringify(body) })
       const t = await r.text()
       if (!r.ok) return { ok: false, message: `Meta said ${r.status}: ${t.slice(0, 300)}` }
@@ -146,12 +150,13 @@ export const templateStatus = action({
     const { sec } = await ctx.runQuery(internal.whatsappVerify.liveConf, {})
     if (!sec.token) return { status: "unknown", detail: "No access token saved yet" }
     try {
-      const r = await fetch(`https://graph.facebook.com/v21.0/${WABA_ID}/message_templates?name=${TEMPLATE_NAME}`, { headers: { Authorization: `Bearer ${sec.token}` } })
+      const r = await fetch(`https://graph.facebook.com/v21.0/${WABA_ID}/message_templates?name=${TEMPLATE_NAME}&fields=name,status,category,rejected_reason,language,quality_score`, { headers: { Authorization: `Bearer ${sec.token}` } })
       const j: any = await r.json().catch(() => ({}))
       if (!r.ok) return { status: "unknown", detail: `Meta said ${r.status}` }
       const row = (j?.data ?? [])[0]
       if (!row) return { status: "not_submitted" }
-      return { status: String(row.status ?? "unknown").toLowerCase(), detail: row.rejected_reason }
+      const detail = [row.rejected_reason, row.category ? `category: ${row.category}` : null].filter(Boolean).join(" · ") || undefined
+      return { status: String(row.status ?? "unknown").toLowerCase(), detail }
     } catch (e: any) { return { status: "unknown", detail: String(e?.message ?? e).slice(0, 200) } }
   },
 })
