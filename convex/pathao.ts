@@ -726,6 +726,26 @@ export const tracking = action({
   },
 })
 
+/** For the WhatsApp parcel updates: the rider (name + phone) and the hold/failed reason, read from the same
+ *  tracking log the Ops tracking card shows ("Assigned to Abu Rayhan (0134…) for delivery."). */
+export const liveDetails = internalAction({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }): Promise<{ rider?: string; riderPhone?: string; reason?: string }> => {
+    try {
+      const g = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
+      const cid = g?.order.consignmentId
+      if (!g || !cid) return {}
+      const act = await merchantGet(ctx, `https://merchant.pathao.com/api/v1/orders/${encodeURIComponent(cid)}/${encodeURIComponent(g.order.phone)}/activity?archive=0`, g.partnerId)
+      if (!act.ok) return {}
+      const events = readEvents(act.json)
+      return { ...riderOf({ events }), reason: reasonOf({ events }) }
+    } catch (e) {
+      console.log("Pathao live details failed", String(e).slice(0, 160))
+      return {}
+    }
+  },
+})
+
 /** Admin check from the Convex dashboard: how a consignment's tracking reads (parsed + raw sample). */
 export const debugTracking = internalAction({
   args: { consignmentId: v.string(), phone: v.string() },

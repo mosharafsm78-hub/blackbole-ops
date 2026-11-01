@@ -68,6 +68,12 @@ export const finish = internalMutation({
 export const send = internalAction({
   args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()) },
   handler: async (ctx, { orderId, kind, reason, rider, riderPhone }) => {
+    // The Pathao status feed rarely carries the rider or the reason; the tracking log does.
+    if ((kind === "out_for_delivery" && !(rider && riderPhone)) || (kind === "failed" && !reason)) {
+      const live = await ctx.runAction(internal.pathao.liveDetails, { orderId })
+      if (kind === "out_for_delivery") { rider = rider || live.rider; riderPhone = riderPhone || live.riderPhone }
+      else reason = reason || live.reason
+    }
     const m = await ctx.runMutation(internal.waNotify.claim, { orderId, kind, reason, rider, riderPhone })
     if (!m) return
     const t: { name: string; params: (m: Params) => string[]; buttons?: "reorder" } = kind === "out_for_delivery" && m.params.rider && m.params.riderPhone ? OUT_WITH_RIDER : TEMPLATES[kind as Kind]
