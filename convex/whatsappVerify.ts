@@ -1,7 +1,7 @@
 // WhatsApp order verification. After the COD form, the customer taps "Verify on WhatsApp": WhatsApp opens to our
 // business number with "Verify BB-12345" already typed. They press Send; we reply at once with a short message (no
 // order details) and two buttons: Confirm / Cancel.
-//   Confirm → NOT auto-approved: the order shows "Confirmed on WhatsApp" + a notification in ops; a short message tells them when it arrives, to pick up the
+//   Confirm → auto-approved (a held order stays held): the order shows "Confirmed on WhatsApp" + a notification in ops; a short message tells them when it arrives, to pick up the
 //             courier's call, and that exchange is free.
 //   Cancel  → the order shows Cancelled in ops, the customer is told customer care will call, and a follow-up is set.
 // The customer's own WhatsApp number must match the order's phone: that proves the number is real and stops anyone
@@ -109,6 +109,10 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
           return record("address_issue", [txt(`Thank you! One more check: ${bad}. Our team will call you shortly to complete it. — BlackBole`)], o._id)
         }
         await markWa(ctx, o, "confirmed", BY)
+        // Confirm = approved. A held order stays held (the team put it there on purpose); if approving fails (e.g. stock), it stays Pending for the team.
+        if (o.status === "pending") {
+          try { await applyStatus(ctx, o, "approved", BY, "Customer confirmed on WhatsApp") } catch (e) { await logOrder(ctx, o._id, "Customer confirmed on WhatsApp but auto-approve failed — please approve manually", BY) }
+        }
         return record("confirmed", [txt(confirmedText(o, isPre(o), await preDays(ctx)))], o._id)
       }
       if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. If this is a mistake, please contact BlackBole and we will help.`)], o._id)

@@ -85,10 +85,10 @@ describe("WhatsApp order verification", () => {
     expect(b.replies[0]).toMatch(/2–3 days/)
     expect(b.replies[0]).toMatch(/courier/)
     expect(b.replies[0]).toMatch(/free exchange/)
-    expect(await status(id)).toBe("pending") // not auto-approved: the team sees "Confirmed on WhatsApp" and decides
+    expect(await status(id)).toBe("approved") // Confirm on WhatsApp approves the order
     const c = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "confirm" }) // tapped twice
     expect(c.result).toBe("already")
-    expect(await status(id)).toBe("pending")
+    expect(await status(id)).toBe("approved")
   })
 
   it("pre-order confirmation shows the pre-order days, never 2–3 days", () => {
