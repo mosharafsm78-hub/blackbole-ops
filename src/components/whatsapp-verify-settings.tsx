@@ -11,7 +11,7 @@ import { dateTime, errMsg } from "@/lib/format"
 
 const RESULT: Record<string, string> = {
   asked: "Summary sent", confirmed: "Confirmed → Approved", cancelled: "Cancelled", address_issue: "Address/phone incomplete → team to call",
-  mismatch: "Wrong number (ignored)", auto_sent: "Confirmation message sent", auto_test: "Test: would have sent confirmation", auto_failed: "Confirmation message FAILED", auto_skipped: "Not sent (address/phone incomplete → call)", auto_pending: "Sending…", already: "Already handled", not_found: "Order not found", ignored: "Repeat (ignored)",
+  mismatch: "Wrong number (ignored)", auto_sent: "Confirmation message sent", auto_test: "Test: would have sent confirmation", auto_failed: "Confirmation message FAILED", auto_skipped: "Not sent (address/phone incomplete → call)", auto_pending: "Sending…", already: "Already handled", life_sent: "Parcel update sent", life_test: "Test: would have sent parcel update", life_failed: "Parcel update FAILED", life_pending: "Sending parcel update…", reorder_yes: "Returned customer wants to order again", reorder_no: "Returned customer: no thanks", not_found: "Order not found", ignored: "Repeat (ignored)",
 }
 
 /** Settings → WhatsApp verify: the customer taps "Verify on WhatsApp", gets a summary, presses Confirm or Cancel. */
@@ -65,6 +65,12 @@ export function WhatsAppVerifySettings() {
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="space-y-1"><Label>Template name (as approved in Meta)</Label><Input value={f.templateName ?? "order_confirmation"} onChange={(e) => set("templateName", e.target.value)} /></div>
             <div className="space-y-1"><Label>Template language code</Label><Input value={f.templateLang ?? "en"} onChange={(e) => set("templateLang", e.target.value)} /></div>
+          </div>
+        </div>
+        <div className="mt-3 rounded-md border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div><p className="text-sm font-medium">Send parcel updates on WhatsApp</p><p className="text-xs text-muted-foreground">Shipped (In Transit), out for delivery, failed delivery attempt (with Pathao's reason), delivered, and returned (with a “Yes, order again” button that tells the team to call). Only orders placed after you switch this on are messaged. Needs these approved templates in Meta: order_shipped, out_for_delivery, delivery_failed_v2, order_delivered, order_returned.</p></div>
+            <Switch checked={!!f.lifecycle} onCheckedChange={(v) => set("lifecycle", v)} aria-label="Parcel updates on WhatsApp" />
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">

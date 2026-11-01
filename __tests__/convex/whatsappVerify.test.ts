@@ -150,3 +150,33 @@ describe("WhatsApp order verification", () => {
     expect(await status(id)).toBe("pending")
   })
 })
+
+describe("WhatsApp parcel updates", () => {
+  it("only for orders placed after it was switched on, once per order, with the Pathao reason, and returned → reorder lead", async () => {
+    const { t, as, order, status } = await setup()
+    const old = await order("01711000021")
+    await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "test", phoneNumberId: "", businessNumber: "8801700000000", lifecycle: true })
+    await new Promise((r) => setTimeout(r, 5))
+    const fresh = await order("01711000022")
+    const ev = (key: string) => t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", key)).collect())
+    await t.mutation(internal.waNotify.claim, { orderId: old.id, kind: "shipped" }).then((r) => expect(r).toBeNull()) // placed before switch-on
+    const a = await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "failed", reason: "Customer\nnot  answering_phone" })
+    expect(a?.params.reason).toBe("Customer not answering phone")
+    expect(a?.waId).toBe("8801711000022")
+    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "failed" })).toBeNull() // same attempt twice
+    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "shipped" })).not.toBeNull()
+    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "shipped" })).toBeNull() // once per order
+    await t.action(internal.waNotify.send, { orderId: fresh.id, kind: "returned" })
+    expect((await ev(`n-returned-${fresh.id}`))[0].result).toBe("life_test")
+    const yes = await t.mutation(internal.whatsappVerify.inbound, { waId: "8801711000022", wamid: "r1", buttonId: `wv:r:${fresh.id}` })
+    expect(yes.result).toBe("reorder_yes")
+    expect(await status(fresh.id)).toBe("pending")
+    const wrong = await t.mutation(internal.whatsappVerify.inbound, { waId: "8801999999999", wamid: "r2", buttonId: `wv:r:${fresh.id}` })
+    expect(wrong.result).toBe("not_found")
+  })
+  it("off by default: nothing is claimed", async () => {
+    const { t, order } = await setup()
+    const o = await order("01711000023")
+    expect(await t.mutation(internal.waNotify.claim, { orderId: o.id, kind: "shipped" })).toBeNull()
+  })
+})

@@ -18,7 +18,7 @@ import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, 
 import { applyStatus } from "./orders"
 import { canTransition } from "./rules"
 
-export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string }
+export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number }
 export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "", autoSend: false, templateName: "order_confirmation", templateLang: "en" }
 type Secrets = { token?: string; verifyToken?: string; appSecret?: string }
 const conf = async (ctx: any): Promise<WaConf> => ({ ...DEFAULT_CONF, ...((await getSetting<WaConf>(ctx, "waVerify")) ?? {}) })
@@ -88,6 +88,19 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
     return { out, result, orderId }
   }
   const mismatch = (o: Doc<"orders">) => phoneKey(a.waId) !== phoneKey(o.phone)
+
+  // ---- returned parcel: "Yes, order again" / "No thanks" ----
+  const again = a.buttonId ? /^wv:(r|n):(.+)$/.exec(a.buttonId) : null
+  if (again) {
+    const id = ctx.db.normalizeId("orders", again[2])
+    const o: Doc<"orders"> | null = id ? await ctx.db.get(id) : null
+    if (!o || o.deletedAt || mismatch(o)) return record("not_found", [txt("Sorry, we could not find this order. Please contact BlackBole and we will help right away.")])
+    if (again[1] === "n") return record("reorder_no", [txt("No problem, thank you for letting us know. We hope to see you again. — BlackBole")], o._id)
+    await logOrder(ctx, o._id, "Customer asked on WhatsApp to order again after the return — call them to place a new order", BY)
+    await ctx.db.patch(o._id, { recoveryFollowUpAt: Date.now() })
+    await notify(ctx, "Returned customer wants to order again", `${invoiceLabel(o)} · ${o.customerName} · ${o.phone}`, o._id, "action")
+    return record("reorder_yes", [txt(`Thank you ${first(o.customerName)}! 🙏 Our team will call you shortly to place your new order. — BlackBole`)], o._id)
+  }
 
   // ---- a button was tapped: Confirm / Cancel ----
   const btn = a.buttonId ? /^wv:(c|x):(.+)$/.exec(a.buttonId) : null
@@ -308,7 +321,7 @@ export const settings = query({
 })
 
 export const saveSettings = mutation({
-  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), autoSend: v.optional(v.boolean()), templateName: v.optional(v.string()), templateLang: v.optional(v.string()), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
+  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), autoSend: v.optional(v.boolean()), lifecycle: v.optional(v.boolean()), lifecycleSince: v.optional(v.number()), templateName: v.optional(v.string()), templateLang: v.optional(v.string()), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
   handler: async (ctx, { token, verifyToken, appSecret, ...a }) => {
     await requirePerm(ctx, "settings.manage")
     const businessNumber = a.businessNumber.replace(/\D/g, "")
@@ -316,7 +329,10 @@ export const saveSettings = mutation({
     const nextSec = { token: token?.trim() || cur.token, verifyToken: verifyToken?.trim() || cur.verifyToken, appSecret: appSecret?.trim() || cur.appSecret }
     if (a.enabled && a.mode === "live" && (!a.phoneNumberId.trim() || !businessNumber || !nextSec.token || !nextSec.verifyToken || !nextSec.appSecret))
       throw new ConvexError("Live needs the phone number ID, business number, access token, verify token and app secret.")
-    await setSetting(ctx, "waVerify", { ...a, phoneNumberId: a.phoneNumberId.trim(), businessNumber, templateName: (a.templateName ?? "order_confirmation").trim() || "order_confirmation", templateLang: (a.templateLang ?? "en").trim() || "en" })
+    const before = await conf(ctx)
+    // parcel updates only ever go to orders placed after they were switched on
+    const lifecycleSince = a.lifecycle ? (before.lifecycle && before.lifecycleSince ? before.lifecycleSince : Date.now()) : undefined
+    await setSetting(ctx, "waVerify", { ...a, lifecycleSince, phoneNumberId: a.phoneNumberId.trim(), businessNumber, templateName: (a.templateName ?? "order_confirmation").trim() || "order_confirmation", templateLang: (a.templateLang ?? "en").trim() || "en" })
     await setSetting(ctx, "waVerifySecrets", nextSec)
   },
 })
