@@ -44,7 +44,7 @@ async function setup() {
   return t
 }
 
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 describe("marketing feed", () => {
   it("is off without a key and refuses a wrong key", async () => {
@@ -151,6 +151,17 @@ describe("clearance discount for Marketing OS", () => {
   it("creates a product-scoped percent code and re-points it on the next call", async () => {
     const t = await setup()
     vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    await t.run(async (ctx) => {
+      await ctx.db.insert("settings", { key: "shopifyApi", value: { shop: "x.myshopify.com", clientId: "c", on: true } })
+      await ctx.db.insert("settings", { key: "shopifyApiSecret", value: "shpat_test" })
+    })
+    vi.stubGlobal("fetch", async (_u: string, init: any) => {
+      const { query } = JSON.parse(init.body)
+      const data = query.includes("products(first:50") ? { products: { nodes: [{ id: "gid://p/1", handle: "a-shoe" }, { id: "gid://p/2", handle: "b-shoe" }] } }
+        : query.includes("codeDiscountNodeByCode") ? { codeDiscountNodeByCode: null }
+        : { discountCodeBasicCreate: { userErrors: [], codeDiscountNode: { id: "gid://d/1" } } }
+      return new Response(JSON.stringify({ data }), { status: 200 })
+    })
     const post = (body: unknown) => t.fetch("/marketing/discount", { method: "POST", headers: { "X-Feed-Key": FEED_KEY, "Content-Type": "application/json" }, body: JSON.stringify(body) })
     expect((await post({ code: "LASTPAIRS10", percent: 10, handles: ["a-shoe"] })).status).toBe(200)
     const again = await (await post({ code: "LASTPAIRS10", title: "Last pairs – 10% off", percent: 10, handles: ["a-shoe", "b-shoe"], days: 5 })).json()
