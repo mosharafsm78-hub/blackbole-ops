@@ -730,7 +730,7 @@ export const tracking = action({
  *  tracking log the Ops tracking card shows ("Assigned to Abu Rayhan (0134…) for delivery."). */
 export const liveDetails = internalAction({
   args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }): Promise<{ rider?: string; riderPhone?: string; reason?: string }> => {
+  handler: async (ctx, { orderId }): Promise<{ rider?: string; riderPhone?: string; reason?: string; heldAtDelivery?: boolean }> => {
     try {
       const g = await ctx.runMutation(internal.orders.internalGet, { id: orderId })
       const cid = g?.order.consignmentId
@@ -738,7 +738,8 @@ export const liveDetails = internalAction({
       const act = await merchantGet(ctx, `https://merchant.pathao.com/api/v1/orders/${encodeURIComponent(cid)}/${encodeURIComponent(g.order.phone)}/activity?archive=0`, g.partnerId)
       if (!act.ok) return {}
       const events = readEvents(act.json)
-      return { ...riderOf({ events }), reason: reasonOf({ events }) }
+      const last = events.filter((e) => /hold|fail|assigned to|delivered|return|reached|dispatched|received/i.test(e.text)).slice(-1)[0]
+      return { ...riderOf({ events }), reason: reasonOf({ events }), heldAtDelivery: !!last && /delivery (on hold|failed|attempt)|failed delivery/i.test(last.text) }
     } catch (e) {
       console.log("Pathao live details failed", String(e).slice(0, 160))
       return {}

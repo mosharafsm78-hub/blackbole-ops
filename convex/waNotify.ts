@@ -9,10 +9,11 @@ import { internal } from "./_generated/api"
 import { getSetting, invoiceLabel, logOrder } from "./lib"
 
 export type Kind = "shipped" | "out_for_delivery" | "failed" | "delivered" | "returned"
-type Params = { first: string; invoice: string; amount: string; reason: string; rider: string; riderPhone: string }
+type Params = { first: string; invoice: string; amount: string; reason: string; rider: string; riderPhone: string; tracking: string }
 /** Template names as created in Meta. Variables are numbered in the order of `params`. */
 export const TEMPLATES: Record<Kind, { name: string; params: (m: Params) => string[]; buttons?: "reorder" }> = {
-  shipped: { name: "order_shipped", params: (m) => [m.first, m.invoice] },
+  // order_shipped in Meta: "Hi {{1}}, … order {{2}} has been handed to our courier (tracking ID {{3}}). You pay {{4}} on delivery…"
+  shipped: { name: "order_shipped", params: (m) => [m.first, m.invoice, m.tracking, m.amount] },
   out_for_delivery: { name: "out_for_delivery", params: (m) => [m.first, m.invoice, m.amount] },
   failed: { name: "delivery_failed_v3", params: (m) => [m.first, m.invoice, m.reason] },
   delivered: { name: "order_delivered", params: (m) => [m.first, m.invoice] },
@@ -38,6 +39,7 @@ export const claim = internalMutation({
     if (!c.enabled || !c.lifecycle || !KINDS.has(kind)) return null
     const o = await ctx.db.get(orderId)
     if (!o || o.deletedAt) return null
+    if (o.isExchange) return null // exchange parcels go by the exchange partner; their messages are handled by the team
     if (!c.lifecycleSince || o.createdAt < c.lifecycleSince) return null // old parcels are never messaged
     const digits = (o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")
     if (!/^01[3-9]\d{8}$/.test(digits)) return null
@@ -46,11 +48,13 @@ export const claim = internalMutation({
     if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", wamid)).first()) return null
     const waId = `88${digits}`
     const amountNum = o.due > 0 ? o.due : 0
-    if (kind === "out_for_delivery" && amountNum <= 0) return null // nothing to collect: skip the "keep Tk … ready" message
+    if ((kind === "out_for_delivery" || kind === "shipped") && amountNum <= 0) return null // nothing to collect: "you pay Tk 0" would be wrong
+    if ((kind === "failed" || kind === "out_for_delivery") && o.status !== "in_transit") return null // only while the parcel is with the courier
+    if (kind === "shipped" && (o.status !== "in_transit" || !o.consignmentId)) return null // already delivered/returned by the time we run, or no tracking ID yet // nothing to collect: skip the "keep Tk … ready" message
     await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "life_pending", out: [`${kind}: ${TEMPLATES[kind as Kind].name}`], at: Date.now() })
     return {
       wamid, waId, id: o._id, mode: c.mode as string, phoneNumberId: String(c.phoneNumberId ?? ""), lang: String(c.templateLang || "en"),
-      params: { first: first(o.customerName), invoice: invoiceLabel(o), amount: `Tk ${Math.round(amountNum).toLocaleString("en-IN")}`, reason: cleanReason(reason), rider: cleanReason(rider).replace(/^we could not reach you on the phone$/, ""), riderPhone: String(riderPhone ?? "").replace(/[^\d+]/g, "") } as Params,
+      params: { first: first(o.customerName), invoice: invoiceLabel(o), amount: `Tk ${Math.round(amountNum).toLocaleString("en-IN")}`, reason: cleanReason(reason), tracking: String(o.consignmentId ?? ""), rider: cleanReason(rider).replace(/^we could not reach you on the phone$/, ""), riderPhone: String(riderPhone ?? "").replace(/[^\d+]/g, "") } as Params,
     }
   },
 })
@@ -66,11 +70,13 @@ export const finish = internalMutation({
 })
 
 export const send = internalAction({
-  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()) },
-  handler: async (ctx, { orderId, kind, reason, rider, riderPhone }) => {
+  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()), hold: v.optional(v.boolean()) },
+  handler: async (ctx, { orderId, kind, reason, rider, riderPhone, hold }) => {
     // The Pathao status feed rarely carries the rider or the reason; the tracking log does.
-    if ((kind === "out_for_delivery" && !(rider && riderPhone)) || (kind === "failed" && !reason)) {
+    if ((kind === "out_for_delivery" && !(rider && riderPhone)) || (kind === "failed" && (!reason || hold))) {
       const live = await ctx.runAction(internal.pathao.liveDetails, { orderId })
+      // Pathao also puts parcels "on hold" at pickup or for other reasons: only a hold AT DELIVERY is a failed attempt
+      if (kind === "failed" && hold && !live.heldAtDelivery) return
       if (kind === "out_for_delivery") { rider = rider || live.rider; riderPhone = riderPhone || live.riderPhone }
       else reason = reason || live.reason
     }
