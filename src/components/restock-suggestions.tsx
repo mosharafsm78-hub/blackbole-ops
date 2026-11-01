@@ -85,6 +85,18 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
             point — edit them, then create a draft purchase: nothing is ordered until the supplier invoice is attached and it's placed.
           </p>
         </div>
+        {canBuy && selectedRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {selectedRows.map((r) => (
+              <span key={r.key} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 py-0.5 pl-2.5 pr-1 text-xs">
+                {r.name}
+                <button type="button" className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-tone-red" onClick={() => uncheck(r.key)} aria-label={`Remove ${r.name} from this purchase`}>
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {canBuy && (
           <Button size="sm" disabled={selected.size === 0} onClick={openCreate}>
             <PackagePlus className="size-4" />Create draft purchase{selected.size > 0 && ` (${selected.size})`}
