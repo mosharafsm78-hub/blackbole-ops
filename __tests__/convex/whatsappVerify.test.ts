@@ -192,8 +192,9 @@ describe("WhatsApp parcel updates", () => {
     expect(sh?.params.tracking).toBe("DB011126TEST01")
     expect(sh?.params.amount).toBe("Tk 2,020")
     expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "shipped" })).toBeNull() // once per order
-    // the returned-parcel message is switched off (Marketing price): nothing is claimed or sent
-    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "returned" })).toBeNull()
+    // the returned-parcel message is on again (plain Utility template order_returned_v3): claimed once
+    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "returned" })).not.toBeNull()
+    expect(await t.mutation(internal.waNotify.claim, { orderId: fresh.id, kind: "returned" })).toBeNull() // once per order
     const yes = await t.mutation(internal.whatsappVerify.inbound, { waId: "8801711000022", wamid: "r1", buttonId: `wv:r:${fresh.id}` })
     expect(yes.result).toBe("reorder_yes")
     expect(await status(fresh.id)).toBe("in_transit") // the reorder button never changes the old order

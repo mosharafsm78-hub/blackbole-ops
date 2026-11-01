@@ -17,12 +17,12 @@ export const TEMPLATES: Record<Kind, { name: string; params: (m: Params) => stri
   out_for_delivery: { name: "out_for_delivery", params: (m) => [m.first, m.invoice, m.amount] },
   failed: { name: "delivery_failed_v3", params: (m) => [m.first, m.invoice, m.reason] },
   delivered: { name: "order_delivered", params: (m) => [m.first, m.invoice] },
-  returned: { name: "order_returned_v2", params: (m) => [m.first, m.invoice] }, // plain Utility notice, no re-order button
+  returned: { name: "order_returned_v3", params: (m) => [m.first, m.invoice] }, // plain Utility notice, no re-order button
 }
 /** Out for delivery with the rider's name and phone (from Pathao) when we have them; otherwise the plain version. */
 const OUT_WITH_RIDER = { name: "out_for_delivery_v2", params: (m: Params) => [m.first, m.invoice, m.rider, m.riderPhone, m.amount] }
-// "returned" is switched off for now: it is a Marketing message (about Tk 9 each). Put it back here to turn it on again.
-const OFF = new Set<string>(["returned"])
+// Messages listed here are switched off (none right now). returned is back on: order_returned_v3 is an approved Utility template (about Tk 0.45).
+const OFF = new Set<string>([])
 const KINDS = new Set<string>(Object.keys(TEMPLATES).filter((k) => !OFF.has(k)))
 
 const first = (name: string) => (name || "").trim().split(/\s+/)[0] || "there"
