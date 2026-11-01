@@ -502,7 +502,7 @@ function OrdersPage() {
                     })()}
                     {(o as any).waVerify?.result ? (
                       <div className={cn("whitespace-nowrap font-medium", (o as any).waVerify.result === "confirmed" ? "text-tone-green" : "text-tone-red")}>
-                        {(o as any).waVerify.result === "confirmed" ? "💬 Confirmed on WhatsApp" : "💬 Cancelled on WhatsApp"}
+                        {(o as any).waVerify.result === "confirmed" ? "💬 Confirmed on WhatsApp" : (o as any).waVerify.result === "cancel_requested" ? "💬 Pressed Cancel: call them" : "💬 Cancelled on WhatsApp"}
                       </div>
                     ) : null}
                     {o.lastCallOutcome && <div className="text-muted-foreground">{o.lastCallOutcome}</div>}

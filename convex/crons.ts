@@ -20,6 +20,7 @@ crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.
 crons.interval("abandoned cart emails", { minutes: 10 }, internal.abandonedEmail.run, {})
 // WhatsApp rating survey: new deliveries after 2 days, and the one-off past-90-days blast (only runs after the owner clicks Start)
 crons.interval("survey: ask delivered customers", { minutes: 30 }, internal.survey.tick, {})
+crons.interval("whatsapp: auto-cancel unanswered cancel requests", { minutes: 30 }, internal.whatsappVerify.sweepCancelRequests, {})
 crons.interval("survey: past 90 days drip", { minutes: 1 }, internal.survey.dripPast, {})
 crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
 // win-back email, tier 1: same idea, same cadence, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)

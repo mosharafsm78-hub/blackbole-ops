@@ -99,14 +99,37 @@ describe("WhatsApp order verification", () => {
     expect(confirmedText(o, false)).toMatch(/2–3 days/)
   })
 
-  it("Cancel cancels the order", async () => {
+  it("Cancel does not cancel: the order stays Pending, flagged for the team to call", async () => {
     const { as, order, status } = await setup()
     const { id, invoice } = await order("01711000002")
     await as.mutation(api.whatsappVerify.simulate, { invoice, step: "start" })
     const r = await as.mutation(api.whatsappVerify.simulate, { invoice, step: "cancel" })
-    expect(r.result).toBe("cancelled")
-    expect(r.replies[0]).toMatch(/customer care team will call/)
-    expect(await status(id)).toBe("cancelled")
+    expect(r.result).toBe("cancel_requested")
+    expect(r.replies[0]).toMatch(/will call you shortly/)
+    expect(await status(id)).toBe("pending")
+  })
+
+  it("a cancel request nobody acts on is cancelled after 24 hours; confirming first keeps the order", async () => {
+    const { as, t, order, status } = await setup()
+    const a = await order("01711000012")
+    const b = await order("01711000013")
+    for (const x of [a, b]) {
+      await as.mutation(api.whatsappVerify.simulate, { invoice: x.invoice, step: "start" })
+      await as.mutation(api.whatsappVerify.simulate, { invoice: x.invoice, step: "cancel" })
+    }
+    expect(await t.mutation(internal.whatsappVerify.sweepCancelRequests, {})).toBe(0)
+    expect(await status(a.id)).toBe("pending")
+    // the customer changes their mind on order b
+    await as.mutation(api.whatsappVerify.simulate, { invoice: b.invoice, step: "confirm" })
+    await t.run(async (ctx) => {
+      for (const x of [a, b]) {
+        const o: any = await ctx.db.get(x.id)
+        await ctx.db.patch(x.id, { waVerify: { ...o.waVerify, at: Date.now() - 25 * 3600 * 1000 } })
+      }
+    })
+    expect(await t.mutation(internal.whatsappVerify.sweepCancelRequests, {})).toBe(1)
+    expect(await status(a.id)).toBe("cancelled")
+    expect(await status(b.id)).not.toBe("cancelled")
   })
 
   it("an incomplete address is never confirmed: the team is asked to call", async () => {

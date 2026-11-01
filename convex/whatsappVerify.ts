@@ -3,7 +3,7 @@
 // order details) and two buttons: Confirm / Cancel.
 //   Confirm → auto-approved (a held order stays held): the order shows "Confirmed on WhatsApp" + a notification in ops; a short message tells them when it arrives, to pick up the
 //             courier's call, and that exchange is free.
-//   Cancel  → the order shows Cancelled in ops, the customer is told customer care will call, and a follow-up is set.
+//   Cancel  → the order is NOT cancelled: it is flagged "pressed Cancel", the team calls, and a still-undecided Pending / On Hold order cancels after 24 hours.
 // The customer's own WhatsApp number must match the order's phone: that proves the number is real and stops anyone
 // from confirming or cancelling someone else's order. An order whose address or phone looks incomplete gets no
 // buttons: the team is asked to call instead, so a wrong address is never "confirmed".
@@ -62,11 +62,15 @@ type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; but
 const txt = (body: string): Out => ({ kind: "text", body })
 
 /** Remember the customer's answer on the order (badge in Orders) and tell the team. Confirm does NOT approve: the team decides. */
-async function markWa(ctx: any, o: Doc<"orders">, result: "confirmed" | "cancelled", by: string) {
+async function markWa(ctx: any, o: Doc<"orders">, result: "confirmed" | "cancelled" | "cancel_requested", by: string) {
   await ctx.db.patch(o._id, { waVerify: { result, at: Date.now(), by } })
   if (result === "confirmed") await logOrder(ctx, o._id, "Customer confirmed on WhatsApp", by)
-  await notify(ctx, result === "confirmed" ? "Customer confirmed on WhatsApp" : "Customer cancelled on WhatsApp", `${invoiceLabel(o)} · ${o.customerName}`, o._id, "action")
+  const title = result === "confirmed" ? "Customer confirmed on WhatsApp" : result === "cancel_requested" ? "Customer pressed Cancel on WhatsApp — please call" : "Customer cancelled on WhatsApp"
+  await notify(ctx, title, `${invoiceLabel(o)} · ${o.customerName}`, o._id, "action")
 }
+
+/** A cancel tap does not cancel the order: the team calls first. If nobody decides within this time, a Pending / On Hold order is cancelled. */
+export const CANCEL_GRACE_MS = 24 * 3600 * 1000
 
 // ---------- what one customer message does ----------
 async function findOrder(ctx: any, ref: { no?: number; code?: string; ext?: string }): Promise<Doc<"orders"> | null> {
@@ -173,14 +177,19 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
         return record("confirmed", [txt(confirmedText(o, isPre(o), await preDays(ctx)))], o._id)
       }
       if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. If this is a mistake, please contact BlackBole and we will help.`)], o._id)
+      if (o.waVerify?.result === "cancel_requested" && o.status === "approved") {
+        await markWa(ctx, o, "confirmed", BY)
+        return record("confirmed", [txt(`Thank you! Your order ${invoiceLabel(o)} stays confirmed. — BlackBole`)], o._id)
+      }
       return record("already", [txt(`Order ${invoiceLabel(o)} is already confirmed and being prepared. — BlackBole`)], o._id)
     }
-    // cancel
-    if (canTransition(o.status as any, "cancelled") && !["cancelled"].includes(o.status) && ["pending", "on_hold", "approved"].includes(o.status)) {
-      await applyStatus(ctx, o, "cancelled", BY, "Customer cancelled on WhatsApp")
-      await markWa(ctx, o, "cancelled", BY)
-      await ctx.db.patch(o._id, { followUpAt: Date.now() }) // customer care calls to check why
-      return record("cancelled", [txt(`Your order ${invoiceLabel(o)} has been cancelled. Our customer care team will call you shortly. If size, price or delivery time was a worry, we would love to help. — BlackBole`)], o._id)
+    // cancel: do NOT cancel; flag the order and let the team call first (24 hours later a still-undecided Pending / On Hold order is cancelled)
+    if (["pending", "on_hold", "approved"].includes(o.status)) {
+      if (o.waVerify?.result === "cancel_requested") return record("already", [txt(`We have noted your request for ${invoiceLabel(o)}. Our team will call you shortly. If you change your mind, just tap Confirm. — BlackBole`)], o._id)
+      await markWa(ctx, o, "cancel_requested", BY)
+      await logOrder(ctx, o._id, "Customer pressed Cancel on WhatsApp — order NOT cancelled, please call the customer (auto-cancels in 24 hours if undecided)", BY)
+      await ctx.db.patch(o._id, { followUpAt: Date.now() })
+      return record("cancel_requested", [txt(`We have noted your request for order ${invoiceLabel(o)}. Our customer care team will call you shortly. If size, price or delivery time was a worry, we would love to help. If you change your mind, just tap Confirm. — BlackBole`)], o._id)
     }
     if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} is already cancelled.`)], o._id)
     return record("already", [txt(`Order ${invoiceLabel(o)} is already on its way, so it can no longer be cancelled here. Please contact BlackBole.`)], o._id)
@@ -412,5 +421,24 @@ export const markManual = mutation({
       await ctx.db.patch(o._id, { followUpAt: Date.now() })
     }
     await markWa(ctx, o, result, by)
+  },
+})
+
+/** Cancel requests nobody acted on for 24 hours: a still Pending / On Hold order is cancelled (an Approved one is left for the team). */
+export const sweepCancelRequests = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const recent: Doc<"orders">[] = await ctx.db.query("orders").withIndex("by_created").order("desc").take(2000)
+    const now = Date.now()
+    let n = 0
+    for (const o of recent) {
+      if (o.deletedAt || o.waVerify?.result !== "cancel_requested") continue
+      if (now - (o.waVerify.at ?? now) < CANCEL_GRACE_MS) continue
+      if (o.status !== "pending" && o.status !== "on_hold") continue
+      await applyStatus(ctx, o, "cancelled", "WhatsApp verify", "Customer pressed Cancel on WhatsApp and nobody changed it in 24 hours")
+      await ctx.db.patch(o._id, { waVerify: { ...o.waVerify, result: "cancelled", at: now } })
+      n++
+    }
+    return n
   },
 })
