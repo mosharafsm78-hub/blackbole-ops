@@ -96,6 +96,14 @@ async function staffEmailByName(ctx: MutationCtx | any, name: string | undefined
   return person && isValidEmail(person.email) ? person.email : undefined
 }
 
+/** A person's own extra inbox(es), set on their staff record (Settings → Team) — e.g. a personal address
+ *  alongside their work one. Currently only used for accountability resolution notices. */
+async function extraEmailsByName(ctx: MutationCtx | any, name: string | undefined): Promise<string[]> {
+  if (!name) return []
+  const person = (await ctx.db.query("staff").collect()).find((s: any) => s.active && s.name.trim().toLowerCase() === name.trim().toLowerCase())
+  return (person?.notifyEmails ?? []).filter(isValidEmail)
+}
+
 /** The one place a "you raised this" confirmation ever goes to the raiser themselves — separate latch from the
  *  department-lead email above, so each side's email is tracked (and never doubled) independently. */
 async function sendRaiserEmailOnce(ctx: MutationCtx, flagId: Doc<"opsFlags">["_id"], opts: { toName: string; subject: string; body: string }) {
@@ -125,15 +133,28 @@ async function sendResolvedEmails(ctx: MutationCtx, flag: Doc<"opsFlags">, respo
   const bodyFor = (first: string) =>
     `Hi ${first},\n\n${orderLabel ? `${orderLabel} — ` : ""}"${flag.reason}" has been marked resolved${flag.resolvedByName ? ` by ${flag.resolvedByName}` : ""}.\n\n${response}\n\n— BlackBole Ops`
   const raiserEmail = await staffEmailByName(ctx, flag.raisedByName)
+  const sentTo = new Set<string>()
   if (raiserEmail) {
+    sentTo.add(raiserEmail)
     await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
       to: raiserEmail, subject, text: bodyFor(flag.raisedByName.split(" ")[0] || "there"),
     })
+    for (const extra of await extraEmailsByName(ctx, flag.raisedByName)) {
+      if (sentTo.has(extra)) continue
+      sentTo.add(extra)
+      await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, { to: extra, subject, text: bodyFor(flag.raisedByName.split(" ")[0] || "there") })
+    }
   }
-  if (isValidEmail(flag.assigneeEmail) && flag.assigneeEmail !== raiserEmail) {
+  if (isValidEmail(flag.assigneeEmail) && !sentTo.has(flag.assigneeEmail)) {
+    sentTo.add(flag.assigneeEmail)
     await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
       to: flag.assigneeEmail, subject, text: bodyFor((flag.assignee ?? "there").split(" ")[0] || "there"),
     })
+    for (const extra of await extraEmailsByName(ctx, flag.assignee)) {
+      if (sentTo.has(extra)) continue
+      sentTo.add(extra)
+      await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, { to: extra, subject, text: bodyFor((flag.assignee ?? "there").split(" ")[0] || "there") })
+    }
   }
 }
 

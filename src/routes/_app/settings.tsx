@@ -552,7 +552,7 @@ function TeamTab() {
   const approve = useMutation(api.team.approveRequest)
   const reject = useMutation(api.team.rejectRequest)
   const resetLogin = useMutation(api.team.resetStaffLogin)
-  const [edit, setEdit] = useState<{ id?: Id<"staff">; email: string; name: string; phone: string; roleId?: Id<"roles">; active: boolean } | null>(null)
+  const [edit, setEdit] = useState<{ id?: Id<"staff">; email: string; name: string; phone: string; roleId?: Id<"roles">; active: boolean; notifyEmails: string } | null>(null)
   const [permsFor, setPermsFor] = useState<NonNullable<typeof staff>[number] | null>(null)
   const [reqRole, setReqRole] = useState<Record<string, string>>({})
   const [reqName, setReqName] = useState<Record<string, string>>({})
@@ -598,12 +598,12 @@ function TeamTab() {
                   </div>
                 </div>
                 {!s.isSuperAdmin && <Button variant="outline" size="sm" onClick={() => setPermsFor(s)}>Permissions</Button>}
-                <Button variant="outline" size="sm" onClick={() => setEdit({ id: s._id, email: s.email, name: s.name, phone: s.phone ?? "", roleId: s.roleId, active: s.active })}>Edit</Button>
+                <Button variant="outline" size="sm" onClick={() => setEdit({ id: s._id, email: s.email, name: s.name, phone: s.phone ?? "", roleId: s.roleId, active: s.active, notifyEmails: (s.notifyEmails ?? []).join(", ") })}>Edit</Button>
               </div>
             )
           })}
         </div>
-        <Button className="mt-3" size="sm" onClick={() => setEdit({ email: "", name: "", phone: "", roleId: assignable[0]?._id, active: true })}>Add team member</Button>
+        <Button className="mt-3" size="sm" onClick={() => setEdit({ email: "", name: "", phone: "", roleId: assignable[0]?._id, active: true, notifyEmails: "" })}>Add team member</Button>
         <p className="mt-2 text-xs text-muted-foreground">Or ask them to open the app and choose “First time? Create password” — they'll appear above under “Waiting for access”.</p>
       </Section>
 
@@ -615,6 +615,11 @@ function TeamTab() {
               <div className="space-y-1.5"><Label>Name</Label><Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} /></div>
               <div className="space-y-1.5"><Label>Phone</Label><Input value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} /></div>
+              <div className="space-y-1.5">
+                <Label>Extra email(s) for accountability notices</Label>
+                <Input value={edit.notifyEmails} onChange={(e) => setEdit({ ...edit, notifyEmails: e.target.value })} placeholder="personal@gmail.com, another@x.com" />
+                <p className="text-xs text-muted-foreground">Comma-separated. These also get a copy of accountability case resolution emails meant for this person, alongside their main email above.</p>
+              </div>
               <div className="space-y-1.5">
                 <Label>Team / role</Label>
                 <Select value={edit.roleId} onValueChange={(v) => setEdit({ ...edit, roleId: v as Id<"roles"> })}>
@@ -633,7 +638,8 @@ function TeamTab() {
               ) : <span />}
               <Button disabled={!edit.roleId || !edit.email || !edit.name} onClick={async () => {
                 try {
-                  await save({ id: edit.id, email: edit.email, name: edit.name, phone: edit.phone || undefined, roleId: edit.roleId!, active: edit.active })
+                  const notifyEmails = edit.notifyEmails.split(",").map((e) => e.trim()).filter(Boolean)
+                  await save({ id: edit.id, email: edit.email, name: edit.name, phone: edit.phone || undefined, roleId: edit.roleId!, active: edit.active, notifyEmails: notifyEmails.length ? notifyEmails : undefined })
                   toast.success("Saved"); setEdit(null)
                 } catch (e) { toast.error(errMsg(e)) }
               }}>Save</Button>

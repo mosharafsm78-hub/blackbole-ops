@@ -112,14 +112,16 @@ export const saveStaff = mutation({
     phone: v.optional(v.string()),
     roleId: v.id("roles"),
     active: v.boolean(),
+    notifyEmails: v.optional(v.array(v.string())),
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "team.manage")
     const email = a.email.trim().toLowerCase()
     if (!email.includes("@")) throw new ConvexError("Enter a valid email")
+    const notifyEmails = a.notifyEmails?.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"))
     if (a.id) {
       if (a.id === me.staff._id && !a.active) throw new ConvexError("You can't deactivate yourself")
-      await ctx.db.patch(a.id, { email, name: a.name, phone: a.phone, roleId: a.roleId, active: a.active })
+      await ctx.db.patch(a.id, { email, name: a.name, phone: a.phone, roleId: a.roleId, active: a.active, notifyEmails: notifyEmails?.length ? notifyEmails : undefined })
       return a.id
     }
     const exists = await ctx.db.query("staff").withIndex("by_email", (q) => q.eq("email", email)).unique()
@@ -128,6 +130,7 @@ export const saveStaff = mutation({
     const user = (await ctx.db.query("users").collect()).find((u) => (u.email ?? "").toLowerCase() === email)
     return await ctx.db.insert("staff", {
       email, name: a.name, phone: a.phone, roleId: a.roleId, active: a.active,
+      notifyEmails: notifyEmails?.length ? notifyEmails : undefined,
       userId: user?._id, createdAt: Date.now(),
     })
   },

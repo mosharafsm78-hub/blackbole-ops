@@ -46,6 +46,9 @@ export default defineSchema({
     // per-person switches on top of the role
     extraPerms: v.optional(v.array(v.string())),
     deniedPerms: v.optional(v.array(v.string())),
+    // Extra addresses that also get a copy of accountability resolution emails meant for this person — e.g. a
+    // personal inbox alongside their work one. Doesn't touch sign-in or any other notification.
+    notifyEmails: v.optional(v.array(v.string())),
   })
     .index("by_email", ["email"])
     .index("by_user", ["userId"]),
