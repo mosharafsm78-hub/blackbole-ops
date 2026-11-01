@@ -1,6 +1,6 @@
 // Customer satisfaction survey on WhatsApp.
 //   1. 2 days after a parcel is delivered (and once for past customers, on the owner's click) we send the approved
-//      template "rate_experience" with a "Rate now" button.
+//      template "rate_experience_v2" with a "Rate now" button.
 //   2. Tapping it opens a 1–10 list. The answer is saved here (Ops → Satisfaction) and the customer gets a thank-you
 //      with a one-time Shopify discount code: 1–5 → Tk 100, 6–8 → Tk 200, 9–10 → Tk 300.
 // Off until switched on in Settings → WhatsApp verify. Test mode records what would be sent and creates no real code.
@@ -12,7 +12,7 @@ import type { Doc, Id } from "./_generated/dataModel"
 import { getSetting, invoiceLabel, notify, logOrder, requirePerm, setSetting } from "./lib"
 import { shopifyGql } from "./shopifyStock"
 
-export const TEMPLATE = "rate_experience"
+export const TEMPLATE = "rate_experience_v2"
 const DAY = 86400000
 const AGAIN_DAYS = 60 // one survey per phone number in this time
 const MIN_ORDER = 1500 // discount codes work on orders from this amount (a Tk 200 pre-order booking must never become free)

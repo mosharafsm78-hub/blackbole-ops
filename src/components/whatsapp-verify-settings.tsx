@@ -124,7 +124,7 @@ function SurveyCard() {
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">Ask customers to rate us (1–10)</p>
-          <p className="text-xs text-muted-foreground">2 days after a parcel is delivered, the customer gets a “Rate now” message, picks 1–10, and gets a one-time discount code (1–5: Tk 100, 6–8: Tk 200, 9–10: Tk 300; valid 30 days on orders of Tk 1,500+). Results are on the Satisfaction page. Needs the approved Meta template <b>rate_experience</b> (Marketing, with a “Rate now” button). Test mode sends nothing and makes no real code.</p>
+          <p className="text-xs text-muted-foreground">2 days after a parcel is delivered, the customer gets a “Rate now” message, picks 1–10, and gets a one-time discount code (1–5: Tk 100, 6–8: Tk 200, 9–10: Tk 300; valid 30 days on orders of Tk 1,500+). Results are on the Satisfaction page. Needs the approved Meta template <b>rate_experience_v2</b> (Utility, with a “Rate now” button). Test mode sends nothing and makes no real code.</p>
         </div>
         <Switch checked={st.enabled} onCheckedChange={async (v) => { try { await save({ enabled: v }); toast.success(v ? "Rating survey on" : "Rating survey off") } catch (e) { toast.error(errMsg(e)) } }} aria-label="Rating survey" />
       </div>
