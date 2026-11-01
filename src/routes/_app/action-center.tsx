@@ -117,6 +117,21 @@ function ActionCenter() {
 function FindingCard({ f, stage }: { f: any; stage: Stage }) {
   const s = STAGE[stage]
   const ls = f.ls as { status: string; at: number; byName: string } | undefined
+  const log = useMutation(api.findingLog.log)
+  const [resolving, setResolving] = useState(false)
+
+  const markResolved = async () => {
+    setResolving(true)
+    try {
+      await log({ findingId: f.id, text: "", status: "resolved" })
+      toast.success("Marked resolved")
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setResolving(false)
+    }
+  }
+
   return (
     <section className={cn("rounded-xl border border-l-4 bg-card p-5", s.border)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -128,7 +143,12 @@ function FindingCard({ f, stage }: { f: any; stage: Stage }) {
           )}
           {(f.team as string[] | undefined)?.map((t) => <TeamTag key={t} team={t} />)}
         </div>
-        <span className="text-xs text-muted-foreground">~{taka(f.impact)} impact</span>
+        <div className="flex items-center gap-2">
+          {f.impact > 0 && <span className="text-xs text-muted-foreground">~{taka(f.impact)} impact</span>}
+          {stage !== "done" && (
+            <Button size="sm" variant="outline" disabled={resolving} onClick={() => void markResolved()}>Mark resolved</Button>
+          )}
+        </div>
       </div>
       <h2 className="mt-3 text-base font-semibold">{f.problem}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{f.finding}</p>

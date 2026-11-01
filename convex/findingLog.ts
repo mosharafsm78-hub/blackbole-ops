@@ -33,7 +33,10 @@ export const log = mutation({
   handler: async (ctx, { findingId, text, status }) => {
     const s = await requirePerm(ctx, "dashboard.view")
     const clean = text.trim()
-    if (!clean) throw new Error("Write what was done before logging it")
-    await ctx.db.insert("findingLogs", { findingId, text: clean, status, byName: s.staff.name, at: Date.now() })
+    // A quick "mark resolved" with no note is fine — the status change itself is the record, and that's what a
+    // one-click close button sends. Reopening or marking in-progress still needs a real note, so the log stays
+    // an actual trail of what the team did, not just status flips.
+    if (!clean && status !== "resolved") throw new Error("Write what was done before logging it")
+    await ctx.db.insert("findingLogs", { findingId, text: clean || "Marked resolved", status, byName: s.staff.name, at: Date.now() })
   },
 })

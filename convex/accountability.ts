@@ -14,7 +14,7 @@ import { awardPoints, type KpiRuleKey } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
 
 const DAY = 86400000
-const SLA_DAYS = 2
+export const SLA_DAYS = 2
 
 /** The real departments a case can be routed to. Kept in step with the team tags the UI shows (CX / OPS / MKT /
  *  DEV) so a re-route can only ever pick a department the rest of the app knows how to label. */

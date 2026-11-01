@@ -4,6 +4,7 @@ import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { currentStaff } from "./lib"
 import { isRealReason } from "./rules"
+import { SLA_DAYS } from "./accountability"
 import { bdDay, statsFromDays } from "./stats"
 
 const DAY = 86400000
@@ -427,6 +428,31 @@ async function buildInsights(ctx: any) {
         : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`) + waLine,
       detail: [] as string[],
       team: ["Marketing"],
+    })
+  }
+
+  // D. Accountability cases sitting open past the 2-day SLA — a live operational pulse, not a 90-day rolling
+  //    aggregate. The other three findings only move when a pattern shifts, which can go quiet for days even
+  //    while things are actually happening — this one updates the moment a case stalls, so Action Center has
+  //    something fresh far more often than once a quarter-shift.
+  const digest = await ctx.runQuery(internal.accountability.openForDigest, {})
+  const overdueRows = (digest?.rows ?? []).filter((r: any) => Date.now() - r.raisedAt >= SLA_DAYS * DAY)
+  if (overdueRows.length > 0) {
+    const byTeam = new Map<string, number>()
+    for (const r of overdueRows) byTeam.set(r.team, (byTeam.get(r.team) ?? 0) + 1)
+    const teamList = [...byTeam.entries()].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${t} (${n})`).join(", ")
+    const oldest = overdueRows.reduce((o: any, r: any) => (!o || r.raisedAt < o.raisedAt ? r : o), null as any)
+    const oldestDays = oldest ? Math.floor((Date.now() - oldest.raisedAt) / DAY) : 0
+    findings.push({
+      id: "accountability-overdue",
+      problem: `${overdueRows.length} accountability case${overdueRows.length > 1 ? "s are" : " is"} sitting past the ${SLA_DAYS}-day SLA`,
+      finding: `By team: ${teamList}. Oldest: "${oldest.reason}"${oldest.orderInvoice ? ` (${oldest.orderInvoice})` : ""} — open ${oldestDays} day${oldestDays === 1 ? "" : "s"} with no answer yet.`,
+      solution: `Open Accountability and answer these — the assignee already got an email when each was raised and again once it went overdue, but nobody has written back.`,
+      impact: 0,
+      status: "human" as const,
+      aiDid: `Flags each case and emails the assignee automatically on day 0, then again once it crosses ${SLA_DAYS} days unanswered. Writing the actual answer still needs a person.`,
+      detail: [] as string[],
+      team: [...byTeam.keys()],
     })
   }
 
