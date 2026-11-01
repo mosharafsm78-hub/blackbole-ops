@@ -363,8 +363,13 @@ export function mixMargin(lines: { units: number; price: number; cost: number | 
 }
 
 export type ProfitPlan = {
-  /** Share of product revenue left after the shoes' purchase cost (planned product mix). */
+  /** Share of product revenue left after the shoes' purchase cost (planned product mix, item price basis). */
   grossMargin: number
+  /** The same margin, re-based onto ৳1 of order-total revenue — what's actually subtracted below. Differs from
+   *  grossMargin whenever discounts or the delivery fee make the order total diverge from the item-line price
+   *  (ratio ≠ 1): a discount shrinks it, a collected delivery fee (pure margin once courier cost is counted
+   *  separately below) grows it. This is the number the breakdown shown to the team should foot against. */
+  grossRate: number
   /** Per ৳1 of revenue: delivery + packaging (per order, ÷ average order), and the payment fee. */
   orderCostRate: number
   payFeeRate: number
@@ -416,6 +421,7 @@ export function profitPlan(args: {
   const breakEven = contribution > 0 ? Math.ceil(fixed / contribution) : null
   return {
     grossMargin: Math.round(args.grossMargin * 1000) / 1000,
+    grossRate: Math.round(grossRate * 1000) / 1000,
     orderCostRate: Math.round(orderCostRate * 1000) / 1000,
     payFeeRate: Math.round(payFeeRate * 1000) / 1000,
     returnRate,

@@ -385,7 +385,11 @@ function ProfitStrip({ p, target }: { p: NonNullable<TargetProgress["profit"]>; 
         <Fig label="Each ৳100 earns" value={`৳${(p.contribution * 100).toFixed(1)}`} sub="after shoes, delivery, packaging, fees and ads" />
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Out of every ৳100 delivered: ৳{(p.grossMargin * 100).toFixed(0)} is shoe margin · ৳{(p.orderCostRate * 100).toFixed(1)} delivery + packaging (average order {taka(p.aov)}, with {Math.round(p.returnRate * 100)}% of shipped orders returning) · ৳{(p.payFeeRate * 100).toFixed(1)} payment fee · ৳{(p.adRate * 100).toFixed(1)} ads. Shoes that come back are assumed resellable.
+        Out of every ৳100 delivered: ৳{(p.grossRate * 100).toFixed(1)} is kept after the shoes' own cost
+        {Math.abs(p.grossRate - p.grossMargin) >= 0.005 && (
+          <> (the shoes themselves run a {(p.grossMargin * 100).toFixed(0)}% margin — discounts and the delivery-fee math {p.grossRate > p.grossMargin ? "push" : "pull"} that to this)</>
+        )}
+        {" "}· ৳{(p.orderCostRate * 100).toFixed(1)} delivery + packaging (average order {taka(p.aov)}, with {Math.round(p.returnRate * 100)}% of shipped orders returning) · ৳{(p.payFeeRate * 100).toFixed(1)} payment fee · ৳{(p.adRate * 100).toFixed(1)} ads — leaving the ৳{(p.contribution * 100).toFixed(1)} above. Shoes that come back are assumed resellable.
       </p>
       {!makes && p.breakEven !== null && <p className="mt-2 text-xs">Raise the target to at least <b>{taka(p.breakEven)}</b> or cut ad cost per order — at this target the month loses money.</p>}
     </div>

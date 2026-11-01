@@ -303,6 +303,24 @@ describe("profit: per-order costs", () => {
     // ratio 1.1 → 1/11 of each order is delivery fee collected; shoes are 10/11 of it
     const p = profitPlan({ target: 1000000, grossMargin: 0.5, ratio: 1.1, aov: 1100, mer: 100, costs: { salary: 0, rent: 0, other: 0, delivery: 0, packaging: 0, payFeePct: 0 }, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
     expect(p.contribution).toBeCloseTo(0.5 / 1.1 + 1 - 1 / 1.1 - 0.01, 3)
+    expect(p.grossRate).toBeGreaterThan(p.grossMargin) // delivery fee income grows the rate above the raw item margin
+  })
+
+  it("grossRate is the number the on-screen breakdown should foot against, not the raw item-level grossMargin", () => {
+    // The dashboard shows "out of every ৳100: ৳X is shoe margin · ... · ads" and that should actually sum to the
+    // displayed "each ৳100 earns" (contribution). Using the raw, ratio-unadjusted grossMargin for that line was
+    // the bug: it silently hid however much discounts (ratio < 1) or the delivery fee (ratio > 1) move the real
+    // per-order-total rate — so the breakdown looked like it didn't add up, even though the underlying profit
+    // figures were correct.
+    const costs = { salary: 0, rent: 0, other: 0, delivery: 120, packaging: 57, payFeePct: 2.5, returnPct: 30 }
+    // ratio 0.9 → discounts shave the order total below the item-line price, which should shrink the real rate.
+    const discounted = profitPlan({ target: 1200000, grossMargin: 0.55, ratio: 0.9, aov: 1782, mer: 3.27, costs, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(discounted.grossRate).toBeLessThan(discounted.grossMargin)
+    expect(discounted.contribution).toBeCloseTo(discounted.grossRate - discounted.orderCostRate - discounted.payFeeRate - discounted.adRate, 2)
+
+    // ratio 1 → nothing to reconcile, the two figures agree.
+    const flat = profitPlan({ target: 1200000, grossMargin: 0.55, ratio: 1, aov: 1782, mer: 3.27, costs, deliveredMtd: 0, spentMtd: 0, dayOfMonth: 1, days: 30 })
+    expect(flat.grossRate).toBe(flat.grossMargin)
   })
 })
 
