@@ -18,8 +18,8 @@ import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, 
 import { applyStatus } from "./orders"
 import { canTransition } from "./rules"
 
-export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string }
-export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "" }
+export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string }
+export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "", autoSend: false, templateName: "order_confirmation", templateLang: "en" }
 type Secrets = { token?: string; verifyToken?: string; appSecret?: string }
 const conf = async (ctx: any): Promise<WaConf> => ({ ...DEFAULT_CONF, ...((await getSetting<WaConf>(ctx, "waVerify")) ?? {}) })
 const secrets = async (ctx: any): Promise<Secrets> => (await getSetting<Secrets>(ctx, "waVerifySecrets")) ?? {}
@@ -169,6 +169,57 @@ export const deliver = internalAction({
     }
   },
 })
+/** Automatic confirmation: when a new order arrives, send the approved template (order summary + Confirm / Cancel buttons).
+ *  Once per order. Test mode only records what would be sent. An order with a weak phone/address gets no buttons: the team calls. */
+export const claimAuto = internalMutation({
+  args: { orderId: v.id("orders"), preview: v.string() },
+  handler: async (ctx, { orderId, preview }) => {
+    const o = await ctx.db.get(orderId)
+    if (!o || o.deletedAt || o.status !== "pending" || o.waVerify) return null
+    const wamid = `auto-${orderId}`
+    if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", wamid)).first()) return null
+    const waId = `88${(o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")}`
+    const bad = detailsProblem(o)
+    if (bad) {
+      await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_skipped", out: [`not sent: ${bad}`], at: Date.now() })
+      return null
+    }
+    await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_pending", out: [preview], at: Date.now() })
+    return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: tk(o.due > 0 ? o.due : o.total), id: o._id }
+  },
+})
+export const finishAuto = internalMutation({
+  args: { orderId: v.id("orders"), result: v.string(), note: v.optional(v.string()) },
+  handler: async (ctx, { orderId, result, note }) => {
+    const ev = await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${orderId}`)).first()
+    if (ev) await ctx.db.patch(ev._id, { result, ...(note ? { out: [...(ev.out ?? []), note] } : {}) })
+    if (result === "auto_sent") await logOrder(ctx, orderId, "WhatsApp confirmation message sent to the customer", "WhatsApp verify")
+  },
+})
+export const sendConfirmation = internalAction({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => {
+    const { conf: c, sec } = await ctx.runQuery(internal.whatsappVerify.liveConf, {})
+    if (!c.enabled || !c.autoSend) return
+    const name = (c.templateName || "order_confirmation").trim()
+    const m = await ctx.runMutation(internal.whatsappVerify.claimAuto, { orderId, preview: `Template “${name}”` })
+    if (!m) return
+    if (c.mode !== "live" || !c.phoneNumberId || !sec.token) { await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_test", note: `Would send to ${m.waId}: ${m.first}, ${m.invoice}, ${m.amount}` }); return }
+    const payload = {
+      messaging_product: "whatsapp", to: m.waId, type: "template",
+      template: { name, language: { code: c.templateLang || "en" }, components: [
+        { type: "body", parameters: [m.first, m.invoice, m.amount].map((text) => ({ type: "text", text })) },
+        { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: `wv:c:${m.id}` }] },
+        { type: "button", sub_type: "quick_reply", index: "1", parameters: [{ type: "payload", payload: `wv:x:${m.id}` }] },
+      ] },
+    }
+    try {
+      const r = await fetch(graph(c), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sec.token}` }, body: JSON.stringify(payload) })
+      if (r.ok) await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_sent" })
+      else { const t = (await r.text()).slice(0, 200); console.error("WhatsApp template send failed", r.status, t); await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_failed", note: `${r.status} ${t}` }) }
+    } catch (e: any) { await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_failed", note: String(e?.message ?? e).slice(0, 200) }) }
+  },
+})
 export const liveConf = internalQuery({ args: {}, handler: async (ctx) => ({ conf: await conf(ctx), sec: await secrets(ctx) }) })
 
 // ---------- Meta's webhook ----------
@@ -215,6 +266,7 @@ export const settings = query({
     const s = await secrets(ctx)
     const week = await ctx.db.query("waVerifyEvents").withIndex("by_at", (q) => q.gte("at", Date.now() - 7 * 86400000)).collect()
     const n = (r: string) => week.filter((e) => e.result === r).length
+    const autoSent = n("auto_sent")
     const recent = (await ctx.db.query("waVerifyEvents").withIndex("by_at").order("desc").take(15)).map((e) => ({ ...e }))
     const invoices = new Map<string, string>()
     for (const e of recent) if (e.orderId && !invoices.has(e.orderId)) { const o = await ctx.db.get(e.orderId); if (o) invoices.set(e.orderId, invoiceLabel(o)) }
@@ -222,14 +274,14 @@ export const settings = query({
       conf: c, hasToken: !!s.token, hasVerifyToken: !!s.verifyToken, hasAppSecret: !!s.appSecret,
       webhookUrl: `${process.env.CONVEX_SITE_URL}/whatsapp/webhook`,
       link: c.businessNumber ? `https://wa.me/${c.businessNumber}?text=${encodeURIComponent("Verify BB-{order number}")}` : null,
-      week: { asked: n("asked"), confirmed: n("confirmed"), cancelled: n("cancelled"), addressIssue: n("address_issue"), mismatch: n("mismatch") },
+      week: { asked: n("asked"), confirmed: n("confirmed"), cancelled: n("cancelled"), addressIssue: n("address_issue"), mismatch: n("mismatch"), autoSent, autoFailed: n("auto_failed") },
       recent: recent.map((e) => ({ ...e, invoice: e.orderId ? invoices.get(e.orderId) ?? "" : "" })),
     }
   },
 })
 
 export const saveSettings = mutation({
-  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
+  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), autoSend: v.optional(v.boolean()), templateName: v.optional(v.string()), templateLang: v.optional(v.string()), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
   handler: async (ctx, { token, verifyToken, appSecret, ...a }) => {
     await requirePerm(ctx, "settings.manage")
     const businessNumber = a.businessNumber.replace(/\D/g, "")
@@ -237,7 +289,7 @@ export const saveSettings = mutation({
     const nextSec = { token: token?.trim() || cur.token, verifyToken: verifyToken?.trim() || cur.verifyToken, appSecret: appSecret?.trim() || cur.appSecret }
     if (a.enabled && a.mode === "live" && (!a.phoneNumberId.trim() || !businessNumber || !nextSec.token || !nextSec.verifyToken || !nextSec.appSecret))
       throw new ConvexError("Live needs the phone number ID, business number, access token, verify token and app secret.")
-    await setSetting(ctx, "waVerify", { ...a, phoneNumberId: a.phoneNumberId.trim(), businessNumber })
+    await setSetting(ctx, "waVerify", { ...a, phoneNumberId: a.phoneNumberId.trim(), businessNumber, templateName: (a.templateName ?? "order_confirmation").trim() || "order_confirmation", templateLang: (a.templateLang ?? "en").trim() || "en" })
     await setSetting(ctx, "waVerifySecrets", nextSec)
   },
 })

@@ -23,6 +23,42 @@ async function setup() {
   return { t, as, order, status }
 }
 
+describe("WhatsApp automatic confirmation", () => {
+  it("test mode records what it would send, once per order; weak address is skipped; off sends nothing", async () => {
+    const { t, as, order } = await setup()
+    const ev = (id: any) => t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${id}`)).collect())
+    const a = await order("01711000011")
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: a.id })
+    expect(await ev(a.id)).toHaveLength(0) // autoSend off by default
+    await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "test", phoneNumberId: "", businessNumber: "8801700000000", autoSend: true })
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: a.id })
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: a.id }) // twice → still one
+    const e = await ev(a.id)
+    expect(e).toHaveLength(1)
+    expect(e[0].result).toBe("auto_test")
+    expect(e[0].waId).toBe("8801711000011")
+    const b = await order("01711000012", "Dhaka")
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: b.id })
+    expect((await ev(b.id))[0].result).toBe("auto_skipped")
+  })
+  it("live mode posts the template with Confirm/Cancel payloads", async () => {
+    const { t, as, order } = await setup()
+    await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "live", phoneNumberId: "999", businessNumber: "8801700000000", autoSend: true, token: "tok", verifyToken: "vt", appSecret: "sec" })
+    const calls: any[] = []
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init: any) => { calls.push({ url, body: JSON.parse(init.body) }); return new Response("{}", { status: 200 }) }))
+    const a = await order("01711000013")
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: a.id })
+    vi.unstubAllGlobals()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toContain("/999/messages")
+    expect(calls[0].body.template.name).toBe("order_confirmation")
+    expect(calls[0].body.template.components[1].parameters[0].payload).toBe(`wv:c:${a.id}`)
+    expect(calls[0].body.template.components[2].parameters[0].payload).toBe(`wv:x:${a.id}`)
+    const e = await t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${a.id}`)).first())
+    expect(e?.result).toBe("auto_sent")
+  })
+})
+
 describe("WhatsApp order verification", () => {
   it("reads order numbers and phone numbers from messy input", () => {
     expect(invoiceFromText("Verify BB-12345")).toEqual({ no: 12345 })

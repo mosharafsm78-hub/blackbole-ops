@@ -11,7 +11,7 @@ import { dateTime, errMsg } from "@/lib/format"
 
 const RESULT: Record<string, string> = {
   asked: "Summary sent", confirmed: "Confirmed → Approved", cancelled: "Cancelled", address_issue: "Address/phone incomplete → team to call",
-  mismatch: "Wrong number (ignored)", already: "Already handled", not_found: "Order not found", ignored: "Repeat (ignored)",
+  mismatch: "Wrong number (ignored)", auto_sent: "Confirmation message sent", auto_test: "Test: would have sent confirmation", auto_failed: "Confirmation message FAILED", auto_skipped: "Not sent (address/phone incomplete → call)", auto_pending: "Sending…", already: "Already handled", not_found: "Order not found", ignored: "Repeat (ignored)",
 }
 
 /** Settings → WhatsApp verify: the customer taps "Verify on WhatsApp", gets a summary, presses Confirm or Cancel. */
@@ -56,6 +56,16 @@ export function WhatsAppVerifySettings() {
           <div className="space-y-1"><Label>Verify token (you choose any word) {data.hasVerifyToken && <Pill tone="green">saved</Pill>}</Label><Input type="password" value={sec.verifyToken} onChange={(e) => setSec({ ...sec, verifyToken: e.target.value })} placeholder={data.hasVerifyToken ? "leave empty to keep" : ""} /></div>
           <div className="space-y-1"><Label>App secret {data.hasAppSecret && <Pill tone="green">saved</Pill>}</Label><Input type="password" value={sec.appSecret} onChange={(e) => setSec({ ...sec, appSecret: e.target.value })} placeholder={data.hasAppSecret ? "leave empty to keep" : ""} /></div>
         </div>
+        <div className="mt-4 rounded-md border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div><p className="text-sm font-medium">Send the confirmation message automatically</p><p className="text-xs text-muted-foreground">When a new order arrives, the customer gets the approved WhatsApp template with Confirm / Cancel buttons. Orders with an incomplete phone or address are skipped (the team calls). Test mode sends nothing.</p></div>
+            <Switch checked={!!f.autoSend} onCheckedChange={(v) => set("autoSend", v)} aria-label="Automatic confirmation message" />
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1"><Label>Template name (as approved in Meta)</Label><Input value={f.templateName ?? "order_confirmation"} onChange={(e) => set("templateName", e.target.value)} /></div>
+            <div className="space-y-1"><Label>Template language code</Label><Input value={f.templateLang ?? "en"} onChange={(e) => set("templateLang", e.target.value)} /></div>
+          </div>
+        </div>
         <div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" onClick={() => void doSave()}>Save</Button></div>
         <div className="mt-4 space-y-1 rounded-md bg-muted/50 p-3 text-xs">
           <p><b>Webhook address for Meta:</b> {data.webhookUrl}</p>
@@ -77,7 +87,7 @@ export function WhatsAppVerifySettings() {
 
       <section className="rounded-lg border bg-card p-5">
         <h3 className="font-semibold">Last 7 days</h3>
-        <p className="text-sm text-muted-foreground">{data.week.asked} verifications started · {data.week.confirmed} confirmed · {data.week.cancelled} cancelled · {data.week.addressIssue} need a call · {data.week.mismatch} wrong number</p>
+        <p className="text-sm text-muted-foreground">{data.week.asked} verifications started · {data.week.confirmed} confirmed · {data.week.cancelled} cancelled · {data.week.addressIssue} need a call · {data.week.mismatch} wrong number · {data.week.autoSent} automatic messages sent · {data.week.autoFailed} failed</p>
         <ul className="mt-2 space-y-1 text-sm">
           {data.recent.map((e) => <li key={e._id} className="flex justify-between gap-3"><span>{e.invoice || "—"} · {RESULT[e.result] ?? e.result}</span><span className="text-muted-foreground">{dateTime(e.at)}</span></li>)}
         </ul>

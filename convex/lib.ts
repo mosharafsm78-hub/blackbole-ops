@@ -208,6 +208,8 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   }
   // Automatic confirmation call for a new Pending order (checks its own on/off switch)
   if (status === "pending") await ctx.scheduler.runAfter(0, internal.autoCalls.queue, { orderId })
+  // Automatic WhatsApp confirmation (Settings → WhatsApp verify; off unless switched on, and test mode sends nothing)
+  if (status === "pending") await ctx.scheduler.runAfter(20_000, internal.whatsappVerify.sendConfirmation, { orderId })
   // Meta Conversions API: a confirmed order is the Purchase Meta should learn from; delivery and returns follow (needs the pixel ID in Settings → Meta ads)
   const capi: CapiEvent | null = status === "approved" ? "Purchase" : status === "delivered_paid" || status === "delivered_due" ? "Delivered" : status === "returned" ? "Returned" : null
   if (capi) await ctx.scheduler.runAfter(0, internal.metaCapi.send, { orderId, event: capi })
