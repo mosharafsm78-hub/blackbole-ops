@@ -274,6 +274,23 @@ describe("catalog duplicates are merged into one plan row", () => {
     expect(row.stockUnits).toBe(70) // only the live SKU's stock — the dead one contributes sales history, not stock
   })
 
+  it("folds sales under a product name that has NO matching catalog SKU left at all into the current row", async () => {
+    // The deepest version of the bug: the old duplicate's variant isn't just deactivated, it no longer exists
+    // anywhere in the catalog — only its past orders remain, carrying the product's name. Neither of the
+    // catalog-aware passes in gatherStock() can find a SKU that was deleted outright, so this has to be caught
+    // as a last resort, purely by the name every surviving row already carries.
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 70, "BB-SH-BHSS-BLACK-NEW")
+    await sell("GHOST-SKU-NO-LONGER-IN-CATALOG-41", "BlackBole Harbor Shore Sandal For Men - Black", 6, 1000, NOW - 25 * DAY)
+    await sell("BB-SH-BHSS-BLACK-NEW-41", "BlackBole Harbor Shore Sandal For Men - Black", 10, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.filter((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")).toHaveLength(1)
+    const row = p.products!.find((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")!
+    expect(row.stockUnits).toBe(70) // the real SKU's stock; the ghost SKU only ever contributed sales history
+  })
+
   it("never merges two genuinely different products that just happen to both have stock", async () => {
     const { asAdmin, addProduct, sell } = await setup()
     await addProduct("Hero Sandal", 10, "BB-HERO")

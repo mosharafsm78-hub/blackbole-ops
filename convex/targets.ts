@@ -567,6 +567,26 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
           group: classify({ stockUnits: st ? st.units : null, sizesIn: st?.sizesIn ?? 0, sizesTotal: st?.sizes ?? 0, soldUnits: sold?.units ?? 0 }),
         })
       }
+      // Last-resort catch for the same catalog-duplicate problem: gatherStock() already folds a duplicate's SKU
+      // onto its canonical row whenever that SKU still exists somewhere in the products/variants tables, active
+      // or not — but a SKU whose variant was deleted outright (not just deactivated) leaves no trace there, and
+      // its old orders only ever surface here, under the product's own recorded name. Anything that still made
+      // it this far sharing the exact same name is the same real-world listing, so fold it into the entry with
+      // the most real stock (or, if none has stock, the most demand) rather than let it stand as its own
+      // paper-thin pre-order row and ad-push line.
+      {
+        const byName: Record<string, ProductInput[]> = {}
+        for (const inp of inputs) (byName[inp.name] ??= []).push(inp)
+        const deduped: ProductInput[] = []
+        for (const group of Object.values(byName)) {
+          if (group.length < 2) { deduped.push(group[0]); continue }
+          const canonical = group.slice().sort((a, b) => (b.stockUnits ?? -1) - (a.stockUnits ?? -1) || b.demandRevenue - a.demandRevenue)[0]
+          const extra = group.reduce((s, p) => s + (p === canonical ? 0 : p.demandRevenue), 0)
+          deduped.push({ ...canonical, demandRevenue: canonical.demandRevenue + extra })
+        }
+        inputs.length = 0
+        inputs.push(...deduped)
+      }
       snapshot = row.plan as ProductPlan | undefined
       const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
       // Any change to the team's counts (a line counted, test pairs added or removed) re-makes the plan at once, so
