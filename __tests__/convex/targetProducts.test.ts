@@ -255,6 +255,25 @@ describe("catalog duplicates are merged into one plan row", () => {
     expect(p.products!.filter((r) => r.name === "Duplicate Loafer")).toHaveLength(1)
   })
 
+  it("folds old sales onto the current row even when the duplicate's own variant was deactivated, not just destocked", async () => {
+    // This is the sharper version of the relaunch bug: the old shell wasn't just left at low stock, its variant
+    // was switched off entirely once the new SKU took over. Its past orders still carry the product's name, but
+    // the SKU they reference no longer appears anywhere in the active-stock pass above, so only a second,
+    // name-based pass (over every variant, active or not) can route them onto today's row.
+    const { t, asAdmin, addProduct, sell } = await setup()
+    const oldVariantId = await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 0, "BB-SH-BHSS-BLACK")
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 70, "BB-SH-BHSS-BLACK-NEW")
+    await sell("BB-SH-BHSS-BLACK-41", "BlackBole Harbor Shore Sandal For Men - Black", 6, 1000, NOW - 25 * DAY) // old SKU's past orders
+    await sell("BB-SH-BHSS-BLACK-NEW-41", "BlackBole Harbor Shore Sandal For Men - Black", 10, 1000, NOW - 20 * DAY)
+    await t.run((ctx) => ctx.db.patch(oldVariantId, { active: false })) // relaunch switched the old SKU off
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.filter((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")).toHaveLength(1)
+    const row = p.products!.find((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")!
+    expect(row.stockUnits).toBe(70) // only the live SKU's stock — the dead one contributes sales history, not stock
+  })
+
   it("never merges two genuinely different products that just happen to both have stock", async () => {
     const { asAdmin, addProduct, sell } = await setup()
     await addProduct("Hero Sandal", 10, "BB-HERO")

@@ -353,6 +353,23 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
       delete out[key]
     }
   }
+
+  // A deeper source of the same split: a SKU can carry sale history while its own variant or product is now
+  // inactive/deleted (a relaunch that retired the old shell rather than just adding new SKUs) — such a variant
+  // never reaches the loop above, so it's invisible to the active-stock merge, yet its past orders still
+  // surface downstream as their own tiny "pre-order" row under the product's old name (gather() falls back to
+  // the sale's own recorded name whenever a SKU isn't in this map at all). Catch that here by name, over every
+  // variant regardless of active/deleted status, so an old SKU with no stock left still lands on today's row.
+  const canonicalKeyByName: Record<string, string> = {}
+  for (const [key, e] of Object.entries(out)) canonicalKeyByName[e.name] = key
+  for (const x of variants) {
+    const skuKey = skuBase(x.sku)
+    if (preOrderKeyBySku[skuKey]) continue
+    const p = prod.get(x.productId)
+    if (!p) continue
+    const canonicalKey = canonicalKeyByName[p.name]
+    if (canonicalKey && canonicalKey !== skuKey) preOrderKeyBySku[skuKey] = canonicalKey
+  }
   return { map: out, lines, counted, preOrderKeyBySku }
 }
 
