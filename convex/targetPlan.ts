@@ -226,6 +226,8 @@ export type ProductRow = {
   perDayAfterToday: number
   stockUnits: number | null
   coverDays: number | null
+  /** Recent pairs sold per day (trailing window average) — the same number coverDays and restock suggestions are built from. */
+  perDay: number
   /** Pairs of what's still planned that current stock cannot cover. */
   stockShort: number
   /** Piling up unsold (90+ days of cover) — a candidate for a marketing push. */
@@ -261,7 +263,7 @@ export function productRows(args: {
       todayTarget, todaySold,
       toGo: todayTarget === null ? 0 : Math.max(0, todayTarget - todaySold),
       perDayAfterToday: args.daysLeft > 1 ? Math.ceil(left / (args.started ? args.daysLeft - 1 : args.daysLeft)) : 0,
-      stockUnits: stock, coverDays,
+      stockUnits: stock, coverDays, perDay,
       stockShort: stock === null ? 0 : Math.max(0, left - stock),
       overstock: coverDays !== null && coverDays > 90,
     })
@@ -510,4 +512,80 @@ export const BUY_COVER_WEEKS = 3 // buy enough for this many weeks at the curren
 export function buySuggestion(a: { ordered7: number; real: number }): { proven: boolean; buy: number } {
   if (a.ordered7 < BUY_MIN_ORDERED_7D) return { proven: false, buy: 0 }
   return { proven: true, buy: Math.max(0, Math.ceil(a.ordered7 * BUY_COVER_WEEKS) - Math.max(0, a.real)) }
+}
+
+// ------------------------------------------------------------------------------------------------ restock suggestions
+
+/** A product is flagged once it's projected to run out within this many days at its recent pace. */
+export const RESTOCK_HORIZON_DAYS = 7
+/** A suggested buy covers this many days of recent demand once it lands, on top of whatever is already in hand. */
+export const RESTOCK_TARGET_DAYS = 21
+
+export type SizeStock = { variantId: string; sku: string; title: string; units: number; cost: number }
+
+export type RestockSuggestion = {
+  key: string
+  name: string
+  coverDays: number | null
+  perDay: number
+  totalStock: number
+  suggestedTotal: number
+  /** Why this made the list: thin on stock overall, and/or some sizes are out while others carry plenty. */
+  reasons: ("running_low" | "missing_sizes")[]
+  sizes: (SizeStock & { suggest: number })[]
+}
+
+/** Splits `total` across `weights` so the pieces are whole numbers that add up to exactly `total` — the largest
+ *  weights get first claim on the rounding (largest-remainder method), rather than every size losing a fraction
+ *  to Math.round and the total quietly drifting off. */
+function allocateByWeight(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((s, w) => s + w, 0)
+  if (total <= 0 || sum <= 0) return weights.map(() => 0)
+  const raw = weights.map((w) => (w / sum) * total)
+  const out = raw.map(Math.floor)
+  let remainder = total - out.reduce((s, f) => s + f, 0)
+  const byFraction = raw.map((r, i) => [r - Math.floor(r), i] as const).sort((a, b) => b[0] - a[0])
+  for (let i = 0; i < remainder; i++) out[byFraction[i][1]]++
+  return out
+}
+
+/** What to buy, and in which sizes, before a product either runs out or keeps losing size-seeking customers.
+ *  Two independent reasons put a product on this list: (1) at its recent pace, total stock runs out within
+ *  `horizonDays`, or (2) some sizes are already at zero while a sibling size of the same product still has
+ *  plenty — a broken size run quietly loses the customers who wanted exactly that size, even while the
+ *  product's overall stock looks fine. The suggested total covers `targetDays` of recent demand, or enough to
+ *  bring every size up to its best-stocked sibling, whichever is larger; it's then split across sizes weighted
+ *  by how far each one is behind that sibling, so the sizes actually missing get the restock first. */
+export function restockSuggestions(args: {
+  rows: ProductRow[]
+  sizesByKey: Record<string, SizeStock[]>
+  horizonDays?: number
+  targetDays?: number
+}): RestockSuggestion[] {
+  const horizon = args.horizonDays ?? RESTOCK_HORIZON_DAYS
+  const target = args.targetDays ?? RESTOCK_TARGET_DAYS
+  const out: RestockSuggestion[] = []
+  for (const r of args.rows) {
+    if (r.group === "dead") continue // no proven demand — don't suggest spending more on it
+    const sizes = args.sizesByKey[r.key]
+    if (!sizes || sizes.length === 0) continue // pre-order, or no catalog SKU left to buy against
+    const totalStock = sizes.reduce((s, x) => s + x.units, 0)
+    const maxSize = Math.max(0, ...sizes.map((x) => x.units))
+    const missingSizes = maxSize > 0 && sizes.some((x) => x.units <= 0)
+    const runningLow = r.coverDays !== null && r.coverDays <= horizon
+    if (!runningLow && !missingSizes) continue
+    const velocityTotal = Math.max(0, Math.ceil(r.perDay * target) - totalStock)
+    const levelTotal = sizes.reduce((s, x) => s + Math.max(0, maxSize - x.units), 0)
+    const suggestedTotal = Math.max(velocityTotal, levelTotal)
+    if (suggestedTotal <= 0) continue
+    const gaps = sizes.map((x) => Math.max(0, maxSize - x.units))
+    const weights = gaps.some((g) => g > 0) ? gaps : sizes.map(() => 1) // even curve but still thin overall: split evenly
+    const alloc = allocateByWeight(suggestedTotal, weights)
+    out.push({
+      key: r.key, name: r.name, coverDays: r.coverDays, perDay: r2(r.perDay), totalStock, suggestedTotal,
+      reasons: [...(runningLow ? (["running_low"] as const) : []), ...(missingSizes ? (["missing_sizes"] as const) : [])],
+      sizes: sizes.map((x, i) => ({ ...x, suggest: alloc[i] })),
+    })
+  }
+  return out.sort((a, b) => (a.coverDays ?? Infinity) - (b.coverDays ?? Infinity))
 }

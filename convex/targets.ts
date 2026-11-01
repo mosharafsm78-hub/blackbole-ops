@@ -19,8 +19,8 @@ import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
 import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
-  buildPlan, buySuggestion, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, skuBase, summarizeSales,
-  type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type SaleRow, type SalesSummary,
+  buildPlan, buySuggestion, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, restockSuggestions, skuBase, summarizeSales,
+  type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type RestockSuggestion, type SaleRow, type SalesSummary, type SizeStock,
 } from "./targetPlan"
 
 const DAY = 86400000
@@ -203,12 +203,12 @@ export const productPage = internalQuery({
 
 export const variantPage = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { cursor }): Promise<Page<{ id: string; sku: string; productId: string; active: boolean; cost: number; price: number }>> => {
+  handler: async (ctx, { cursor }): Promise<Page<{ id: string; sku: string; title: string; productId: string; active: boolean; cost: number; price: number }>> => {
     const res = await ctx.db.query("variants").paginate({ cursor, numItems: 400 })
     return {
       isDone: res.isDone,
       cursor: res.continueCursor,
-      rows: res.page.map((x) => ({ id: x._id as string, sku: x.sku, productId: x.productId as string, active: x.active, cost: x.purchasePrice, price: x.price })),
+      rows: res.page.map((x) => ({ id: x._id as string, sku: x.sku, title: x.title, productId: x.productId as string, active: x.active, cost: x.purchasePrice, price: x.price })),
     }
   },
 })
@@ -271,6 +271,8 @@ type Gathered = {
   /** Pairs ordered (any status but cancelled) in the last 7 and 14 days, for products that carry test stock. */
   testDemand?: Record<string, { u7: number; u14: number }>
   spend?: { at: number; byDay: Record<string, number> }
+  /** Per-size stock for each plan key, for restock suggestions. Null for a month that's already over. */
+  sizeBreakdown: Record<string, SizeStock[]> | null
 }
 
 /** Key a pre-order product is planned under: its category, not its own SKU. There's no per-SKU ad push for
@@ -284,9 +286,9 @@ const preOrderKey = (category: string | null) => `cat:${category || "Uncategoriz
  *  stock has been counted so far, and the skuBase → final-plan-key remap (used to fold sales history onto the
  *  right row): a pre-order SKU maps onto its category's key, and any SKU whose product is a catalog duplicate —
  *  the same product listed more than once — maps onto the single canonical row it was merged into. */
-async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number; preOrderKeyBySku: Record<string, string> }> {
+async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number; preOrderKeyBySku: Record<string, string>; sizeBreakdown: Record<string, SizeStock[]> }> {
   type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean; category: string | null }
-  type V = { id: string; sku: string; productId: string; active: boolean; cost: number; price: number }
+  type V = { id: string; sku: string; title: string; productId: string; active: boolean; cost: number; price: number }
   type S = { variantId: string; locationId: string; available: number; virtual: number; counted: boolean }
   const sellable: string[] = await ctx.runQuery(internal.targets.sellableLocations, {})
   const products: P[] = await pageAll<P>((cursor) => ctx.runQuery(internal.targets.productPage, { cursor }))
@@ -309,6 +311,9 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
   const costSum: Record<string, { sum: number; n: number }> = {}
   const preOrderKeyBySku: Record<string, string> = {}
   const skusByKey: Record<string, string[]> = {} // plan key -> every skuBase that landed there, for the merge below
+  // Per-size stock, for the "what to buy, and in which sizes" restock suggestions — real (non-fake) pairs only,
+  // and only for products actually sold by size (pre-order has no size run to balance).
+  const sizeBreakdown: Record<string, SizeStock[]> = {}
   for (const x of variants) {
     if (!x.active) continue
     const p = prod.get(x.productId)
@@ -325,7 +330,10 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
     if (!isPreOrder && (unitsByVariant.get(x.id) ?? 0) > 0) entry.sizesIn++
     if (x.cost > 0) { const c = (costSum[key] ??= { sum: 0, n: 0 }); c.sum += x.cost; c.n++ }
     if (isPreOrder) entry.units = null
-    else if (entry.units !== null) entry.units += Math.max(0, unitsByVariant.get(x.id) ?? 0)
+    else {
+      if (entry.units !== null) entry.units += Math.max(0, unitsByVariant.get(x.id) ?? 0)
+      ;(sizeBreakdown[key] ??= []).push({ variantId: x.id, sku: x.sku, title: x.title || x.sku, units: Math.max(0, unitsByVariant.get(x.id) ?? 0), cost: x.cost > 0 ? x.cost : 0 })
+    }
   }
   for (const e of Object.values(out)) e.price = e.sizes > 0 ? e.price / e.sizes : 0
   for (const [k, c] of Object.entries(costSum)) out[k].cost = c.sum / c.n
@@ -349,6 +357,7 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
       merged.sizesIn += e.sizesIn
       merged.fake += e.fake
       merged.units = merged.units === null || e.units === null ? null : merged.units + e.units
+      if (sizeBreakdown[key]) { (sizeBreakdown[canonicalKey] ??= []).push(...sizeBreakdown[key]); delete sizeBreakdown[key] }
       for (const sku of skusByKey[key] ?? []) preOrderKeyBySku[sku] = canonicalKey
       delete out[key]
     }
@@ -370,7 +379,7 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
     const canonicalKey = canonicalKeyByName[p.name]
     if (canonicalKey && canonicalKey !== skuKey) preOrderKeyBySku[skuKey] = canonicalKey
   }
-  return { map: out, lines, counted, preOrderKeyBySku }
+  return { map: out, lines, counted, preOrderKeyBySku, sizeBreakdown }
 }
 
 async function returnedStats(ctx: ActionCtx, from: number, to: number) {
@@ -409,7 +418,7 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.
   const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined }
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined, sizeBreakdown: gotStock ? gotStock.sizeBreakdown : null }
 }
 
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
@@ -459,9 +468,11 @@ export type TargetProgress = {
   tests: { key: string; name: string; fake: number; real: number; ordered7: number; proven: boolean; buy: number }[]
   /** How much of the stock the team has counted; the rest may still hide fake pairs. */
   stockCheck: { lines: number; counted: number } | null
+  /** What to buy soon, and in which sizes — running low overall, or a size run with a gap in it. Null when there's no plan. */
+  restock: RestockSuggestion[] | null
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null })
+const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null, restock: null })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -536,6 +547,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
     let tests: TargetProgress["tests"] = []
     let products: ProductRow[] | null = null
     let productInfo: TargetProgress["productInfo"] = null
+    let restock: TargetProgress["restock"] = null
     if (data.stock) {
       const stockMap = data.stock
       tests = Object.entries(stockMap)
@@ -605,6 +617,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       })
       products = all
       productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }
+      restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {} })
     }
 
     // ---- marketing budget vs spend ----
@@ -658,7 +671,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null }
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

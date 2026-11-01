@@ -6,6 +6,7 @@ import { familyOf, GROUP_SHARE, type Group, type ProductRow } from "@/convex/tar
 import type { MarketingView, TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
 import { Pill } from "@/components/bits"
+import { RestockSuggestions } from "@/components/restock-suggestions"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -102,6 +103,7 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
       </div>
 
       <StockNotes data={data} />
+      <RestockSuggestions data={data} />
       <DailyMarketing data={data} />
       <SellList data={data} />
       <Models data={data} />

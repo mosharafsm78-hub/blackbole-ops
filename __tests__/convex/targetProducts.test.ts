@@ -226,6 +226,27 @@ describe("pre-order is planned by category, not by product", () => {
   })
 })
 
+describe("restock suggestions on the Target page", () => {
+  it("flags a product running low on real sales history, with a per-size buy quantity ready to route into a purchase", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    const heroVariant = await addProduct("Hero Sandal", 4, "BB-HERO") // thin stock left
+    await sell("BB-HERO-41", "Hero Sandal", 60, 1000, NOW - 20 * DAY) // heavy recent demand
+    await addProduct("Slow Mover", 1000, "BB-SLOW") // plenty of stock, no urgency — should not appear
+    await sell("BB-SLOW-41", "Slow Mover", 2, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.restock).not.toBeNull()
+    expect(p.restock!.map((r) => r.name)).toEqual(["Hero Sandal"])
+    const hero = p.restock![0]
+    expect(hero.reasons).toContain("running_low")
+    expect(hero.sizes).toHaveLength(1)
+    expect(hero.sizes[0].variantId).toBe(heroVariant)
+    expect(hero.sizes[0].suggest).toBeGreaterThan(0)
+    expect(hero.sizes.reduce((s, x) => s + x.suggest, 0)).toBe(hero.suggestedTotal)
+  })
+})
+
 describe("catalog duplicates are merged into one plan row", () => {
   // The team found the same product listed several times in the catalog — a relaunch under new SKUs that never
   // deactivated the old shell. Left alone, each duplicate gets its own paper-thin plan row and its own ad-push

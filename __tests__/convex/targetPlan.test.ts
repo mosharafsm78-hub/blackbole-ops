@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { allocateRevenue, buildPlan, marketingPlan, onPace, productRows, skuBase, summarizeSales, type ProductInput, type ProductPlan } from "../../convex/targetPlan"
+import { allocateRevenue, buildPlan, marketingPlan, onPace, productRows, restockSuggestions, skuBase, summarizeSales, type ProductInput, type ProductPlan, type ProductRow, type SizeStock } from "../../convex/targetPlan"
 import { nextMonthKey, prevMonthKey } from "../../convex/targetMath"
 
 const p = (key: string, demandRevenue: number, stockUnits: number | null, price = 1000): ProductInput => ({ key, name: key, price, demandRevenue, stockUnits })
@@ -369,5 +369,49 @@ describe("measured costs and the daily ad limit", () => {
     expect(suggestTarget({ trailing30Revenue: 1000000, stockCapacity: 5000000 })).toBe(1150000)
     expect(suggestTarget({ trailing30Revenue: 1000000, stockCapacity: 900000 })).toBe(900000)
     expect(suggestTarget({ trailing30Revenue: 0, stockCapacity: 900000 })).toBeNull()
+  })
+})
+
+describe("restockSuggestions — what to buy, and in which sizes, before it's too late", () => {
+  const row = (extra: Partial<ProductRow> = {}): ProductRow => ({
+    group: "focus", sizes: null, key: "A", name: "A", price: 1000, monthUnits: 0, sold: 0, left: 0,
+    todayTarget: null, todaySold: 0, toGo: 0, perDayAfterToday: 0, stockUnits: null, coverDays: null, perDay: 0,
+    stockShort: 0, overstock: false, ...extra,
+  })
+  const size = (title: string, units: number, extra: Partial<SizeStock> = {}): SizeStock => ({ variantId: title, sku: `SKU-${title}`, title, units, cost: 500, ...extra })
+
+  it("flags a product that will run out within the horizon, even with an even size curve", () => {
+    const rows = [row({ key: "A", perDay: 2, coverDays: 5 })] // 5 days left at this pace, default horizon is 7
+    const sizesByKey = { A: [size("41", 5), size("42", 5)] }
+    const out = restockSuggestions({ rows, sizesByKey })
+    expect(out).toHaveLength(1)
+    expect(out[0].reasons).toEqual(["running_low"])
+    expect(out[0].suggestedTotal).toBeGreaterThan(0)
+    // even curve → split evenly, not favoring one size over the other
+    expect(out[0].sizes.find((s) => s.title === "41")!.suggest).toBe(out[0].sizes.find((s) => s.title === "42")!.suggest)
+  })
+
+  it("flags a broken size run even when overall cover looks fine, and restocks the missing size first", () => {
+    const rows = [row({ key: "A", perDay: 1, coverDays: 40 })] // plenty of days of cover overall
+    const sizesByKey = { A: [size("40", 20), size("41", 0), size("42", 18)] } // 41 is a dead size — lost sales
+    const out = restockSuggestions({ rows, sizesByKey })
+    expect(out).toHaveLength(1)
+    expect(out[0].reasons).toEqual(["missing_sizes"])
+    const bySize = Object.fromEntries(out[0].sizes.map((s) => [s.title, s.suggest]))
+    expect(bySize["41"]).toBeGreaterThan(bySize["40"]) // the empty size gets the priority
+    expect(bySize["40"]).toBe(0) // already matches the best-stocked sibling — nothing missing to fill there
+    expect(out[0].sizes.reduce((s, x) => s + x.suggest, 0)).toBe(out[0].suggestedTotal) // allocation sums exactly
+  })
+
+  it("never suggests buying more of dead stock, or a product with no catalog SKU to buy against", () => {
+    const rows = [row({ key: "DEAD", group: "dead", perDay: 0, coverDays: 1 }), row({ key: "GONE", perDay: 5, coverDays: 1 })]
+    const sizesByKey = { DEAD: [size("41", 0)] } // GONE has no entry at all — e.g. pre-order, or every SKU deleted
+    expect(restockSuggestions({ rows, sizesByKey })).toEqual([])
+  })
+
+  it("leaves a product alone once it's well stocked and not low", () => {
+    const rows = [row({ key: "A", perDay: 1, coverDays: 60 })]
+    const sizesByKey = { A: [size("41", 20), size("42", 20)] }
+    expect(restockSuggestions({ rows, sizesByKey })).toEqual([])
   })
 })
