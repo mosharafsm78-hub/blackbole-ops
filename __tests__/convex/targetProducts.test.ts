@@ -30,7 +30,7 @@ async function setup() {
     ctx.db.insert("customers", { code: 1, name: "C", phone: "01711000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: NOW }),
   )
 
-  const addProduct = async (name: string, stock: number | null, base: string, extra: { preOrder?: boolean } = {}) => {
+  const addProduct = async (name: string, stock: number | null, base: string, extra: { preOrder?: boolean; category?: string } = {}) => {
     const productId = await t.run((ctx) => ctx.db.insert("products", { name, active: true, createdAt: NOW, ...extra }))
     const variantId = await t.run((ctx) =>
       ctx.db.insert("variants", { productId, sku: `${base}-41`, title: "41", weightKg: 0.4, price: 1000, purchasePrice: 500, active: true }),
@@ -84,7 +84,7 @@ describe("product plan from sales and stock", () => {
 
   it("saves the plan, so a missed day stays on the same product and tomorrow asks for more", async () => {
     const { t, asAdmin, addProduct, sell } = await setup()
-    await addProduct("Soft Slide", null, "BB-SOFT", { preOrder: true })
+    await addProduct("Soft Slide", null, "BB-SOFT", { preOrder: true, category: "Sandals" })
     await sell("BB-SOFT-41", "Soft Slide", 40, 1000, NOW - 20 * DAY)
     await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 210000 })
     const first = await asAdmin.action(api.targets.progress, {})
@@ -92,8 +92,9 @@ describe("product plan from sales and stock", () => {
     expect(row.monthUnits).toBe(210)
     expect(row.todayTarget).toBe(Math.ceil(210 / 21)) // 21 days left incl. today → 10
 
+    // Pre-order is planned per CATEGORY, not per SKU — there's no per-product ad for it, one category ad runs.
     const saved = await t.run((ctx) => ctx.db.query("revenueTargets").first())
-    expect(saved!.plan.products["BB-SOFT"].units).toBe(210)
+    expect(saved!.plan.products["cat:Sandals"].units).toBe(210)
 
     // today only 2 sold → the plan is unchanged, but the days left carry the shortfall
     await sell("BB-SOFT-41", "Soft Slide", 2, 1000, NOW + 60000)
@@ -165,6 +166,63 @@ describe("product plan from sales and stock", () => {
     expect(p.plan).toMatchObject({ start: "2026-11-10", end: "2026-12-31", daysInMonth: 52, started: true, daysLeft: 52 })
     expect(p.plan!.today!.target).toBe(Math.ceil(100000 / 52))
     expect(p.products![0].todayTarget).toBe(Math.ceil(p.products![0].monthUnits / 52))
+  })
+})
+
+describe("pre-order is planned by category, not by product", () => {
+  // There's no per-SKU ad for a pre-order item — one category ad runs (e.g. "Sneakers — pre-order") and the
+  // customer picks whichever model they like, so planning (and pushing in ads) by category matches how the
+  // team actually sells these, instead of splitting the target into many paper-thin per-SKU quotas.
+
+  it("folds several pre-order products in the same category into one plan row", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Men's Classic Navy Sneakers", null, "BB-PO1", { preOrder: true, category: "Sneakers" })
+    await addProduct("Women's Kappa High-Top Sneakers", null, "BB-PO2", { preOrder: true, category: "Sneakers" })
+    await sell("BB-PO1-41", "Men's Classic Navy Sneakers", 10, 1000, NOW - 20 * DAY)
+    await sell("BB-PO2-41", "Women's Kappa High-Top Sneakers", 6, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    const rows = Object.fromEntries(p.products!.map((r) => [r.key, r]))
+    expect(rows["BB-PO1"]).toBeUndefined()
+    expect(rows["BB-PO2"]).toBeUndefined()
+    expect(rows["cat:Sneakers"]).toBeDefined()
+    expect(rows["cat:Sneakers"].name).toBe("Sneakers — pre-order")
+    expect(rows["cat:Sneakers"].stockUnits).toBeNull() // still shows as "pre-order", not a stock number
+    // One combined row carrying both SKUs' demand (16 pairs sold), not two 8/6-pair rows nobody pushes individually.
+    expect(rows["cat:Sneakers"].sold).toBe(0) // nothing sold yet this month — "sold" above was 20 days ago, outside Nov
+    expect(p.products!.length).toBe(1)
+  })
+
+  it("keeps different pre-order categories separate, and buckets an uncategorized one on its own", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Men's Classic Navy Sneakers", null, "BB-PO1", { preOrder: true, category: "Sneakers" })
+    await addProduct("Pierre Cardin Chelsea Boot", null, "BB-PO2", { preOrder: true, category: "Boots" })
+    await addProduct("Mystery Pair", null, "BB-PO3", { preOrder: true }) // no category set
+    await sell("BB-PO1-41", "Men's Classic Navy Sneakers", 10, 1000, NOW - 20 * DAY)
+    await sell("BB-PO2-41", "Pierre Cardin Chelsea Boot", 5, 1000, NOW - 20 * DAY)
+    await sell("BB-PO3-41", "Mystery Pair", 2, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    const keys = p.products!.map((r) => r.key).sort()
+    expect(keys).toEqual(["cat:Boots", "cat:Sneakers", "cat:Uncategorized"])
+  })
+
+  it("still plans a normal in-stock product per SKU, unaffected by the pre-order category grouping", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Hero Sandal", 100, "BB-HERO")
+    await addProduct("Men's Classic Navy Sneakers", null, "BB-PO1", { preOrder: true, category: "Sneakers" })
+    await sell("BB-HERO-41", "Hero Sandal", 30, 1000, NOW - 20 * DAY)
+    await sell("BB-PO1-41", "Men's Classic Navy Sneakers", 10, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    const rows = Object.fromEntries(p.products!.map((r) => [r.key, r]))
+    expect(rows["BB-HERO"]).toBeDefined()
+    expect(rows["BB-HERO"].name).toBe("Hero Sandal")
+    expect(rows["BB-HERO"].stockUnits).toBe(100)
+    expect(rows["cat:Sneakers"]).toBeDefined()
   })
 })
 

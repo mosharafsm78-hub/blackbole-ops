@@ -191,12 +191,12 @@ export const orderedPage = internalQuery({
 
 export const productPage = internalQuery({
   args: { cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { cursor }): Promise<Page<{ id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean }>> => {
+  handler: async (ctx, { cursor }): Promise<Page<{ id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean; category: string | null }>> => {
     const res = await ctx.db.query("products").paginate({ cursor, numItems: 100 })
     return {
       isDone: res.isDone,
       cursor: res.continueCursor,
-      rows: res.page.map((p) => ({ id: p._id as string, name: p.name, active: p.active, deleted: !!p.deletedAt, preOrder: !!p.preOrder })),
+      rows: res.page.map((p) => ({ id: p._id as string, name: p.name, active: p.active, deleted: !!p.deletedAt, preOrder: !!p.preOrder, category: p.category?.trim() || null })),
     }
   },
 })
@@ -273,10 +273,18 @@ type Gathered = {
   spend?: { at: number; byDay: Record<string, number> }
 }
 
+/** Key a pre-order product is planned under: its category, not its own SKU. There's no per-SKU ad push for
+ *  pre-order — one category ad runs (e.g. "Sneakers — pre-order") and the customer picks whichever model they
+ *  like, so which exact SKU sells is effectively random. Planning each one individually gave 20+ paper-thin
+ *  quotas (2-16 pairs) that nobody actually pushes one by one; planning the category gives one real number and
+ *  one push line, matching how the team actually runs the ads. */
+const preOrderKey = (category: string | null) => `cat:${category || "Uncategorized"}`
+
 /** Sellable REAL pairs per product (system stock minus the fake/test part the team marked), plus how much of the
- *  stock has been counted so far. */
-async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number }> {
-  type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean }
+ *  stock has been counted so far, and the skuBase → category-plan-key map for pre-order products (used to fold
+ *  their sales history into the same category bucket before the plan is built). */
+async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number; preOrderKeyBySku: Record<string, string> }> {
+  type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean; category: string | null }
   type V = { id: string; sku: string; productId: string; active: boolean; cost: number; price: number }
   type S = { variantId: string; locationId: string; available: number; virtual: number; counted: boolean }
   const sellable: string[] = await ctx.runQuery(internal.targets.sellableLocations, {})
@@ -298,23 +306,27 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
 
   const out: StockMap = {}
   const costSum: Record<string, { sum: number; n: number }> = {}
+  const preOrderKeyBySku: Record<string, string> = {}
   for (const x of variants) {
     if (!x.active) continue
     const p = prod.get(x.productId)
     if (!p || !p.active || p.deleted) continue
-    const key = skuBase(x.sku)
-    const entry = (out[key] ??= { name: p.name, units: 0, cost: null, price: 0, sizes: 0, sizesIn: 0, fake: 0 })
+    const isPreOrder = p.preOrder || /^PO-/i.test(x.sku)
+    const skuKey = skuBase(x.sku)
+    const key = isPreOrder ? preOrderKey(p.category) : skuKey
+    if (isPreOrder) preOrderKeyBySku[skuKey] = key
+    const entry = (out[key] ??= { name: isPreOrder ? `${p.category || "Uncategorized"} — pre-order` : p.name, units: 0, cost: null, price: 0, sizes: 0, sizesIn: 0, fake: 0 })
     entry.sizes++
     entry.fake += fakeByVariant.get(x.id) ?? 0
     entry.price += x.price // summed here, averaged below
-    if (!p.preOrder && !/^PO-/i.test(x.sku) && (unitsByVariant.get(x.id) ?? 0) > 0) entry.sizesIn++
+    if (!isPreOrder && (unitsByVariant.get(x.id) ?? 0) > 0) entry.sizesIn++
     if (x.cost > 0) { const c = (costSum[key] ??= { sum: 0, n: 0 }); c.sum += x.cost; c.n++ }
-    if (p.preOrder || /^PO-/i.test(x.sku)) entry.units = null
+    if (isPreOrder) entry.units = null
     else if (entry.units !== null) entry.units += Math.max(0, unitsByVariant.get(x.id) ?? 0)
   }
   for (const e of Object.values(out)) e.price = e.sizes > 0 ? e.price / e.sizes : 0
   for (const [k, c] of Object.entries(costSum)) out[k].cost = c.sum / c.n
-  return { map: out, lines, counted }
+  return { map: out, lines, counted, preOrderKeyBySku }
 }
 
 async function returnedStats(ctx: ActionCtx, from: number, to: number) {
@@ -346,6 +358,9 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   const from = historic ? mStart : Math.min(mStart, now - WINDOW_DAYS * DAY)
   const to = historic ? mEnd : now + 1
   const [rows, gotStock, returned] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx), historic ? Promise.resolve(undefined) : returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1)])
+  // Fold each pre-order SKU's sales into its category's plan key before summarizing, so demand (and the plan
+  // built from it) is measured per category, same as gatherStock already keys their stock/name entry.
+  if (gotStock) for (const r of rows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.
   const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
