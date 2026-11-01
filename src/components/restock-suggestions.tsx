@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery } from "convex/react"
-import { PackagePlus } from "lucide-react"
+import { PackagePlus, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
@@ -45,9 +45,10 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
 
   const toggle = (key: string) => setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n })
   const toggleOpen = (key: string) => setOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n })
+  const uncheck = (key: string) => setSelected((s) => { const n = new Set(s); n.delete(key); return n })
 
-  const lines = list
-    .filter((r) => selected.has(r.key))
+  const selectedRows = list.filter((r) => selected.has(r.key))
+  const lines = selectedRows
     .flatMap((r) => r.sizes.map((s) => ({ variantId: s.variantId, orderedQty: qty[s.variantId] ?? s.suggest, unitCost: s.cost })))
     .filter((l) => l.orderedQty > 0)
 
@@ -58,6 +59,7 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
   }
 
   const create = async () => {
+    if (lines.length === 0) { toast.error("Pick at least one product to restock"); setDlg(false); return }
     if (!supplierId) { toast.error("Choose a supplier"); return }
     if (!locationId) { toast.error("Choose a warehouse"); return }
     setBusy(true)
@@ -113,6 +115,23 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
           <div className="w-full max-w-sm rounded-xl border bg-card p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-semibold">Create draft purchase order</h3>
             <p className="mt-1 text-xs text-muted-foreground">
+              Changed your mind on one of these? Remove it below — nothing is ordered until the invoice is attached and it's placed.
+            </p>
+            <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2">
+              {selectedRows.length === 0 && <p className="px-1 py-1 text-xs text-muted-foreground">Nothing picked — close this and select a product first.</p>}
+              {selectedRows.map((r) => {
+                const rowTotal = r.sizes.reduce((s, x) => s + (qty[x.variantId] ?? x.suggest), 0)
+                return (
+                  <div key={r.key} className="flex items-center justify-between gap-2 rounded px-1 py-1 text-xs hover:bg-muted/50">
+                    <span className="truncate">{r.name} <span className="text-muted-foreground">· {rowTotal} pairs</span></span>
+                    <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-tone-red" onClick={() => uncheck(r.key)} aria-label={`Remove ${r.name} from this purchase`}>
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
               {lines.length} line{lines.length === 1 ? "" : "s"} · {lines.reduce((s, l) => s + l.orderedQty, 0)} pairs.
               You can still edit quantities, split it by supplier, or attach the invoice on the purchase page before placing it.
             </p>
@@ -134,7 +153,7 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <Button variant="outline" disabled={busy} onClick={() => setDlg(false)}>Cancel</Button>
-              <Button disabled={busy} onClick={() => void create()}>{busy ? "Creating…" : "Create draft"}</Button>
+              <Button disabled={busy || lines.length === 0} onClick={() => void create()}>{busy ? "Creating…" : "Create draft"}</Button>
             </div>
           </div>
         </div>
