@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ export function WhatsAppVerifySettings() {
   const data = useQuery(api.whatsappVerify.settings)
   const save = useMutation(api.whatsappVerify.saveSettings)
   const simulate = useMutation(api.whatsappVerify.simulate)
+  const connect = useAction(api.whatsappVerify.connectWebhook)
   const [f, setF] = useState<any>(null)
   const [sec, setSec] = useState({ token: "", verifyToken: "", appSecret: "" })
   const [inv, setInv] = useState("")
@@ -66,7 +67,11 @@ export function WhatsAppVerifySettings() {
             <div className="space-y-1"><Label>Template language code</Label><Input value={f.templateLang ?? "en"} onChange={(e) => set("templateLang", e.target.value)} /></div>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2"><Button size="sm" onClick={() => void doSave()}>Save</Button></div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" onClick={() => void doSave()}>Save</Button>
+          <Button size="sm" variant="outline" disabled={!data.hasToken} onClick={async () => { try { const r = await connect({ wabaId: "1289488499618886" }); r.ok ? toast.success(r.message) : toast.error(r.message) } catch (e) { toast.error(errMsg(e)) } }}>Connect WhatsApp replies</Button>
+          <span className="text-xs text-muted-foreground">Use once if customer taps / replies do not reach Ops.</span>
+        </div>
         <div className="mt-4 space-y-1 rounded-md bg-muted/50 p-3 text-xs">
           <p><b>Webhook address for Meta:</b> {data.webhookUrl}</p>
           <p><b>Button link for the COD thank-you page:</b> {data.link ?? "save the business number first"} (replace {"{order number}"} with the real order number)</p>

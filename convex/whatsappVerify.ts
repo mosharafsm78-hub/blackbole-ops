@@ -10,7 +10,7 @@
 //
 // Test mode places nothing on WhatsApp: Settings → WhatsApp verify lets you play the customer and shows the replies.
 import { v, ConvexError } from "convex/values"
-import { httpAction, internalAction, internalQuery, query } from "./_generated/server"
+import { action, httpAction, internalAction, internalQuery, query } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc } from "./_generated/dataModel"
@@ -221,6 +221,29 @@ export const sendConfirmation = internalAction({
   },
 })
 export const liveConf = internalQuery({ args: {}, handler: async (ctx) => ({ conf: await conf(ctx), sec: await secrets(ctx) }) })
+
+/** One-tap fix when customer replies never arrive: subscribes our Meta app to the WhatsApp Business Account so Meta
+ *  forwards incoming messages (and button taps) to our webhook. Returns which apps are subscribed afterwards. */
+export const connectWebhook = action({
+  args: { wabaId: v.string() },
+  handler: async (ctx, { wabaId }): Promise<{ ok: boolean; message: string }> => {
+    if (!(await ctx.auth.getUserIdentity())) throw new ConvexError("Sign in first")
+    const id = wabaId.replace(/\D/g, "")
+    if (!id) throw new ConvexError("Enter the WhatsApp Business Account ID")
+    const { sec } = await ctx.runQuery(internal.whatsappVerify.liveConf, {})
+    if (!sec.token) throw new ConvexError("Save the access token first")
+    const url = `https://graph.facebook.com/v21.0/${id}/subscribed_apps`
+    const headers = { Authorization: `Bearer ${sec.token}` }
+    try {
+      const post = await fetch(url, { method: "POST", headers })
+      const postTxt = (await post.text()).slice(0, 300)
+      if (!post.ok) return { ok: false, message: `Meta said ${post.status}: ${postTxt}` }
+      const get = await fetch(url, { headers })
+      const apps = ((await get.json().catch(() => ({})))?.data ?? []).map((a: any) => a?.whatsapp_business_api_data?.name ?? a?.name ?? a?.id).filter(Boolean)
+      return { ok: true, message: apps.length ? `Connected. Apps receiving messages: ${apps.join(", ")}` : "Connected." }
+    } catch (e: any) { return { ok: false, message: String(e?.message ?? e).slice(0, 200) } }
+  },
+})
 
 // ---------- Meta's webhook ----------
 async function validSignature(secret: string | undefined, raw: string, header: string | null) {
