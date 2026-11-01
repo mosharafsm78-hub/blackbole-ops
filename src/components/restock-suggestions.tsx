@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import type { RestockSuggestion } from "@/convex/targetPlan"
-import type { TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
 import { Pill } from "@/components/bits"
 import { Button } from "@/components/ui/button"
@@ -25,11 +24,11 @@ const REASON_LABEL: Record<RestockSuggestion["reasons"][number], string> = {
  *  because one size is empty while its siblings pile up. Suggested quantities are a starting point, editable per
  *  size; picking products and creating a draft only opens the purchase page pre-filled, it places nothing — the
  *  team still adds the supplier invoice and places the order from there, same as any other purchase. */
-export function RestockSuggestions({ data, refetch }: { data: TargetProgress; refetch: () => void }) {
+export function RestockSuggestions({ restock, restockDismissedCount, refetch }: { restock: RestockSuggestion[] | null; restockDismissedCount: number; refetch: () => void }) {
   const can = useCan()
   const canBuy = can("purchases.manage")
   const navigate = useNavigate()
-  const list = data.restock
+  const list = restock
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [qty, setQty] = useState<Record<string, number>>({}) // variantId -> edited qty; falls back to the suggestion
@@ -45,7 +44,7 @@ export function RestockSuggestions({ data, refetch }: { data: TargetProgress; re
   const save = useMutation(api.purchasing.savePO)
   const dismiss = useMutation(api.targets.dismissRestock)
 
-  if ((!list || list.length === 0) && !data.restockDismissedCount) return null
+  if ((!list || list.length === 0) && !restockDismissedCount) return null
 
   const toggle = (key: string) => setSelected((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n })
   const toggleOpen = (key: string) => setOpen((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n })
@@ -144,10 +143,10 @@ export function RestockSuggestions({ data, refetch }: { data: TargetProgress; re
           </table>
         </div>
       )}
-      {canBuy && data.restockDismissedCount > 0 && (
+      {canBuy && restockDismissedCount > 0 && (
         <div className="mt-2">
           <button type="button" className="text-xs text-muted-foreground underline underline-offset-2" onClick={() => setShowDismissed((s) => !s)}>
-            {showDismissed ? "Hide" : `${data.restockDismissedCount} removed from this list`}
+            {showDismissed ? "Hide" : `${restockDismissedCount} removed from this list`}
           </button>
           {showDismissed && (
             <div className="mt-1.5 max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2">

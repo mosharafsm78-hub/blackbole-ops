@@ -222,18 +222,31 @@ export const salesPage = internalQuery({
   },
 })
 
-/** One page of orders placed (created) in [from, to), for Marketing's gross-sale number. Unlike salesPage, this
- *  is NOT filtered by current status: an order counts the moment it comes in and keeps counting even if it's
- *  later cancelled, never confirmed, or returned — Marketing brought the order in, what happens to it after
- *  isn't theirs to answer for. */
+/** One page of orders placed (created) in [from, to), for Marketing's gross-sale number and product plan. Unlike
+ *  salesPage, this is NOT filtered by current status: an order counts the moment it comes in and keeps counting
+ *  even if it's later cancelled, never confirmed, or returned — Marketing brought the order in, what happens to
+ *  it after isn't theirs to answer for. Same shape as salesPage (courier/payment fields always 0 — Marketing's
+ *  plan doesn't need them) so it can feed the same summarizeSales()/product-plan machinery. */
 export const grossPage = internalQuery({
   args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { from, to, cursor }): Promise<Page<{ total: number }>> => {
+  handler: async (ctx, { from, to, cursor }): Promise<Page<SaleRow>> => {
     const res = await ctx.db
       .query("orders")
       .withIndex("by_created", (q) => q.gte("createdAt", from).lt("createdAt", to))
       .paginate({ cursor, numItems: 300 })
-    return { isDone: res.isDone, cursor: res.continueCursor, rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ total: o.total })) }
+    return {
+      isDone: res.isDone,
+      cursor: res.continueCursor,
+      rows: res.page
+        .filter((o) => !o.deletedAt)
+        .map((o) => ({
+          at: o.createdAt,
+          total: o.total,
+          c: 0,
+          f: 0,
+          items: o.items.map((i) => ({ k: skuBase(i.sku), n: i.name, q: i.qty, a: i.price * i.qty - i.discount })),
+        })),
+    }
   },
 })
 
@@ -319,10 +332,13 @@ async function pageAll<T>(next: (cursor: string | null) => Promise<Page<T>>): Pr
 const salesRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]> =>
   pageAll<SaleRow>((cursor) => ctx.runQuery(internal.targets.salesPage, { from, to, cursor }))
 
+const grossRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]> =>
+  pageAll<SaleRow>((cursor) => ctx.runQuery(internal.targets.grossPage, { from, to, cursor }))
+
 /** Marketing's gross sale for a calendar month: every order's full total, counted once it was placed,
  *  whatever happened to it after. */
 async function grossSales(ctx: ActionCtx, month: string): Promise<number> {
-  const rows = await pageAll<{ total: number }>((cursor) => ctx.runQuery(internal.targets.grossPage, { from: monthStartMs(month), to: monthEndMs(month), cursor }))
+  const rows = await grossRows(ctx, monthStartMs(month), monthEndMs(month))
   return rows.reduce((s, r) => s + r.total, 0)
 }
 
@@ -505,6 +521,24 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined, sizeBreakdown: gotStock ? gotStock.sizeBreakdown : null }
 }
 
+/** Same idea as gather(), but for Marketing's own page: sales/day/trailing figures come from orders placed
+ *  (createdAt, any status) instead of delivered orders, and it's always this calendar month — Marketing's page
+ *  doesn't browse other months. No courier/return data is gathered (nothing on this page needs it; profit and ad
+ *  spend are Cx-page/finance concerns tied to delivery outcomes, not to gross sale). */
+async function gatherGross(ctx: ActionCtx, now: number): Promise<Gathered> {
+  const month = dhakaMonth(now)
+  const mStart = monthStartMs(month), mEnd = monthEndMs(month)
+  const from = Math.min(mStart, now - WINDOW_DAYS * DAY)
+  const [rows, gotStock] = await Promise.all([grossRows(ctx, from, now + 1), gatherStock(ctx)])
+  for (const r of rows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
+  const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
+  return {
+    at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov,
+    stock: gotStock.map, testDemand: await testDemand(ctx, gotStock.map, now),
+    stockCheck: { lines: gotStock.lines, counted: gotStock.counted }, sizeBreakdown: gotStock.sizeBreakdown,
+  }
+}
+
 /** Daily Meta ad spend (account level) between two instants; null when Meta returns an error. */
 async function fetchSpend(conf: { token: string; accounts: { id: string }[] }, fromMs: number, toMs: number): Promise<Record<string, number> | null> {
   const range = encodeURIComponent(JSON.stringify({ since: dhakaDay(fromMs), until: dhakaDay(toMs) }))
@@ -588,6 +622,116 @@ export const costsForFeed = internalQuery({
   },
 })
 
+type ProductsResult = {
+  snapshot: ProductPlan | undefined
+  products: ProductRow[] | null
+  productInfo: { at: number; gap: number; unitsShort: number; windowDays: number } | null
+  restock: RestockSuggestion[] | null
+  restockDismissedCount: number
+  tests: TargetProgress["tests"]
+}
+
+/** Builds the per-product pairs-per-plan, restock suggestions and marketing-test list from gathered sales/stock
+ *  data and however much revenue is still needed to reach a target. Shared by the Cx (delivered) plan and the
+ *  Marketing (gross) plan below — identical mechanics, different revenue basis: `revenueLeft` and the sales
+ *  figures baked into `data` are the only things that differ between them. `snapshotIn` is whatever plan was
+ *  saved last time (so it's only rebuilt when stock, the day, or the target actually changed); `save` persists a
+ *  freshly built one wherever the caller keeps it (a revenueTargets row for Cx, a setting for Marketing). */
+async function planProducts(
+  ctx: ActionCtx, data: Gathered, revenueLeft: number, now: number, today: string, daysLeft: number, started: boolean,
+  snapshotIn: ProductPlan | undefined, save: (plan: ProductPlan) => Promise<void>,
+): Promise<ProductsResult> {
+  if (!data.stock) return { snapshot: undefined, products: null, productInfo: null, restock: null, restockDismissedCount: 0, tests: [] }
+  const stockMap = data.stock
+  const tests = Object.entries(stockMap)
+    .filter(([, e]) => e.units !== null && e.fake > 0)
+    .map(([key, e]) => {
+      const ordered7 = data.testDemand?.[key]?.u7 ?? 0
+      return { key, name: e.name, fake: e.fake, real: e.units ?? 0, ordered7, ...buySuggestion({ ordered7, real: e.units ?? 0 }) }
+    })
+    .sort((a, b) => Number(b.proven) - Number(a.proven) || b.buy - a.buy || b.fake - a.fake)
+  const soldMtd = Object.fromEntries(Object.entries(data.mtd).map(([k, d]) => [k, Object.values(d).reduce((s, n) => s + n, 0)]))
+  const sizeInfo: Record<string, { inStock: number; total: number } | null> = {}
+  const inputs: ProductInput[] = []
+  // Whether each input actually has a row in today's stock map — a real, currently-active listing — as opposed
+  // to only having sales history. A genuine pre-order product always gets its own stockMap entry (with
+  // stockUnits explicitly null, see gatherStock()); gatherStock() deliberately excludes inactive and deleted
+  // products, so a key with sales history but no stockMap entry means the product isn't sellable on the website
+  // any more. Tracked here (rather than on ProductInput itself) so the dedupe pass below can still fold an
+  // orphaned SKU's history onto an active twin of the same name, while anything left with no active listing
+  // afterward gets dropped instead of planned and pushed with ad budget forever.
+  const hasStock: Record<string, boolean> = {}
+  const keys = new Set([...Object.keys(data.trailing), ...Object.keys(stockMap)])
+  for (const k of keys) {
+    const t = data.trailing[k]
+    const st = stockMap[k]
+    const sold = t && t.units > 0 && t.revenue > 0 ? t : null
+    // Stock with no recent sales still gets a (small) share, so dead stock is worked on rather than ignored.
+    if (!sold && !(st && st.units !== null && st.units > 0)) continue
+    const price = sold ? (sold.revenue / sold.units) * data.ratio : st.price * data.ratio
+    if (!(price > 0)) continue
+    sizeInfo[k] = st && st.units !== null ? { inStock: st.sizesIn, total: st.sizes } : null
+    hasStock[k] = !!st
+    inputs.push({
+      key: k,
+      name: st?.name ?? sold!.name,
+      price,
+      demandRevenue: sold ? sold.revenue : (st.units ?? 0) * price,
+      stockUnits: st ? st.units : null, // no stock record: not capped (unless dropped below as inactive)
+      group: classify({ stockUnits: st ? st.units : null, sizesIn: st?.sizesIn ?? 0, sizesTotal: st?.sizes ?? 0, soldUnits: sold?.units ?? 0 }),
+    })
+  }
+  // Last-resort catch for the same catalog-duplicate problem: gatherStock() already folds a duplicate's SKU onto
+  // its canonical row whenever that SKU still exists somewhere in the products/variants tables, active or not —
+  // but a SKU whose variant was deleted outright (not just deactivated) leaves no trace there, and its old
+  // orders only ever surface here, under the product's own recorded name. Anything that still made it this far
+  // sharing the exact same name is the same real-world listing, so fold it into the entry with the most real
+  // stock (or, if none has stock, the most demand) rather than let it stand as its own paper-thin pre-order row
+  // and ad-push line.
+  {
+    const byName: Record<string, ProductInput[]> = {}
+    for (const inp of inputs) (byName[inp.name] ??= []).push(inp)
+    const deduped: ProductInput[] = []
+    for (const group of Object.values(byName)) {
+      if (group.length < 2) { deduped.push(group[0]); continue }
+      const canonical = group.slice().sort((a, b) => (b.stockUnits ?? -1) - (a.stockUnits ?? -1) || b.demandRevenue - a.demandRevenue)[0]
+      const extra = group.reduce((s, p) => s + (p === canonical ? 0 : p.demandRevenue), 0)
+      deduped.push({ ...canonical, demandRevenue: canonical.demandRevenue + extra })
+    }
+    inputs.length = 0
+    // A row that's still unmatched to any currently-active listing after the merge above isn't a pre-order (a
+    // real pre-order product always has its own active stockMap entry) — it's an inactive or deleted product
+    // whose old sales are still on file. Plan it out entirely rather than push ad budget at something customers
+    // can no longer buy on the website.
+    inputs.push(...deduped.filter((inp) => hasStock[inp.key]))
+  }
+  let snapshot = snapshotIn
+  const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
+  // Any change to the team's counts (a line counted, test pairs added or removed) re-makes the plan at once, so
+  // the pairs per product follow the real stock the moment it is entered — not only when the total moves a lot.
+  const check = `${data.stockCheck?.counted ?? 0}:${Object.values(stockMap).reduce((s, e) => s + e.fake, 0)}`
+  if (!snapshot || snapshot.v !== PLAN_VERSION || dhakaDay(snapshot.at) !== today || stockMoved(snapshot.stock, stockNow) || snapshot.check !== check) {
+    snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, revenueLeft), products: inputs, soldMtd, check })
+    await save(snapshot)
+  }
+  const all = productRows({
+    plan: snapshot, sold: data.mtd, today, daysLeft, started,
+    stockUnits: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.units])),
+    trailingUnits: Object.fromEntries(Object.entries(data.trailing).map(([k, t]) => [k, t.units])),
+    trailingDays: WINDOW_DAYS,
+    sizes: sizeInfo,
+    costs: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.cost])),
+    listedPrices: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.price])),
+  })
+  const productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }
+  let restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {} })
+  // A product someone explicitly removed from this list stays off it until they bring it back themselves.
+  const dismissed = await ctx.runQuery(internal.targets.restockDismissedForProgress, {})
+  const restockDismissedCount = Object.keys(dismissed).length
+  if (restock) restock = restock.filter((r) => !dismissed[r.key])
+  return { snapshot, products: all, productInfo, restock, restockDismissedCount, tests }
+}
+
 async function computeProgress(ctx: ActionCtx, month: string | undefined, system: boolean): Promise<TargetProgress> {
     const now = Date.now()
     const current = dhakaMonth(now)
@@ -637,102 +781,11 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
     const monthPlan = planMonth({ month: m, target: row.amount, deliveredByDay: data.byDay, today, start: row.start })
 
     // ---- the product plan ----
-    let snapshot: ProductPlan | undefined
-    let tests: TargetProgress["tests"] = []
-    let products: ProductRow[] | null = null
-    let productInfo: TargetProgress["productInfo"] = null
-    let restock: TargetProgress["restock"] = null
-    let restockDismissedCount = 0
-    if (data.stock) {
-      const stockMap = data.stock
-      tests = Object.entries(stockMap)
-        .filter(([, e]) => e.units !== null && e.fake > 0)
-        .map(([key, e]) => {
-          const ordered7 = data.testDemand?.[key]?.u7 ?? 0
-          return { key, name: e.name, fake: e.fake, real: e.units ?? 0, ordered7, ...buySuggestion({ ordered7, real: e.units ?? 0 }) }
-        })
-        .sort((a, b) => Number(b.proven) - Number(a.proven) || b.buy - a.buy || b.fake - a.fake)
-      const soldMtd = Object.fromEntries(Object.entries(data.mtd).map(([k, d]) => [k, Object.values(d).reduce((s, n) => s + n, 0)]))
-      const sizeInfo: Record<string, { inStock: number; total: number } | null> = {}
-      const inputs: ProductInput[] = []
-      // Whether each input actually has a row in today's stock map — a real, currently-active listing — as
-      // opposed to only having sales history. A genuine pre-order product always gets its own stockMap entry
-      // (with stockUnits explicitly null, see gatherStock()); gatherStock() deliberately excludes inactive and
-      // deleted products, so a key with sales history but no stockMap entry means the product isn't sellable on
-      // the website any more. Tracked here (rather than on ProductInput itself) so the dedupe pass below can
-      // still fold an orphaned SKU's history onto an active twin of the same name, while anything left with no
-      // active listing afterward gets dropped instead of planned and pushed with ad budget forever.
-      const hasStock: Record<string, boolean> = {}
-      const keys = new Set([...Object.keys(data.trailing), ...Object.keys(stockMap)])
-      for (const k of keys) {
-        const t = data.trailing[k]
-        const st = stockMap[k]
-        const sold = t && t.units > 0 && t.revenue > 0 ? t : null
-        // Stock with no recent sales still gets a (small) share, so dead stock is worked on rather than ignored.
-        if (!sold && !(st && st.units !== null && st.units > 0)) continue
-        const price = sold ? (sold.revenue / sold.units) * data.ratio : st.price * data.ratio
-        if (!(price > 0)) continue
-        sizeInfo[k] = st && st.units !== null ? { inStock: st.sizesIn, total: st.sizes } : null
-        hasStock[k] = !!st
-        inputs.push({
-          key: k,
-          name: st?.name ?? sold!.name,
-          price,
-          demandRevenue: sold ? sold.revenue : (st.units ?? 0) * price,
-          stockUnits: st ? st.units : null, // no stock record: not capped (unless dropped below as inactive)
-          group: classify({ stockUnits: st ? st.units : null, sizesIn: st?.sizesIn ?? 0, sizesTotal: st?.sizes ?? 0, soldUnits: sold?.units ?? 0 }),
-        })
-      }
-      // Last-resort catch for the same catalog-duplicate problem: gatherStock() already folds a duplicate's SKU
-      // onto its canonical row whenever that SKU still exists somewhere in the products/variants tables, active
-      // or not — but a SKU whose variant was deleted outright (not just deactivated) leaves no trace there, and
-      // its old orders only ever surface here, under the product's own recorded name. Anything that still made
-      // it this far sharing the exact same name is the same real-world listing, so fold it into the entry with
-      // the most real stock (or, if none has stock, the most demand) rather than let it stand as its own
-      // paper-thin pre-order row and ad-push line.
-      {
-        const byName: Record<string, ProductInput[]> = {}
-        for (const inp of inputs) (byName[inp.name] ??= []).push(inp)
-        const deduped: ProductInput[] = []
-        for (const group of Object.values(byName)) {
-          if (group.length < 2) { deduped.push(group[0]); continue }
-          const canonical = group.slice().sort((a, b) => (b.stockUnits ?? -1) - (a.stockUnits ?? -1) || b.demandRevenue - a.demandRevenue)[0]
-          const extra = group.reduce((s, p) => s + (p === canonical ? 0 : p.demandRevenue), 0)
-          deduped.push({ ...canonical, demandRevenue: canonical.demandRevenue + extra })
-        }
-        inputs.length = 0
-        // A row that's still unmatched to any currently-active listing after the merge above isn't a pre-order
-        // (a real pre-order product always has its own active stockMap entry) — it's an inactive or deleted
-        // product whose old sales are still on file. Plan it out entirely rather than push ad budget at
-        // something customers can no longer buy on the website.
-        inputs.push(...deduped.filter((inp) => hasStock[inp.key]))
-      }
-      snapshot = row.plan as ProductPlan | undefined
-      const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
-      // Any change to the team's counts (a line counted, test pairs added or removed) re-makes the plan at once, so
-      // the pairs per product follow the real stock the moment it is entered — not only when the total moves a lot.
-      const check = `${data.stockCheck?.counted ?? 0}:${Object.values(stockMap).reduce((s, e) => s + e.fake, 0)}`
-      if (!snapshot || snapshot.v !== PLAN_VERSION || dhakaDay(snapshot.at) !== today || stockMoved(snapshot.stock, stockNow) || snapshot.check !== check) {
-        snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, row.amount - monthPlan.delivered), products: inputs, soldMtd, check })
-        if (m === current) await ctx.runMutation(internal.targets.savePlan, { month: m, plan: snapshot })
-      }
-      const all = productRows({
-        plan: snapshot, sold: data.mtd, today, daysLeft: monthPlan.daysLeft, started: monthPlan.started,
-        stockUnits: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.units])),
-        trailingUnits: Object.fromEntries(Object.entries(data.trailing).map(([k, t]) => [k, t.units])),
-        trailingDays: WINDOW_DAYS,
-        sizes: sizeInfo,
-        costs: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.cost])),
-        listedPrices: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.price])),
-      })
-      products = all
-      productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }
-      restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {} })
-      // A product someone explicitly removed from this list stays off it until they bring it back themselves.
-      const dismissed = await ctx.runQuery(internal.targets.restockDismissedForProgress, {})
-      restockDismissedCount = Object.keys(dismissed).length
-      if (restock) restock = restock.filter((r) => !dismissed[r.key])
-    }
+    const { snapshot, products, productInfo, restock, restockDismissedCount, tests } = await planProducts(
+      ctx, data, row.amount - monthPlan.delivered, now, today, monthPlan.daysLeft, monthPlan.started,
+      row.plan as ProductPlan | undefined,
+      async (plan) => { if (m === current) await ctx.runMutation(internal.targets.savePlan, { month: m, plan }) },
+    )
 
     // ---- marketing budget vs spend ----
     let marketing: MarketingView | null = null
@@ -787,6 +840,72 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
 
     return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount, gross }
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Marketing's own page: gross sale only — no delivered figures, no ad spend/profit math (those depend on
+// delivery outcomes, which is the Cx page's territory, not Marketing's). Always this calendar month.
+// ---------------------------------------------------------------------------------------------------------------
+
+export type MarketingProgress = {
+  asOf: number
+  /** This calendar month, "2026-11" style. */
+  month: string
+  target: number
+  /** Gross sale so far this month: every order's total once placed, whatever happened to it after. */
+  mtd: number
+  /** Monthly + daily pacing against `target`, built the same way the Cx delivered plan is — "delivered" here
+   *  means "placed", and "remaining" means "still needed to reach the gross target". */
+  plan: MonthPlan
+  /** Pairs per product, today's share and the stock behind it — built against the gross target. */
+  products: ProductRow[] | null
+  productInfo: { at: number; gap: number; unitsShort: number; windowDays: number } | null
+  tests: TargetProgress["tests"]
+  stockCheck: { lines: number; counted: number } | null
+  restock: RestockSuggestion[] | null
+  restockDismissedCount: number
+}
+
+export const marketingSnapshot = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<ProductPlan | undefined> => await getSetting<ProductPlan>(ctx, "marketingPlanSnapshot"),
+})
+
+export const saveMarketingSnapshot = internalMutation({
+  args: { plan: v.any() },
+  handler: async (ctx, { plan }) => await setSetting(ctx, "marketingPlanSnapshot", plan),
+})
+
+/** Marketing's dedicated page: this month's gross-sale pacing and which products (how many pairs) to sell to
+ *  reach it, from orders placed so far and current stock. No delivered figures, ad budget or profit math here —
+ *  those belong to the (separate, not-yet-built) Cx/delivery page. */
+export const marketingProgress = action({
+  args: {},
+  handler: async (ctx): Promise<MarketingProgress> => {
+    await ctx.runQuery(internal.targets.access, {})
+    const now = Date.now()
+    const today = dhakaDay(now)
+    const month = dhakaMonth(now)
+
+    const key = `marketing-data:${month}`
+    const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
+    let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
+    if (!data) {
+      data = await gatherGross(ctx, now)
+      await ctx.runMutation(internal.dashboard.writeCache, { key, value: data })
+    }
+
+    const target = await ctx.runQuery(internal.targets.grossTargetForProgress, {})
+    const monthPlan = planMonth({ month, target, deliveredByDay: data.byDay, today })
+
+    const snapshotIn = await ctx.runQuery(internal.targets.marketingSnapshot, {})
+    const { products, productInfo, restock, restockDismissedCount, tests } = await planProducts(
+      ctx, data, target - monthPlan.delivered, now, today, monthPlan.daysLeft, monthPlan.started,
+      snapshotIn, async (plan) => { await ctx.runMutation(internal.targets.saveMarketingSnapshot, { plan }) },
+    )
+
+    return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount }
+  },
+})
 
 // ---------------------------------------------------------------------------------------------------------------
 // KPI: the Marketing lead earns points for hitting the target — automatically, off the same delivered revenue

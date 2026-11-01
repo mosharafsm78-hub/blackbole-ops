@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import { AlertTriangle, Check, ChevronRight, Flag, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
-import { addDays } from "@/convex/targetMath"
+import { addDays, type MonthPlan } from "@/convex/targetMath"
 import { familyOf, GROUP_SHARE, type Group, type ProductRow } from "@/convex/targetPlan"
 import type { MarketingView, TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
@@ -17,7 +17,7 @@ export const monthLabel = (month: string) => {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
 }
 
-const dayLabel = (day: string) => `${Number(day.slice(8, 10))} ${new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" })}`
+export const dayLabel = (day: string) => `${Number(day.slice(8, 10))} ${new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" })}`
 
 export const useTargetProgress = () => usePolledAction(api.targets.progress, {}, 60000) // live: refreshes every minute, or instantly via the returned refetch
 
@@ -103,11 +103,11 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
       </div>
 
       {data.gross && <GrossSaleStrip gross={data.gross} />}
-      <StockNotes data={data} />
-      <RestockSuggestions data={data} refetch={refetch} />
+      <StockNotes stockCheck={data.stockCheck} tests={data.tests} />
+      <RestockSuggestions restock={data.restock} restockDismissedCount={data.restockDismissedCount} refetch={refetch} />
       <DailyMarketing data={data} />
-      <SellList data={data} />
-      <Models data={data} />
+      <SellList products={data.products} day={p.focus ? dayLabel(p.focus.day) : ""} budget={data.daily?.adBudget ?? 0} />
+      <Models products={data.products} />
       {data.marketing && <MarketingStrip m={data.marketing} />}
       {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
       <Schedule p={p} />
@@ -140,12 +140,12 @@ export function GrossSaleStrip({ gross }: { gross: NonNullable<TargetProgress["g
   )
 }
 
-/** The daily sheet: what to sell today, in pairs — the focus products carry it, the rest is a one-line total. */
-function SellList({ data }: { data: TargetProgress }) {
-  const rows = data.products
-  const p = data.plan!
+/** The daily sheet: what to sell today, in pairs — the focus products carry it, the rest is a one-line total.
+ *  `budget` (today's ad spend) is optional — pass 0 to drop the ad-budget column entirely, as the Marketing
+ *  page's own plan does (it has no ad-spend math of its own). */
+export function SellList({ products, day, budget }: { products: ProductRow[] | null; day: string; budget: number }) {
+  const rows = products
   if (!rows || rows.length === 0) return null
-  const day = p.focus ? dayLabel(p.focus.day) : ""
   const focus = rows.filter((r) => r.group === "focus" && (r.todayTarget ?? 0) > 0).sort((a, b) => (b.todayTarget ?? 0) - (a.todayTarget ?? 0))
   const rest = (g: Group) => rows.filter((r) => r.group === g)
   const line = (g: Group, title: string) => {
@@ -155,7 +155,6 @@ function SellList({ data }: { data: TargetProgress }) {
     return <li key={g}><b className="text-foreground">{title}:</b> {target} pairs across {list.length} products (sold {sum(list, (r) => r.todaySold)})</li>
   }
   const total = sum(rows, (r) => r.todayTarget ?? 0)
-  const budget = data.daily?.adBudget ?? 0
   const worthAll = sum(rows, (r) => (r.todayTarget ?? 0) * r.price) // the budget is split by each product's share of the day's value
   return (
     <section className="rounded-xl border bg-card p-4" data-testid="target-sell-list">
@@ -188,11 +187,11 @@ function SellList({ data }: { data: TargetProgress }) {
 }
 
 /** Real stock vs fake stock: a nudge to count what is not yet counted, and the products being tested without stock. */
-function StockNotes({ data }: { data: TargetProgress }) {
+export function StockNotes({ stockCheck, tests }: { stockCheck: TargetProgress["stockCheck"]; tests: TargetProgress["tests"] }) {
   const can = useCan()
-  const c = data.stockCheck
+  const c = stockCheck
   const left = c ? c.lines - c.counted : 0
-  if (left <= 0 && data.tests.length === 0) return null
+  if (left <= 0 && tests.length === 0) return null
   return (
     <div className="space-y-3" data-testid="target-stock-notes">
       {c && left > 0 && (
@@ -204,7 +203,7 @@ function StockNotes({ data }: { data: TargetProgress }) {
           </span>
         </div>
       )}
-      {data.tests.length > 0 && (
+      {tests.length > 0 && (
         <section className="rounded-xl border bg-card p-4" data-testid="target-tests">
           <h2 className="text-sm font-semibold">Marketing tests — stock not in hand</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">Fake pairs are advertised and can be ordered, but aren't planned: there are no real pairs to deliver. A product that gets {5}+ orders in a week has proven demand — buy it from the supplier in Purchases, and it joins the plan by itself once received.</p>
@@ -214,7 +213,7 @@ function StockNotes({ data }: { data: TargetProgress }) {
                 <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Fake pairs</th><th className="px-3 py-1.5 text-right font-medium">In hand</th><th className="px-3 py-1.5 text-right font-medium">Ordered (7 days)</th><th className="px-3 py-1.5 text-right font-medium">Decision</th></tr>
               </thead>
               <tbody>
-                {data.tests.slice(0, 20).map((t) => (
+                {tests.slice(0, 20).map((t) => (
                   <tr key={t.key} className="border-t">
                     <td className="px-3 py-1.5 font-medium">{t.name}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-tone-amber">{t.fake}</td>
@@ -276,8 +275,8 @@ function DailyMarketing({ data }: { data: TargetProgress }) {
 }
 
 /** Stock against plan, by model (colours together) — so a big pile like the Veyron loafers is plain to see. */
-function Models({ data }: { data: TargetProgress }) {
-  const rows = data.products
+export function Models({ products }: { products: ProductRow[] | null }) {
+  const rows = products
   if (!rows) return null
   const byFamily = new Map<string, ProductRow[]>()
   for (const r of rows) byFamily.set(familyOf(r.name), [...(byFamily.get(familyOf(r.name)) ?? []), r])
@@ -312,10 +311,12 @@ function Models({ data }: { data: TargetProgress }) {
   )
 }
 
-const weekday = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { weekday: "short", timeZone: "UTC" })
+export const weekday = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { weekday: "short", timeZone: "UTC" })
 
-/** Every day of the period: past days with what was delivered, today highlighted, coming days with their share. */
-function Schedule({ p }: { p: NonNullable<TargetProgress["plan"]> }) {
+/** Every day of the period: past days with what was delivered, today highlighted, coming days with their share.
+ *  Generic over MonthPlan — used for both the Cx delivered plan and the Marketing gross plan, which reinterprets
+ *  "delivered" as "placed". */
+export function Schedule({ p }: { p: MonthPlan }) {
   const rows: { day: string; target: number; delivered: number | null; hit: boolean; isToday: boolean }[] = p.days.map((d) => ({ day: d.day, target: d.target, delivered: d.delivered, hit: d.hit, isToday: d.isToday }))
   const lastShown = p.days.length > 0 ? p.days[p.days.length - 1].day : addDays(p.start, -1)
   // Coming days: what each must deliver to still land the month (from tomorrow), or the even share before the start.
@@ -347,7 +348,7 @@ function Schedule({ p }: { p: NonNullable<TargetProgress["plan"]> }) {
   )
 }
 
-function Fig({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: "green" }) {
+export function Fig({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: "green" }) {
   return (
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
@@ -421,13 +422,13 @@ function ProfitStrip({ p, target }: { p: NonNullable<TargetProgress["profit"]>; 
   )
 }
 
-const GROUPS: { key: Group; title: string; note: string }[] = [
+export const GROUPS: { key: Group; title: string; note: string }[] = [
   { key: "focus", title: "Focus products", note: "Good stock and a full size run — this is where the daily push goes." },
   { key: "other", title: "Others", note: "Sizes are fine but stock is thin (under 10 pairs). Sell when it comes up." },
   { key: "dead", title: "Dead stock", note: "Broken size run or no sales lately. A small share, to clear it." },
 ]
 
-const sum = (rows: ProductRow[], f: (r: ProductRow) => number) => rows.reduce((s, r) => s + f(r), 0)
+export const sum = (rows: ProductRow[], f: (r: ProductRow) => number) => rows.reduce((s, r) => s + f(r), 0)
 
 /** Emon's target: 1,200,000 ৳ a month should clear a 15% NET profit margin, not just break even. */
 const NET_MARGIN_TARGET = 0.15
@@ -509,7 +510,9 @@ function ProductPlan({ data, target }: { data: TargetProgress; target: number })
   )
 }
 
-function Table({ rows, reqOrderRate, ratio }: { rows: ProductRow[]; reqOrderRate: number | null; ratio: number }) {
+/** reqOrderRate === null drops the "Suggested price" column entirely — used by the Marketing page's plan, which
+ *  has no profit/pricing math of its own. */
+export function Table({ rows, reqOrderRate, ratio }: { rows: ProductRow[]; reqOrderRate: number | null; ratio: number }) {
   return (
     <div className="mt-2 overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[620px] text-sm">

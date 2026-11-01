@@ -1,29 +1,21 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
 import { Loading, PageHeader } from "@/components/bits"
-import { useCan } from "@/components/app-shell"
-import { GrossSaleStrip, monthLabel, TargetPlanView, useTargetProgress } from "@/components/revenue-target-card"
+import { MarketingTargetView, useMarketingProgress } from "@/components/marketing-target-view"
 
-// Open to every signed-in staff member on purpose: the marketing team works from this page. Ad spend, profit and
-// running costs are filtered out on the server for anyone without the right permission.
+// Open to every signed-in staff member on purpose: the marketing team works from this page. This page is solely
+// Marketing's — the gross-sale target (counted from when an order is placed, not approved or delivered) and which
+// products to sell to reach it. Customer Care / delivery gets its own, separate page later; nothing here depends
+// on delivered-order economics (ad budget, profit, suggested pricing).
 export const Route = createFileRoute("/_app/target")({
   component: () => <TargetPage />,
 })
 
 function TargetPage() {
-  const can = useCan()
-  const [data, refetch] = useTargetProgress()
+  const [data, refetch] = useMarketingProgress()
   return (
     <div className="space-y-4">
-      <PageHeader title="Target" sub="Daily and monthly revenue target, what to sell, and the marketing budget" />
-      {!data ? <Loading /> : !data.target || !data.plan ? (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-dashed bg-card p-6 text-sm">
-            <p className="font-semibold">No revenue target for {monthLabel(data.month)} yet.</p>
-            {can("team.manage") && <p className="mt-1 text-muted-foreground">Set one in <Link to="/settings" className="font-medium text-tone-blue hover:underline">Settings → KPI</Link> and this page fills itself in.</p>}
-          </div>
-          {data.gross && <GrossSaleStrip gross={data.gross} />}
-        </div>
-      ) : <TargetPlanView data={data} refetch={refetch} />}
+      <PageHeader title="Target" sub="This month's gross-sale target, and which products to sell to reach it" />
+      {!data ? <Loading /> : <MarketingTargetView data={data} refetch={refetch} />}
     </div>
   )
 }
