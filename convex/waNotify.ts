@@ -16,7 +16,7 @@ export const TEMPLATES: Record<Kind, { name: string; params: (m: Params) => stri
   shipped: { name: "order_shipped", params: (m) => [m.first, m.invoice, m.tracking, m.amount] },
   out_for_delivery: { name: "out_for_delivery", params: (m) => [m.first, m.invoice, m.amount] },
   failed: { name: "delivery_failed_v3", params: (m) => [m.first, m.invoice, m.reason] },
-  delivered: { name: "order_delivered", params: (m) => [m.first, m.invoice] },
+  delivered: { name: "order_delivered_v2", params: (m) => [m.first, m.invoice] },
   returned: { name: "order_returned_v3", params: (m) => [m.first, m.invoice] }, // plain Utility notice, no re-order button
 }
 /** Out for delivery with the rider's name and phone (from Pathao) when we have them; otherwise the plain version. */
