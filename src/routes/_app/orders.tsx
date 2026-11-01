@@ -607,7 +607,7 @@ function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open
   const shortages = (rows ?? []).filter((r) => r.shortageQty > 0)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[96vw] max-w-4xl sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>Product and Stock Checklist — {ids.length} order{ids.length === 1 ? "" : "s"}</DialogTitle>
         </DialogHeader>
@@ -624,19 +624,19 @@ function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open
             )}
             <div className="max-h-[60vh] overflow-auto rounded-md border">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-muted/60 text-left text-xs text-muted-foreground">
+                <thead className="sticky top-0 z-10 bg-muted text-left text-xs text-muted-foreground">
                   <tr>
-                    <th className="p-2 font-medium">SKU</th>
-                    <th className="p-2 font-medium">Product</th>
-                    <th className="p-2 text-right font-medium">Picking Qty</th>
-                    <th className="p-2 text-right font-medium">Available Qty</th>
-                    <th className="p-2 text-right font-medium">Shortage Qty</th>
+                    <th className="w-44 p-2 font-medium">SKU</th>
+                    <th className="min-w-56 p-2 font-medium">Product</th>
+                    <th className="w-20 p-2 text-right font-medium">Pick</th>
+                    <th className="w-32 p-2 text-right font-medium">Available</th>
+                    <th className="w-20 p-2 text-right font-medium">Short</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.sku} className={cn("border-t align-top", r.shortageQty > 0 && "bg-tone-red-bg/40")}>
-                      <td className="p-2 font-mono text-xs">{r.sku}</td>
+                      <td className="break-all p-2 font-mono text-xs">{r.sku}</td>
                       <td className="p-2">
                         {r.name}
                         {r.attrs && <span className="text-muted-foreground"> · {r.attrs}</span>}
@@ -645,7 +645,7 @@ function PickListDialog({ ids, open, onOpenChange }: { ids: Id<"orders">[]; open
                       <td className="p-2 text-right tabular-nums">
                         {r.availableQty}
                         {(r as any).warehouses?.length > 0 && (
-                          <div className="whitespace-nowrap text-[11px] font-normal text-muted-foreground">
+                          <div className="text-[11px] font-normal text-muted-foreground">
                             {(r as any).warehouses.map((w: { name: string; qty: number }) => `${w.name}: ${w.qty}`).join(" · ")}
                           </div>
                         )}
