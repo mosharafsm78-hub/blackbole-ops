@@ -214,7 +214,15 @@ export type ProductRow = {
   sizes: { inStock: number; total: number } | null
   key: string
   name: string
+  /** Order-total-equivalent price: real average item price × ratio. Used for revenue-allocation math (today's
+   *  target value, ad-budget split) — NOT the price customers actually see; use listedPrice for that. */
   price: number
+  /** The real average listed/sale price for this product — what's on the product page, delivery fee not
+   *  included (the delivery fee is the customer's own separate charge, not part of the shoe's price). This,
+   *  together with cost below, is what a per-product suggested price is built from. */
+  listedPrice: number
+  /** Average purchase cost on file for this product; null until someone enters it. */
+  cost: number | null
   monthUnits: number
   sold: number
   left: number
@@ -244,6 +252,8 @@ export function productRows(args: {
   trailingUnits: Record<string, number>
   trailingDays: number
   sizes?: Record<string, { inStock: number; total: number } | null>
+  costs?: Record<string, number | null>
+  listedPrices?: Record<string, number>
 }): ProductRow[] {
   const rows: ProductRow[] = []
   for (const [key, p] of Object.entries(args.plan.products)) {
@@ -259,7 +269,7 @@ export function productRows(args: {
     const coverDays = stock !== null && perDay > 0 ? Math.round(stock / perDay) : null
     rows.push({
       group: p.group ?? "focus", sizes: args.sizes?.[key] ?? null,
-      key, name: p.name, price: p.price, monthUnits: p.units, sold, left,
+      key, name: p.name, price: p.price, listedPrice: args.listedPrices?.[key] ?? p.price, cost: args.costs?.[key] ?? null, monthUnits: p.units, sold, left,
       todayTarget, todaySold,
       toGo: todayTarget === null ? 0 : Math.max(0, todayTarget - todaySold),
       perDayAfterToday: args.daysLeft > 1 ? Math.ceil(left / (args.started ? args.daysLeft - 1 : args.daysLeft)) : 0,
@@ -370,6 +380,11 @@ export type ProfitPlan = {
    *  (ratio ≠ 1): a discount shrinks it, a collected delivery fee (pure margin once courier cost is counted
    *  separately below) grows it. This is the number the breakdown shown to the team should foot against. */
   grossRate: number
+  /** Order totals ÷ item-line revenue — >1 when the collected delivery fee outweighs discounts given, <1 the
+   *  other way. The conversion factor between grossMargin (item basis) and grossRate (order-total basis); a
+   *  per-product suggested price needs to go the other way, from a required order-total rate back to a required
+   *  item-price margin, and this is what that conversion needs. */
+  ratio: number
   /** Per ৳1 of revenue: delivery + packaging (per order, ÷ average order), and the payment fee. */
   orderCostRate: number
   payFeeRate: number
@@ -422,6 +437,7 @@ export function profitPlan(args: {
   return {
     grossMargin: Math.round(args.grossMargin * 1000) / 1000,
     grossRate: Math.round(grossRate * 1000) / 1000,
+    ratio: Math.round(ratio * 1000) / 1000,
     orderCostRate: Math.round(orderCostRate * 1000) / 1000,
     payFeeRate: Math.round(payFeeRate * 1000) / 1000,
     returnRate,

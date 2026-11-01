@@ -658,6 +658,8 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
         trailingUnits: Object.fromEntries(Object.entries(data.trailing).map(([k, t]) => [k, t.units])),
         trailingDays: WINDOW_DAYS,
         sizes: sizeInfo,
+        costs: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.cost])),
+        listedPrices: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.price])),
       })
       products = all
       productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }

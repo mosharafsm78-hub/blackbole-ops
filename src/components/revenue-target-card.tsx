@@ -110,7 +110,7 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
       {data.marketing && <MarketingStrip m={data.marketing} />}
       {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
       <Schedule p={p} />
-      <ProductPlan data={data} />
+      <ProductPlan data={data} target={p.target} />
     </div>
   )
 }
@@ -404,10 +404,34 @@ const GROUPS: { key: Group; title: string; note: string }[] = [
 
 const sum = (rows: ProductRow[], f: (r: ProductRow) => number) => rows.reduce((s, r) => s + f(r), 0)
 
+/** The margin rate (on order-total ৳1, same basis as orderCostRate/payFeeRate/adRate) that a sale needs to clear
+ *  so the WHOLE month — ads, delivery, fees, and the fixed salary/rent/other costs too — actually breaks even at
+ *  this target. Same ingredients as the Profit panel's break-even line, just solved the other way: instead of
+ *  "what revenue clears fixed costs at today's margin", this is "what margin clears fixed costs at today's
+ *  revenue". Null without profit access or a target. */
+const requiredOrderRate = (profit: NonNullable<TargetProgress["profit"]> | null, target: number): number | null =>
+  profit && target > 0 ? profit.orderCostRate + profit.payFeeRate + profit.adRate + profit.fixed / target : null
+
+/** The listed price this one product would need to sell at, given its own real purchase cost, for the month
+ *  overall to break even. The delivery fee is the customer's own separate charge — it's never folded into this
+ *  price, only the product's own cost and its share of ads/fixed costs are. requiredOrderRate is on an
+ *  order-total basis (it includes the delivery fee credit baked into grossRate elsewhere), so it's converted
+ *  back to a plain item-price margin via `ratio` before being applied to cost — the same conversion grossRate
+ *  itself uses, just inverted. Null without a cost on file, or when there's under 5% of price left for the
+ *  product itself (ads + fixed costs alone already eat the month). */
+const suggestedPrice = (cost: number | null, reqOrderRate: number | null, ratio: number): number | null => {
+  if (cost === null || cost <= 0 || reqOrderRate === null) return null
+  const reqItemMargin = reqOrderRate * ratio - ratio + 1
+  const room = 1 - reqItemMargin
+  return room >= 0.05 ? cost / room : null
+}
+
 /** Every product's share of the month in pairs, in three groups: the daily pressure sits on the focus products. */
-function ProductPlan({ data }: { data: TargetProgress }) {
+function ProductPlan({ data, target }: { data: TargetProgress; target: number }) {
   const rows = data.products
   if (!rows) return null
+  const reqOrderRate = requiredOrderRate(data.profit, target)
+  const ratio = data.profit?.ratio ?? 1
   if (rows.length === 0) return <p className="text-xs text-muted-foreground">No product sales or stock to base a product plan on yet.</p>
   const gap = data.productInfo?.gap ?? 0
   const short = data.productInfo?.unitsShort ?? 0
@@ -415,6 +439,9 @@ function ProductPlan({ data }: { data: TargetProgress }) {
     <section className="rounded-xl border bg-card p-4" data-testid="target-products">
       <h2 className="text-sm font-semibold">What to sell — pairs per product</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">Split by what sold best in the last {data.productInfo?.windowDays} days, capped by stock. Re-planned every week.</p>
+      {reqOrderRate !== null && (
+        <p className="mt-0.5 text-xs text-muted-foreground"><b className="text-foreground">Suggested price</b>: the listed price, not counting delivery fee (that's the customer's own charge), each product would need so this whole month — ads, delivery, fees and the fixed costs too — actually breaks even, using its real purchase cost.</p>
+      )}
       {gap > 0 && (
         <div className="mt-2 flex items-start gap-2 rounded-lg border border-tone-red/30 bg-tone-red-bg/40 p-2.5 text-xs" data-testid="target-stock-gap">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-red" />
@@ -441,11 +468,11 @@ function ProductPlan({ data }: { data: TargetProgress }) {
             </div>
           )
           return g.key === "focus" ? (
-            <div key={g.key}>{head}<Table rows={list} /></div>
+            <div key={g.key}>{head}<Table rows={list} reqOrderRate={reqOrderRate} ratio={ratio} /></div>
           ) : (
             <details key={g.key} className="rounded-lg border p-3">
               <summary className="cursor-pointer select-none list-none">{head}</summary>
-              <Table rows={list} />
+              <Table rows={list} reqOrderRate={reqOrderRate} ratio={ratio} />
             </details>
           )
         })}
@@ -454,7 +481,7 @@ function ProductPlan({ data }: { data: TargetProgress }) {
   )
 }
 
-function Table({ rows }: { rows: ProductRow[] }) {
+function Table({ rows, reqOrderRate, ratio }: { rows: ProductRow[]; reqOrderRate: number | null; ratio: number }) {
   return (
     <div className="mt-2 overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[620px] text-sm">
@@ -466,6 +493,7 @@ function Table({ rows }: { rows: ProductRow[] }) {
             <th className="px-3 py-1.5 text-right font-medium">Today</th>
             <th className="px-3 py-1.5 text-right font-medium">Each day after</th>
             <th className="px-3 py-1.5 text-right font-medium">In stock</th>
+            {reqOrderRate !== null && <th className="px-3 py-1.5 text-right font-medium">Suggested price</th>}
           </tr>
         </thead>
         <tbody>
@@ -493,10 +521,30 @@ function Table({ rows }: { rows: ProductRow[] }) {
               <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                 {r.stockUnits === null ? "pre-order" : r.stockUnits}{r.coverDays !== null && <span className="block text-[11px]">{r.coverDays}d cover</span>}
               </td>
+              {reqOrderRate !== null && <SuggestedPriceCell listedPrice={r.listedPrice} cost={r.cost} reqOrderRate={reqOrderRate} ratio={ratio} />}
             </tr>
           ))}
         </tbody>
       </table>
     </div>
+  )
+}
+
+/** Current listed price vs. the price this product needs for the month to actually break even, given its own
+ *  real cost — the delivery fee is never part of either number, it's the customer's own separate charge. Green
+ *  ✓ when today's price already clears the bar; otherwise the shortfall, so it's obvious at a glance which
+ *  products are priced too thin to carry their share of ads and fixed costs. */
+function SuggestedPriceCell({ listedPrice, cost, reqOrderRate, ratio }: { listedPrice: number; cost: number | null; reqOrderRate: number; ratio: number }) {
+  const suggested = suggestedPrice(cost, reqOrderRate, ratio)
+  if (suggested === null) {
+    return <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground" title={cost === null ? "No purchase cost on file yet" : "Ads + fixed costs alone already use up the price"}>—</td>
+  }
+  const short = suggested - listedPrice // positive = priced too low to carry its share
+  const ok = short <= 0
+  return (
+    <td className="px-3 py-1.5 text-right tabular-nums">
+      <span className={cn("font-medium", ok ? "text-tone-green" : "text-tone-red")}>{taka(Math.round(suggested))}</span>
+      <span className="block text-[11px] text-muted-foreground">{ok ? "priced OK ✓" : `+${taka(Math.round(short))} needed`}</span>
+    </td>
   )
 }

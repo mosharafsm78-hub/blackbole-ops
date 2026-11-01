@@ -70,6 +70,7 @@ describe("product plan from sales and stock", () => {
     expect(rows["BB-DEAD"]).toMatchObject({ group: "dead", monthUnits: 8 }) // stock that never sells: a small share (8%)
     expect(rows["BB-HERO"].group).toBe("focus")
     expect(p.productInfo!.gap).toBe(0)
+    expect(rows["BB-HERO"].cost).toBe(500) // each variant's real purchase cost, carried through to the product row
   })
 
   it("reports a stock gap when current stock cannot carry the target", async () => {

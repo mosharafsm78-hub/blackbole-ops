@@ -137,6 +137,16 @@ describe("per-product daily targets re-balance", () => {
     })
     expect(rows.map((r) => r.key)).toEqual(["B", "S"])
   })
+
+  it("carries each product's real purchase cost through, null when none is on file", () => {
+    const rows = productRows({
+      plan: { at: 0, revenueLeft: 0, gap: 0, products: { A: { name: "A", units: 2, price: 1000 }, B: { name: "B", units: 2, price: 1000 } } },
+      sold: {}, today: "2026-11-02", daysLeft: 29, started: true, stockUnits: {}, trailingUnits: {}, trailingDays: 60,
+      costs: { A: 450 },
+    })
+    expect(rows.find((r) => r.key === "A")!.cost).toBe(450)
+    expect(rows.find((r) => r.key === "B")!.cost).toBeNull()
+  })
 })
 
 describe("marketing budget from the target", () => {
@@ -392,7 +402,7 @@ describe("measured costs and the daily ad limit", () => {
 
 describe("restockSuggestions — what to buy, and in which sizes, before it's too late", () => {
   const row = (extra: Partial<ProductRow> = {}): ProductRow => ({
-    group: "focus", sizes: null, key: "A", name: "A", price: 1000, monthUnits: 0, sold: 0, left: 0,
+    group: "focus", sizes: null, key: "A", name: "A", price: 1000, listedPrice: 1000, cost: null, monthUnits: 0, sold: 0, left: 0,
     todayTarget: null, todaySold: 0, toGo: 0, perDayAfterToday: 0, stockUnits: null, coverDays: null, perDay: 0,
     stockShort: 0, overstock: false, ...extra,
   })
