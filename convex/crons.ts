@@ -18,6 +18,9 @@ crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.
 // win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every
 // winback.REPEAT1_DAYS until they order again (does nothing before its start date or while switched off)
 crons.interval("abandoned cart emails", { minutes: 10 }, internal.abandonedEmail.run, {})
+// WhatsApp rating survey: new deliveries after 2 days, and the one-off past-90-days blast (only runs after the owner clicks Start)
+crons.interval("survey: ask delivered customers", { minutes: 30 }, internal.survey.tick, {})
+crons.interval("survey: past 90 days drip", { minutes: 1 }, internal.survey.dripPast, {})
 crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
 // win-back email, tier 1: same idea, same cadence, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)
 crons.interval("win-back email sweep", { hours: 1 }, internal.winback.runEmail, {})

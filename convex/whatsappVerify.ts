@@ -17,6 +17,7 @@ import type { Doc } from "./_generated/dataModel"
 import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, setSetting } from "./lib"
 import { applyStatus, insertOrder } from "./orders"
 import { canTransition } from "./rules"
+import { askList, ratingRows, saveRating } from "./survey"
 
 export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number }
 export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "", autoSend: false, templateName: "order_confirmation", templateLang: "en" }
@@ -52,12 +53,12 @@ export function summaryText(o: Doc<"orders">): string {
 // Wording is written to cut returns: a clear arrival time, a reminder to answer the courier, a size/fit check, and free exchange.
 // Pre-orders take much longer, so they get their own wording with the pre-order days from Website settings (default "15–20").
 export const confirmedText = (o: Doc<"orders">, preOrder: boolean, preOrderDays = "15–20") => preOrder
-  ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: about ${preOrderDays} days, because your pair is made for you\n• We will message you as soon as it is ready to ship\n• Please keep your phone on and pick up the call from our courier\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay the remaining amount only when you receive your order\n\nThank you for waiting for something special. — BlackBole`
-  : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it. — BlackBole`
+  ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: about ${preOrderDays} days, because your pair is made for you\n• We will message you as soon as it is ready to ship\n• Please keep your phone on and pick up the call from our courier\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay the remaining amount only when you receive your order\n\nThank you for waiting for something special.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
+  : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
 const isPre = (o: Doc<"orders">) => !!o.preOrder || o.status.startsWith("pre_order")
 const preDays = async (ctx: any) => String(((await getSetting<any>(ctx, "websiteSettings"))?.preOrderDays ?? "15–20")).trim() || "15–20"
 
-type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] }
+type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] } | { kind: "list"; body: string; button: string; rows: { id: string; title: string }[] }
 const txt = (body: string): Out => ({ kind: "text", body })
 
 /** Remember the customer's answer on the order (badge in Orders) and tell the team. Confirm does NOT approve: the team decides. */
@@ -88,6 +89,21 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
     return { out, result, orderId }
   }
   const mismatch = (o: Doc<"orders">) => phoneKey(a.waId) !== phoneKey(o.phone)
+
+  // ---- rating survey: "Rate now" → 1–10 list → saved + discount code ----
+  const sv = a.buttonId ? /^wv:(q|v):([^:]+)(?::(\d+))?$/.exec(a.buttonId) : null
+  if (sv) {
+    if (sv[1] === "q") {
+      const r = await askList(ctx, sv[2], a.waId)
+      if (!r) return record("survey_unknown", [txt("Sorry, we could not find this survey. Thank you for being with BlackBole! — BlackBole")])
+      if (r.done) return record("survey_done", [txt("Thank you, we already have your rating. — BlackBole")])
+      return record("survey_asked", [{ kind: "list", body: "How was your experience with BlackBole, and how is the quality of your shoes? Please choose from 1 (very bad) to 10 (excellent).", button: "Choose rating", rows: ratingRows(sv[2]) }])
+    }
+    const res = await saveRating(ctx, sv[2], a.waId, Number(sv[3]))
+    if (res === "already") return record("survey_done", [txt("Thank you, we already have your rating. — BlackBole")])
+    if (res === "invalid") return record("survey_unknown", [txt("Sorry, we could not save that rating. Thank you for being with BlackBole! — BlackBole")])
+    return record("survey_rated", [])
+  }
 
   // ---- returned parcel: "Yes, order again" → same product or a different one ----
   const again = a.buttonId ? /^wv:(r|n|s|d):(.+)$/.exec(a.buttonId) : null
@@ -206,7 +222,9 @@ export const deliver = internalAction({
     for (const m of out as Out[]) {
       const payload = m.kind === "text"
         ? { messaging_product: "whatsapp", to, type: "text", text: { body: m.body } }
-        : { messaging_product: "whatsapp", to, type: "interactive", interactive: { type: "button", body: { text: m.body }, action: { buttons: m.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })) } } }
+        : m.kind === "list"
+          ? { messaging_product: "whatsapp", to, type: "interactive", interactive: { type: "list", body: { text: m.body }, action: { button: m.button, sections: [{ title: "Rating", rows: m.rows }] } } }
+          : { messaging_product: "whatsapp", to, type: "interactive", interactive: { type: "button", body: { text: m.body }, action: { buttons: m.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })) } } }
       try {
         const r = await fetch(graph(c), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sec.token}` }, body: JSON.stringify(payload) })
         if (!r.ok) console.error("WhatsApp send failed", r.status, (await r.text()).slice(0, 200))
@@ -315,7 +333,7 @@ export const webhook = httpAction(async (ctx, req) => {
   try { body = JSON.parse(raw) } catch { return new Response("ok", { status: 200 }) }
   for (const entry of body?.entry ?? []) for (const ch of entry?.changes ?? []) for (const m of ch?.value?.messages ?? []) {
     const text = m.type === "text" ? m.text?.body : undefined
-    const buttonId = m.type === "interactive" ? m.interactive?.button_reply?.id : m.type === "button" ? m.button?.payload : undefined
+    const buttonId = m.type === "interactive" ? (m.interactive?.button_reply?.id ?? m.interactive?.list_reply?.id) : m.type === "button" ? m.button?.payload : undefined
     if (!m.from || !m.id || (!text && !buttonId)) continue
     try {
       const r = await ctx.runMutation(internal.whatsappVerify.inbound, { waId: String(m.from), wamid: String(m.id), text, buttonId })

@@ -31,6 +31,7 @@ import { Route as AppPulseRouteImport } from './routes/_app/pulse'
 import { Route as AppPurchaseRouteImport } from './routes/_app/purchase'
 import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
 import { Route as AppReportsRouteImport } from './routes/_app/reports'
+import { Route as AppSatisfactionRouteImport } from './routes/_app/satisfaction'
 import { Route as AppScanRouteImport } from './routes/_app/scan'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppStockCheckRouteImport } from './routes/_app/stock-check'
@@ -173,6 +174,11 @@ const AppPurchasesRoute = AppPurchasesRouteImport.update({
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSatisfactionRoute = AppSatisfactionRouteImport.update({
+  id: '/satisfaction',
+  path: '/satisfaction',
   getParentRoute: () => AppRoute,
 } as any)
 const AppScanRoute = AppScanRouteImport.update({
@@ -368,6 +374,7 @@ export interface FileRoutesByFullPath {
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
+  '/satisfaction': typeof AppSatisfactionRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-check': typeof AppStockCheckRoute
@@ -423,6 +430,7 @@ export interface FileRoutesByTo {
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
   '/reports': typeof AppReportsRoute
+  '/satisfaction': typeof AppSatisfactionRoute
   '/scan': typeof AppScanRoute
   '/settings': typeof AppSettingsRoute
   '/stock-check': typeof AppStockCheckRoute
@@ -481,6 +489,7 @@ export interface FileRoutesById {
   '/_app/purchase': typeof AppPurchaseRoute
   '/_app/purchases': typeof AppPurchasesRoute
   '/_app/reports': typeof AppReportsRoute
+  '/_app/satisfaction': typeof AppSatisfactionRoute
   '/_app/scan': typeof AppScanRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/stock-check': typeof AppStockCheckRoute
@@ -541,6 +550,7 @@ export interface FileRouteTypes {
     | '/purchase'
     | '/purchases'
     | '/reports'
+    | '/satisfaction'
     | '/scan'
     | '/settings'
     | '/stock-check'
@@ -596,6 +606,7 @@ export interface FileRouteTypes {
     | '/purchase'
     | '/purchases'
     | '/reports'
+    | '/satisfaction'
     | '/scan'
     | '/settings'
     | '/stock-check'
@@ -653,6 +664,7 @@ export interface FileRouteTypes {
     | '/_app/purchase'
     | '/_app/purchases'
     | '/_app/reports'
+    | '/_app/satisfaction'
     | '/_app/scan'
     | '/_app/settings'
     | '/_app/stock-check'
@@ -851,6 +863,13 @@ declare module '@tanstack/react-router' {
       path: '/reports'
       fullPath: '/reports'
       preLoaderRoute: typeof AppReportsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/satisfaction': {
+      id: '/_app/satisfaction'
+      path: '/satisfaction'
+      fullPath: '/satisfaction'
+      preLoaderRoute: typeof AppSatisfactionRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/scan': {
@@ -1141,6 +1160,7 @@ interface AppRouteChildren {
   AppPurchaseRoute: typeof AppPurchaseRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppSatisfactionRoute: typeof AppSatisfactionRoute
   AppScanRoute: typeof AppScanRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockCheckRoute: typeof AppStockCheckRoute
@@ -1192,6 +1212,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPurchaseRoute: AppPurchaseRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppReportsRoute: AppReportsRoute,
+  AppSatisfactionRoute: AppSatisfactionRoute,
   AppScanRoute: AppScanRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockCheckRoute: AppStockCheckRoute,

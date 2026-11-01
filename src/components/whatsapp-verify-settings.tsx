@@ -11,7 +11,7 @@ import { dateTime, errMsg } from "@/lib/format"
 
 const RESULT: Record<string, string> = {
   asked: "Summary sent", confirmed: "Confirmed → Approved", cancelled: "Cancelled", address_issue: "Address/phone incomplete → team to call",
-  mismatch: "Wrong number (ignored)", auto_sent: "Confirmation message sent", auto_test: "Test: would have sent confirmation", auto_failed: "Confirmation message FAILED", auto_skipped: "Not sent (address/phone incomplete → call)", auto_pending: "Sending…", already: "Already handled", life_sent: "Parcel update sent", life_test: "Test: would have sent parcel update", life_failed: "Parcel update FAILED", life_pending: "Sending parcel update…", reorder_yes: "Returned customer wants to order again", reorder_no: "Returned customer: no thanks", not_found: "Order not found", ignored: "Repeat (ignored)",
+  mismatch: "Wrong number (ignored)", auto_sent: "Confirmation message sent", auto_test: "Test: would have sent confirmation", auto_failed: "Confirmation message FAILED", auto_skipped: "Not sent (address/phone incomplete → call)", auto_pending: "Sending…", already: "Already handled", life_sent: "Parcel update sent", life_test: "Test: would have sent parcel update", life_failed: "Parcel update FAILED", life_pending: "Sending parcel update…", reorder_yes: "Returned customer wants to order again", reorder_same: "Returned customer re-ordered the same product", reorder_different: "Returned customer wants a different product", survey_asked: "Rating list sent", survey_rated: "Customer rated us", survey_done: "Rating already saved", reorder_no: "Returned customer: no thanks", not_found: "Order not found", ignored: "Repeat (ignored)",
 }
 
 /** Settings → WhatsApp verify: the customer taps "Verify on WhatsApp", gets a summary, presses Confirm or Cancel. */
@@ -73,6 +73,7 @@ export function WhatsAppVerifySettings() {
             <Switch checked={!!f.lifecycle} onCheckedChange={(v) => set("lifecycle", v)} aria-label="Parcel updates on WhatsApp" />
           </div>
         </div>
+        <SurveyCard />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => void doSave()}>Save</Button>
           <Button size="sm" variant="outline" disabled={!data.hasToken} onClick={async () => { try { const r = await connect({ wabaId: "1289488499618886" }); r.ok ? toast.success(r.message) : toast.error(r.message) } catch (e) { toast.error(errMsg(e)) } }}>Connect WhatsApp replies</Button>
@@ -103,6 +104,48 @@ export function WhatsAppVerifySettings() {
           {data.recent.map((e) => <li key={e._id} className="flex justify-between gap-3"><span>{e.invoice || "—"} · {RESULT[e.result] ?? e.result}</span><span className="text-muted-foreground">{dateTime(e.at)}</span></li>)}
         </ul>
       </section>
+    </div>
+  )
+}
+
+/** Rating survey: switch, and the one-off "past 90 days" send (shows how many customers first). */
+function SurveyCard() {
+  const st = useQuery(api.survey.status)
+  const save = useMutation(api.survey.saveConfig)
+  const start = useMutation(api.survey.startPast)
+  const stop = useMutation(api.survey.stopPast)
+  const preview = useAction(api.survey.previewPast)
+  const [count, setCount] = useState<{ customers: number; orders: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  if (!st) return null
+  const p = st.past
+  return (
+    <div className="mt-3 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Ask customers to rate us (1–10)</p>
+          <p className="text-xs text-muted-foreground">2 days after a parcel is delivered, the customer gets a “Rate now” message, picks 1–10, and gets a one-time discount code (1–5: Tk 100, 6–8: Tk 200, 9–10: Tk 300; valid 30 days on orders of Tk 1,500+). Results are on the Satisfaction page. Needs the approved Meta template <b>rate_experience</b> (Marketing, with a “Rate now” button). Test mode sends nothing and makes no real code.</p>
+        </div>
+        <Switch checked={st.enabled} onCheckedChange={async (v) => { try { await save({ enabled: v }); toast.success(v ? "Rating survey on" : "Rating survey off") } catch (e) { toast.error(errMsg(e)) } }} aria-label="Rating survey" />
+      </div>
+      {st.enabled && (
+        <div className="mt-3 rounded-md bg-muted/50 p-3 text-xs">
+          <p className="font-medium">Past customers (delivered in the last 90 days)</p>
+          {p?.active ? (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span>Sending now: {p.sent} asked so far{p.pausedUntil && p.pausedUntil > Date.now() ? " (paused for an hour: WhatsApp limit reached)" : ""}.</span>
+              <Button size="sm" variant="outline" onClick={() => void stop({})}>Stop</Button>
+            </div>
+          ) : (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); try { setCount(await preview({})) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) } }}>{busy ? "Counting…" : "Count customers"}</Button>
+              {count && <span>{count.customers.toLocaleString("en-IN")} customers ({count.orders.toLocaleString("en-IN")} orders). Each gets one message, about 20 per minute. WhatsApp charges for each marketing message, so check the price in Meta first.</span>}
+              {count && <Button size="sm" onClick={async () => { try { await start({}); toast.success("Sending started") } catch (e) { toast.error(errMsg(e)) } }}>Start sending</Button>}
+              {p && !p.active && p.sent > 0 && <span className="text-muted-foreground">Last run: {p.sent} asked.</span>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

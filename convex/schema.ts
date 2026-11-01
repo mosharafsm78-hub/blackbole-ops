@@ -636,6 +636,20 @@ export default defineSchema({
     out: v.optional(v.array(v.string())), // what we replied (kept so test mode can show it)
     at: v.number(),
   }).index("by_wamid", ["wamid"]).index("by_at", ["at"]),
+  // WhatsApp "rate your experience 1–10" surveys: one row per customer asked; rating filled in when they answer
+  surveys: defineTable({
+    orderId: v.id("orders"),
+    waId: v.string(),
+    customerName: v.string(),
+    askedAt: v.number(),
+    batch: v.optional(v.string()), // "auto" (2 days after delivery) | "past90"
+    result: v.string(), // pending | sent | test | failed | skipped | rated
+    note: v.optional(v.string()),
+    rating: v.optional(v.number()),
+    ratedAt: v.optional(v.number()),
+    code: v.optional(v.string()),
+    discount: v.optional(v.number()),
+  }).index("by_order", ["orderId"]).index("by_phone", ["waId"]).index("by_asked", ["askedAt"]).index("by_rated", ["ratedAt"]),
   // deleted records kept here (nothing is lost; can be restored by hand)
   archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
   // products whose Shopify stock must be refreshed (live stock sync)
