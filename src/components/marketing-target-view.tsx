@@ -32,6 +32,11 @@ export function MarketingTargetView({ data, refetch }: { data: MarketingProgress
   const t = p.focus
   const beaten = p.remaining === 0
   const onPace = p.pct >= (p.days.length / p.daysInMonth) * 100
+  // How much ad spend per day, for the rest of the month, to still deliver the part of the gross target that's
+  // missing — neededForRest is that spend for the whole remaining stretch at the last-30-days efficiency, so
+  // dividing by daysLeft turns it into a daily figure, the same way perDayFromTomorrow does for revenue.
+  const x = data.marketing?.state === "ok" ? data.marketing.plan : null
+  const dailyAdBudget = x && x.neededForRest !== null && p.daysLeft > 0 ? Math.ceil(x.neededForRest / p.daysLeft) : null
   return (
     <div className="space-y-4" data-testid="marketing-target-page">
       <p className="text-xs text-muted-foreground">
@@ -47,9 +52,10 @@ export function MarketingTargetView({ data, refetch }: { data: MarketingProgress
           <p className="text-xs text-muted-foreground">
             {t ? (t.upcoming ? "Each day's share of the month." : `${taka(t.delivered)} placed so far today.`) : "The period is over."}
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Fig label="Each day after today" value={p.perDayFromTomorrow > 0 ? taka(p.perDayFromTomorrow) : "—"} sub={p.perDayFromTomorrow > 0 ? "to still land the month" : beaten ? "nothing more needed" : "no days left"} />
             <Fig label="Days left" value={String(p.daysLeft)} sub="including today" />
+            <Fig label="Daily ad budget" value={dailyAdBudget !== null ? taka(dailyAdBudget) : "—"} sub={dailyAdBudget !== null ? "per day, to still reach the target" : "no ad data yet"} />
           </div>
         </section>
         <section className="rounded-xl border border-tone-violet/30 bg-tone-violet-bg/20 p-4" data-testid="marketing-target-monthly">
