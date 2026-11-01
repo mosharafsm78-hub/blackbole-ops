@@ -6,6 +6,7 @@ import { internal } from "./_generated/api"
 import { v } from "convex/values"
 import type { Doc } from "./_generated/dataModel"
 import { webPrice } from "./website"
+import { ensureShopifyCode } from "./shopifyDiscounts"
 
 const MAX_PAGE = 300
 
@@ -126,7 +127,10 @@ export const discount = httpAction(async (ctx, req) => {
   if (!handles.length || !(Number(b.percent) >= 1 && Number(b.percent) <= 50)) return json({ error: "percent (1–50) and product handles are required" }, 400)
   try {
     const r = await ctx.runMutation(internal.discounts.upsertMarketing, { code: String(b.code ?? ""), title: String(b.title ?? "Clearance"), percent: Number(b.percent), handles, days: Number(b.days) || 7 })
-    return json({ ok: true, ...r })
+    // the code must also work at the Shopify checkout – the ad promises it
+    const shop = await ensureShopifyCode(ctx, { code: r.code, title: String(b.title ?? "Clearance"), percent: Number(b.percent), handles, endsAt: r.endsAt ?? null })
+    if (!shop.ok) return json({ error: `The code was saved in Ops but Shopify refused it: ${shop.error}` }, 502)
+    return json({ ok: true, ...r, shopifyProducts: shop.products })
   } catch (e) { return json({ error: e instanceof Error ? e.message.replace(/^.*ConvexError: /, "") : String(e) }, 400) }
 })
 
