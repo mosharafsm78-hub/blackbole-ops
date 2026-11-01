@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { errMsg } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 const REASON_LABEL: Record<RestockSuggestion["reasons"][number], string> = {
   running_low: "Running low",
@@ -130,6 +131,7 @@ export function RestockSuggestions({ restock, restockDismissedCount, refetch }: 
                 {canBuy && <th className="w-8 px-3 py-1.5" />}
                 <th className="px-3 py-1.5 text-left font-medium">Product</th>
                 <th className="px-3 py-1.5 text-left font-medium">Why</th>
+                <th className="px-3 py-1.5 text-right font-medium">Delivered</th>
                 <th className="px-3 py-1.5 text-right font-medium">In stock</th>
                 <th className="px-3 py-1.5 text-right font-medium">Days left</th>
                 <th className="px-3 py-1.5 text-right font-medium">Suggest buy</th>
@@ -232,6 +234,22 @@ function Row({ r, isOpen, isSelected, toggle, toggleOpen, qty, setQty, canBuy }:
         {canBuy && <td className="px-3 py-1.5"><Checkbox checked={isSelected} onCheckedChange={toggle} aria-label={`Include ${r.name}`} /></td>}
         <td className="px-3 py-1.5 font-medium"><button type="button" className="text-left hover:underline" onClick={toggleOpen}>{r.name}</button></td>
         <td className="px-3 py-1.5"><div className="flex flex-wrap gap-1">{r.reasons.map((reason) => <Pill key={reason} tone={reason === "missing_sizes" ? "red" : "amber"}>{REASON_LABEL[reason]}</Pill>)}</div></td>
+        <td className="px-3 py-1.5 text-right tabular-nums">
+          {r.deliveryRate === null ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <span
+              className={cn(
+                "font-medium",
+                r.deliveryRate < 50 ? "text-tone-red" : r.deliveryRate < 70 ? "text-tone-amber" : "text-tone-green",
+              )}
+              title={`${r.delivered} delivered, ${r.returned} returned, last 60 days`}
+            >
+              {r.deliveryRate}%
+              <span className="block text-[11px] font-normal text-muted-foreground">{r.delivered} of {r.delivered + r.returned}</span>
+            </span>
+          )}
+        </td>
         <td className="px-3 py-1.5 text-right tabular-nums">{r.totalStock}</td>
         <td className="px-3 py-1.5 text-right tabular-nums">{r.coverDays ?? "—"}</td>
         <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{total}</td>
@@ -239,7 +257,7 @@ function Row({ r, isOpen, isSelected, toggle, toggleOpen, qty, setQty, canBuy }:
       {isOpen && (
         <tr className="border-t bg-muted/30">
           {canBuy && <td />}
-          <td colSpan={5} className="px-3 py-2">
+          <td colSpan={6} className="px-3 py-2">
             <div className="flex flex-wrap gap-3">
               {r.sizes.map((s) => (
                 <label key={s.variantId} className="flex items-center gap-1.5 text-xs">

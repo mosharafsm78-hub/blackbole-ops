@@ -296,15 +296,20 @@ export const grossPage = internalQuery({
   },
 })
 
-/** Returned parcels whose status changed in [from, to): what came back, and what the courier charged for it. */
+/** Returned parcels whose status changed in [from, to): what came back, what the courier charged for it, and
+ *  which products were in the parcel (skuBase keyed) — for the per-product delivered-vs-returned rate shown on
+ *  the restock list. */
 export const returnedPage = internalQuery({
   args: { status: v.union(v.literal("returned"), v.literal("pending_returned"), v.literal("damaged")), from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { status, from, to, cursor }): Promise<Page<{ c: number }>> => {
+  handler: async (ctx, { status, from, to, cursor }): Promise<Page<{ c: number; items: { k: string }[] }>> => {
     const res = await ctx.db
       .query("orders")
       .withIndex("by_status_changed", (q) => q.eq("status", status).gte("statusChangedAt", from).lt("statusChangedAt", to))
       .paginate({ cursor, numItems: 300 })
-    return { isDone: res.isDone, cursor: res.continueCursor, rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ c: o.courierCost ?? o.courierFee ?? 0 })) }
+    return {
+      isDone: res.isDone, cursor: res.continueCursor,
+      rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ c: o.courierCost ?? o.courierFee ?? 0, items: o.items.map((i) => ({ k: skuBase(i.sku) })) })),
+    }
   },
 })
 
@@ -419,6 +424,10 @@ type Gathered = {
   spend?: { at: number; byDay: Record<string, number> }
   /** Per-size stock for each plan key, for restock suggestions. Null for a month that's already over. */
   sizeBreakdown: Record<string, SizeStock[]> | null
+  /** Delivered vs returned parcel counts per product, over the same trailing window as "what sells" — whether a
+   *  product that's selling is actually making it to the customer, or mostly coming back. Undefined for a month
+   *  that's already over (restock suggestions don't run there anyway). */
+  delivery?: Record<string, { delivered: number; returned: number }>
 }
 
 /** Key a pre-order product is planned under: its category, not its own SKU. There's no per-SKU ad push for
@@ -529,10 +538,32 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
 }
 
 async function returnedStats(ctx: ActionCtx, from: number, to: number) {
-  const out = { orders: 0, courierSum: 0, courierN: 0 }
+  const out = { orders: 0, courierSum: 0, courierN: 0, byKey: {} as Record<string, number> }
   for (const status of ["returned", "pending_returned", "damaged"] as const) {
-    const rows = await pageAll<{ c: number }>((cursor) => ctx.runQuery(internal.targets.returnedPage, { status, from, to, cursor }))
-    for (const r of rows) { out.orders++; if (r.c > 0) { out.courierSum += r.c; out.courierN++ } }
+    const rows = await pageAll<{ c: number; items: { k: string }[] }>((cursor) => ctx.runQuery(internal.targets.returnedPage, { status, from, to, cursor }))
+    for (const r of rows) {
+      out.orders++
+      if (r.c > 0) { out.courierSum += r.c; out.courierN++ }
+      const seen = new Set(r.items.map((i) => i.k))
+      for (const k of seen) out.byKey[k] = (out.byKey[k] ?? 0) + 1
+    }
+  }
+  return out
+}
+
+/** Delivered vs returned parcel counts per product key — one count per order a product appeared in, not per
+ *  unit — for the restock list's "is this actually making it to the customer" signal. `deliveredRows` must
+ *  already have their item keys folded onto final plan keys (pre-order category, catalog-duplicate canonical
+ *  row); `returnedByKeyRaw` has not, so it's folded here via the same map. */
+function productDelivery(deliveredRows: SaleRow[], returnedByKeyRaw: Record<string, number> | undefined, preOrderKeyBySku: Record<string, string>): Record<string, { delivered: number; returned: number }> {
+  const out: Record<string, { delivered: number; returned: number }> = {}
+  for (const r of deliveredRows) {
+    const seen = new Set(r.items.map((i) => i.k))
+    for (const k of seen) (out[k] ??= { delivered: 0, returned: 0 }).delivered++
+  }
+  for (const [rawKey, n] of Object.entries(returnedByKeyRaw ?? {})) {
+    const k = preOrderKeyBySku[rawKey] ?? rawKey
+    ;(out[k] ??= { delivered: 0, returned: 0 }).returned += n
   }
   return out
 }
@@ -563,25 +594,32 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   if (gotStock) for (const r of rows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.
-  const win = summarizeSales(rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY), { startMs: mStart, endMs: mEnd })
-  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined, sizeBreakdown: gotStock ? gotStock.sizeBreakdown : null }
+  const trailingRows = rows.filter((r) => r.at >= now - WINDOW_DAYS * DAY)
+  const win = summarizeSales(trailingRows, { startMs: mStart, endMs: mEnd })
+  const delivery = gotStock ? productDelivery(trailingRows, returned?.byKey, gotStock.preOrderKeyBySku) : undefined
+  return { at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov, ops: win.ops, returned, delivery, stock: gotStock ? gotStock.map : null, testDemand: gotStock ? await testDemand(ctx, gotStock.map, now) : undefined, stockCheck: gotStock ? { lines: gotStock.lines, counted: gotStock.counted } : undefined, sizeBreakdown: gotStock ? gotStock.sizeBreakdown : null }
 }
 
 /** Same idea as gather(), but for Marketing's own page: sales/day/trailing figures come from orders placed
  *  (createdAt, any status) instead of delivered orders, and it's always this calendar month — Marketing's page
- *  doesn't browse other months. No courier/return data is gathered (nothing on this page needs it; profit and ad
- *  spend are Cx-page/finance concerns tied to delivery outcomes, not to gross sale). */
+ *  doesn't browse other months. No ad spend or profit math here (that's the Cx/finance page's concern), but the
+ *  restock list still needs delivered-vs-returned counts, so those are gathered the same way Cx's page does. */
 async function gatherGross(ctx: ActionCtx, now: number): Promise<Gathered> {
   const month = dhakaMonth(now)
   const mStart = monthStartMs(month), mEnd = monthEndMs(month)
   const from = Math.min(mStart, now - WINDOW_DAYS * DAY)
-  const [rows, gotStock] = await Promise.all([grossRows(ctx, from, now + 1), gatherStock(ctx)])
+  const [rows, gotStock, deliveredRows, returned] = await Promise.all([
+    grossRows(ctx, from, now + 1), gatherStock(ctx),
+    salesRows(ctx, now - WINDOW_DAYS * DAY, now + 1), returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1),
+  ])
   for (const r of rows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
+  for (const r of deliveredRows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   return {
     at: now, byDay: s.byDay, trailing: s.trailing, mtd: s.mtd, ratio: s.ratio, aov: s.aov,
     stock: gotStock.map, testDemand: await testDemand(ctx, gotStock.map, now),
     stockCheck: { lines: gotStock.lines, counted: gotStock.counted }, sizeBreakdown: gotStock.sizeBreakdown,
+    delivery: productDelivery(deliveredRows, returned.byKey, gotStock.preOrderKeyBySku),
   }
 }
 
@@ -789,7 +827,7 @@ async function planProducts(
     listedPrices: Object.fromEntries(Object.entries(stockMap).map(([k, s]) => [k, s.price])),
   })
   const productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }
-  let restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {} })
+  let restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {}, deliveryByKey: data.delivery })
   // A product someone explicitly removed from this list stays off it until they bring it back themselves.
   const dismissed = await ctx.runQuery(internal.targets.restockDismissedForProgress, {})
   const restockDismissedCount = Object.keys(dismissed).length

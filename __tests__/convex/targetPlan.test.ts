@@ -442,4 +442,19 @@ describe("restockSuggestions — what to buy, and in which sizes, before it's to
     const sizesByKey = { A: [size("41", 20), size("42", 20)] }
     expect(restockSuggestions({ rows, sizesByKey })).toEqual([])
   })
+
+  it("carries the delivered-vs-returned rate for a product with history, and null for one without", () => {
+    const rows = [row({ key: "A", perDay: 2, coverDays: 5 }), row({ key: "B", perDay: 2, coverDays: 5 })]
+    const sizesByKey = { A: [size("41", 5), size("42", 5)], B: [size("41", 5), size("42", 5)] }
+    const deliveryByKey = { A: { delivered: 30, returned: 20 } } // 60% delivered; B has no history at all
+    const out = restockSuggestions({ rows, sizesByKey, deliveryByKey })
+    const a = out.find((r) => r.key === "A")!
+    const b = out.find((r) => r.key === "B")!
+    expect(a.deliveryRate).toBe(60)
+    expect(a.delivered).toBe(30)
+    expect(a.returned).toBe(20)
+    expect(b.deliveryRate).toBeNull()
+    expect(b.delivered).toBe(0)
+    expect(b.returned).toBe(0)
+  })
 })

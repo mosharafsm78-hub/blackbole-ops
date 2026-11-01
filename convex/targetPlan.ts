@@ -570,6 +570,13 @@ export type RestockSuggestion = {
   /** Why this made the list: thin on stock overall, and/or some sizes are out while others carry plenty. */
   reasons: ("running_low" | "missing_sizes")[]
   sizes: (SizeStock & { suggest: number })[]
+  /** How much of what sold actually reached the customer, over the same trailing window as `perDay` — delivered
+   *  ÷ (delivered + returned) parcels, 0–100. Null with no delivered-or-returned history yet to judge by: a
+   *  pre-order category (no parcel ever ships against the category key itself) or a brand-new product. A low
+   *  number here is a reason to restock less even when the pace alone says "running low". */
+  deliveryRate: number | null
+  delivered: number
+  returned: number
 }
 
 /** Splits `total` across `weights` so the pieces are whole numbers that add up to exactly `total` — the largest
@@ -596,6 +603,9 @@ function allocateByWeight(total: number, weights: number[]): number[] {
 export function restockSuggestions(args: {
   rows: ProductRow[]
   sizesByKey: Record<string, SizeStock[]>
+  /** Delivered vs returned parcel counts per product, over the same trailing window used for `perDay` — see
+   *  `RestockSuggestion.deliveryRate`. Omitted keys get a null rate (nothing to judge by yet). */
+  deliveryByKey?: Record<string, { delivered: number; returned: number }>
   horizonDays?: number
   targetDays?: number
 }): RestockSuggestion[] {
@@ -618,10 +628,14 @@ export function restockSuggestions(args: {
     const gaps = sizes.map((x) => Math.max(0, maxSize - x.units))
     const weights = gaps.some((g) => g > 0) ? gaps : sizes.map(() => 1) // even curve but still thin overall: split evenly
     const alloc = allocateByWeight(suggestedTotal, weights)
+    const d = args.deliveryByKey?.[r.key]
+    const judged = (d?.delivered ?? 0) + (d?.returned ?? 0)
     out.push({
       key: r.key, name: r.name, coverDays: r.coverDays, perDay: r2(r.perDay), totalStock, suggestedTotal,
       reasons: [...(runningLow ? (["running_low"] as const) : []), ...(missingSizes ? (["missing_sizes"] as const) : [])],
       sizes: sizes.map((x, i) => ({ ...x, suggest: alloc[i] })),
+      deliveryRate: judged > 0 ? Math.round((d!.delivered / judged) * 1000) / 10 : null,
+      delivered: d?.delivered ?? 0, returned: d?.returned ?? 0,
     })
   }
   return out.sort((a, b) => (a.coverDays ?? Infinity) - (b.coverDays ?? Infinity))
