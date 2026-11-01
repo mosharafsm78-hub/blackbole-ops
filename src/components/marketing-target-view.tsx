@@ -9,7 +9,7 @@ import type { MarketingProgress } from "@/convex/targets"
 import { Pill } from "@/components/bits"
 import { RestockSuggestions } from "@/components/restock-suggestions"
 import {
-  dayLabel, Fig, GROUPS, Models, Schedule, SellList, monthLabel, sum,
+  dayLabel, Fig, GROUPS, MarketingStrip, Models, Schedule, SellList, monthLabel, sum,
 } from "@/components/revenue-target-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,10 +21,12 @@ import { cn } from "@/lib/utils"
 export const useMarketingProgress = () => usePolledAction(api.targets.marketingProgress, {}, 60000)
 
 /** The whole Target page, now solely for Marketing: the ৳18,00,000-style gross-sale target — counted from the
- *  moment an order is placed, not approved or delivered — daily pacing toward it, and which products (how many
- *  pairs of each) need to sell to reach it, against current stock. Deliberately carries none of the Cx/delivery
- *  team's numbers (ad budget, profit, break-even, suggested pricing) — those depend on delivery outcomes and will
- *  live on a separate Customer Care page once that's built. */
+ *  moment an order is placed, not approved or delivered — daily pacing toward it, which products (how many pairs
+ *  of each) need to sell to reach it against current stock, and the ad budget the target itself needs (worked out
+ *  from revenue per taka of ad spend on PLACED orders over the last 30 days — Marketing's own efficiency, not the
+ *  Cx page's delivered-revenue one). Deliberately carries none of the Cx/delivery team's other numbers (profit,
+ *  break-even, suggested pricing) — those depend on delivery outcomes and will live on a separate Customer Care
+ *  page once that's built. */
 export function MarketingTargetView({ data, refetch }: { data: MarketingProgress; refetch: () => void }) {
   const p = data.plan
   const t = p.focus
@@ -66,6 +68,7 @@ export function MarketingTargetView({ data, refetch }: { data: MarketingProgress
         </section>
       </div>
 
+      {data.marketing && <MarketingStrip m={data.marketing} />}
       <RestockSuggestions restock={data.restock} restockDismissedCount={data.restockDismissedCount} refetch={refetch} />
       <SellList products={data.products} day={t ? dayLabel(t.day) : ""} budget={0} />
       <Models products={data.products} />

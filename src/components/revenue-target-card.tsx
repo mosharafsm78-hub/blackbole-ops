@@ -368,7 +368,7 @@ const status = {
 } as const
 
 /** Marketing's number: what the target needs in ad spend, and what has been spent. Only sent to people with ads access. */
-function MarketingStrip({ m }: { m: MarketingView }) {
+export function MarketingStrip({ m }: { m: MarketingView }) {
   if (m.state === "not_configured") return null
   if (m.state === "error") return <p className="mt-3 text-xs text-muted-foreground">Ad spend couldn't be loaded from Meta just now.</p>
   const x = m.plan

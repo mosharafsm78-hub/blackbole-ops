@@ -928,6 +928,10 @@ export type MarketingProgress = {
   stockCheck: { lines: number; counted: number } | null
   restock: RestockSuggestion[] | null
   restockDismissedCount: number
+  /** What the gross-sale target needs in ad spend, worked out from revenue-per-taka-of-spend over the last 30
+   *  days of PLACED orders (matching the gross target's own basis) — not delivered revenue, which is the Cx
+   *  page's efficiency measure and can read very differently. Null for people without ads access. */
+  marketing: MarketingView | null
 }
 
 export const marketingSnapshot = internalQuery({
@@ -954,10 +958,21 @@ export const marketingProgress = action({
     const key = `marketing-data:${month}`
     const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
     let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
-    if (!data) {
-      data = await gatherGross(ctx, now)
-      await ctx.runMutation(internal.dashboard.writeCache, { key, value: data })
+    let dirty = false
+    if (!data) { data = await gatherGross(ctx, now); dirty = true }
+
+    // ---- ad spend vs the gross target — same revenue basis (orders placed) as the target itself, so the
+    // efficiency this measures is Marketing's own, not the Cx/delivered one on the other page. ----
+    let conf: any = null
+    let adsAllowed = true
+    try { conf = await ctx.runQuery(internal.ads.cfg, {}) } catch { adsAllowed = false }
+    const adsConfigured = adsAllowed && !!conf?.token && (conf.accounts?.length ?? 0) > 0
+    let spendFailed = false
+    if (adsConfigured && (!data.spend || now - data.spend.at > SPEND_MS)) {
+      const byDay = await fetchSpend(conf, Math.min(dayStartMs(`${month}-01`), now - 30 * DAY), now)
+      if (byDay) { data.spend = { at: now, byDay }; dirty = true } else spendFailed = !data.spend
     }
+    if (dirty) await ctx.runMutation(internal.dashboard.writeCache, { key, value: data })
 
     const target = await ctx.runQuery(internal.targets.grossTargetForProgress, {})
     const monthPlan = planMonth({ month, target, deliveredByDay: data.byDay, today })
@@ -970,7 +985,29 @@ export const marketingProgress = action({
       overrides,
     )
 
-    return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount }
+    let marketing: MarketingView | null = null
+    if (adsAllowed) {
+      if (!adsConfigured) marketing = { state: "not_configured" }
+      else if (!data.spend || spendFailed) marketing = { state: "error" }
+      else {
+        const { first, days } = periodOf(month)
+        const from30 = dhakaDay(now - 30 * DAY)
+        marketing = {
+          state: "ok",
+          plan: marketingPlan({
+            target,
+            deliveredMtd: monthPlan.delivered,
+            spentMtd: sumDays(data.spend.byDay, first, today),
+            trailingRevenue: sumDays(data.byDay, from30, today),
+            trailingSpend: sumDays(data.spend.byDay, from30, today),
+            dayOfMonth: monthPlan.started ? (monthPlan.finished ? days : dayNo(first, today)) : 0,
+            days,
+          }),
+        }
+      }
+    }
+
+    return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount, marketing }
   },
 })
 
