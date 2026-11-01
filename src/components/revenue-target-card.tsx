@@ -47,9 +47,7 @@ export function RevenueTargetCard() {
     <section className="rounded-xl border bg-card p-4" data-testid="revenue-target-card">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Flag className="size-4 text-tone-blue" />Target (Cx — delivered) — {dayLabel(p.start)} to {dayLabel(p.end)}</h2>
-        {/* No "Full plan" link: /target is now Marketing's own gross-sale page and shows none of these delivered
-         *  numbers — that link would take someone looking at this card somewhere that doesn't match it. Put it
-         *  back once the Cx/delivery page exists to show this plan in full. */}
+        <Link to="/target/cx" className="text-xs font-medium text-tone-blue hover:underline">Full plan →</Link>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <Fig label={t?.upcoming ? `Target for ${dayLabel(t.day)}` : "Today's target"} value={t ? taka(t.target) : "—"} sub={t ? (t.toGo > 0 ? `${taka(t.delivered)} done · ${taka(t.toGo)} to go` : `${taka(t.delivered)} delivered ✓`) : "period is over"} tone={t && t.toGo === 0 ? "green" : undefined} />

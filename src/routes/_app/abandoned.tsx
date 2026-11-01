@@ -36,6 +36,7 @@ export const Route = createFileRoute("/_app/abandoned")({
 })
 
 const OUTCOMES = ["Will order later", "No answer", "Busy / call later", "Switched off", "Wrong number", "Price too high", "Asked for a different size / item"]
+const LOST_REASONS = ["Price too high", "Changed their mind", "Found it cheaper elsewhere", "Wrong size / out of stock", "Already ordered elsewhere", "Not needed anymore", "No longer reachable", "Other"]
 const ago = (t: number) => {
   const m = Math.round((Date.now() - t) / 60000)
   if (m < 60) return `${m} min ago`
@@ -44,6 +45,14 @@ const ago = (t: number) => {
   return `${Math.round(h / 24)} days ago`
 }
 const when = (t: number) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })
+
+/** How many "Not interested" carts gave each reason (from lastNote, which the Not-interested dialog sets to one
+ *  of LOST_REASONS or a custom note) — most common first, dropping carts closed before this existed (no note). */
+const reasonCounts = (rows: Row[]) => {
+  const by = new Map<string, number>()
+  for (const r of rows) { const k = r.lastNote?.trim(); if (k) by.set(k, (by.get(k) ?? 0) + 1) }
+  return [...by.entries()].sort((a, b) => b[1] - a[1])
+}
 
 type Row = NonNullable<ReturnType<typeof useQuery<typeof api.checkouts.list>>>[number]
 
@@ -56,8 +65,11 @@ function AbandonedPage() {
   const [callFor, setCallFor] = useState<Row | null>(null)
   const [orderFor, setOrderFor] = useState<Row | null>(null)
   const [modifyFor, setModifyFor] = useState<Row | null>(null)
+  const [lostFor, setLostFor] = useState<Row | null>(null)
   const close = useMutation(api.checkouts.close)
   const unarchive = useMutation(api.checkouts.unarchive)
+  // Why the "Not interested" carts said no, most common first — a quick read on the list currently on screen.
+  const lostReasons = tab === "lost" && rows ? reasonCounts(rows) : null
 
   return (
     <div className="space-y-4">
@@ -98,6 +110,15 @@ function AbandonedPage() {
       </div>
       <p className="text-xs text-muted-foreground">{TABS.find((t) => t.k === tab)?.hint}</p>
 
+      {lostReasons && lostReasons.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3 text-xs" data-testid="lost-reasons">
+          <span className="font-semibold text-muted-foreground">Why they said no:</span>
+          {lostReasons.map(([reason, n]) => (
+            <span key={reason} className="rounded-full bg-muted px-2.5 py-1 font-medium">{reason} <span className="tabular-nums text-muted-foreground">× {n}</span></span>
+          ))}
+        </div>
+      )}
+
       {rows === undefined || rows === null ? <Loading /> : rows.length === 0 ? (
         <Empty title={tab === "new" ? "No new abandoned carts" : tab === "archived" ? "Nothing archived" : "Nothing here"}>
           {tab === "new" ? "When a customer leaves the website checkout without ordering, they show up here after 15 minutes." : tab === "archived" ? "Carts you archive as duplicates or invalid entries are kept here." : null}
@@ -108,7 +129,7 @@ function AbandonedPage() {
             <CartRow
               key={c._id} c={c} tab={tab}
               onCall={() => setCallFor(c)} onOrder={() => setOrderFor(c)} onModify={() => setModifyFor(c)}
-              onLost={async () => { try { await close({ id: c._id, status: "lost" }); toast.success("Moved to Not interested") } catch (e) { toast.error(errMsg(e)) } }}
+              onLost={() => setLostFor(c)}
               onReopen={async () => { try { await close({ id: c._id, status: "open" }); toast.success("Back in the call list") } catch (e) { toast.error(errMsg(e)) } }}
               onAlreadyOrdered={async () => { try { await close({ id: c._id, status: "ordered", orderId: c.laterOrder?.id }); toast.success("Marked as ordered") } catch (e) { toast.error(errMsg(e)) } }}
               onRestore={async () => { try { await unarchive({ id: c._id }); toast.success("Restored to the queue") } catch (e) { toast.error(errMsg(e)) } }}
@@ -120,6 +141,12 @@ function AbandonedPage() {
       {callFor && <CallDialog c={callFor} onClose={() => setCallFor(null)} onConfirmed={() => { const c = callFor; setCallFor(null); setOrderFor(c) }} />}
       {orderFor && <OrderDialog c={orderFor} onClose={() => setOrderFor(null)} />}
       {modifyFor && <AbandonedModifyDialog cart={modifyFor} onClose={() => setModifyFor(null)} />}
+      {lostFor && (
+        <LostDialog
+          c={lostFor} onClose={() => setLostFor(null)}
+          onConfirm={async (reason) => { try { await close({ id: lostFor._id, status: "lost", note: reason }); toast.success("Moved to Not interested"); setLostFor(null) } catch (e) { toast.error(errMsg(e)) } }}
+        />
+      )}
     </div>
   )
 }
@@ -207,6 +234,10 @@ function CartRow({ c, tab, onCall, onOrder, onModify, onLost, onReopen, onAlread
             {c.followUpAt && <div className={cn("font-semibold", due ? "text-tone-red" : "text-tone-amber")}>Call again {when(c.followUpAt)}</div>}
           </div>
         )}
+        {/* Why they said no, shown even with no prior logged call — closing as "Not interested" asks for this. */}
+        {tab === "lost" && c.callCount === 0 && c.lastNote && (
+          <div className="mt-2 rounded-md bg-muted/60 px-2 py-1 text-xs"><b>Reason:</b> {c.lastNote}{c.closedBy ? ` · ${c.closedBy}` : ""}</div>
+        )}
         {c.orderInvoice && c.orderId && (
           <div className="mt-2 text-xs">Order: <Link to="/order" search={{ id: c.orderId }} className="font-semibold text-tone-blue hover:underline">{c.orderInvoice}</Link>{c.closedBy ? ` · by ${c.closedBy}` : ""}</div>
         )}
@@ -289,6 +320,40 @@ function CallDialog({ c, onClose, onConfirmed }: { c: Row; onClose: () => void; 
               toast.success("Call saved"); onClose()
             } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Save call</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Why the customer isn't interested — a quick reason pick (or a custom note) before closing the cart, so the
+ *  "Not interested" list and the reason breakdown above it say something besides "lost". */
+function LostDialog({ c, onClose, onConfirm }: { c: Row; onClose: () => void; onConfirm: (reason: string) => void }) {
+  const [reason, setReason] = useState(c.lastNote && LOST_REASONS.includes(c.lastNote) ? c.lastNote : LOST_REASONS[0])
+  const [custom, setCustom] = useState(c.lastNote && !LOST_REASONS.includes(c.lastNote) ? c.lastNote : "")
+  const [busy, setBusy] = useState(false)
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Not interested — {c.customerName || c.phone}</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {LOST_REASONS.map((r) => (
+              <button key={r} type="button" onClick={() => setReason(r)}
+                className={cn("rounded-full border px-3 py-1.5 text-sm", reason === r ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>{r}</button>
+            ))}
+          </div>
+          {reason === "Other" && (
+            <div className="space-y-1.5"><Label>What did they say?</Label><Textarea value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Reason, in their own words" /></div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button
+            disabled={busy || (reason === "Other" && !custom.trim())}
+            onClick={async () => { setBusy(true); try { await onConfirm(reason === "Other" ? custom.trim() : reason) } finally { setBusy(false) } }}
+          >
+            {busy ? "Saving…" : "Close as Not interested"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

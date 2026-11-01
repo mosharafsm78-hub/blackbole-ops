@@ -64,6 +64,8 @@ import { Route as AppWhatsappRouteImport } from './routes/_app/whatsapp'
 import { Route as ApiPathaoProxyRouteImport } from './routes/api/pathao-proxy'
 import { Route as AppProductsIndexRouteImport } from './routes/_app/products.index'
 import { Route as AppProductsProductIdRouteImport } from './routes/_app/products.$productId'
+import { Route as AppTargetIndexRouteImport } from './routes/_app/target.index'
+import { Route as AppTargetCxRouteImport } from './routes/_app/target.cx'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -339,6 +341,16 @@ const AppProductsProductIdRoute = AppProductsProductIdRouteImport.update({
   path: '/$productId',
   getParentRoute: () => AppProductsRoute,
 } as any)
+const AppTargetIndexRoute = AppTargetIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppTargetRoute,
+} as any)
+const AppTargetCxRoute = AppTargetCxRouteImport.update({
+  id: '/cx',
+  path: '/cx',
+  getParentRoute: () => AppTargetRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -369,7 +381,7 @@ export interface FileRoutesByFullPath {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
-  '/target': typeof AppTargetRoute
+  '/target': typeof AppTargetRouteWithChildren
   '/website': typeof AppWebsiteRoute
   '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
@@ -394,7 +406,9 @@ export interface FileRoutesByFullPath {
   '/whatsapp': typeof AppWhatsappRoute
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/products/$productId': typeof AppProductsProductIdRoute
+  '/target/cx': typeof AppTargetCxRoute
   '/products/': typeof AppProductsIndexRoute
+  '/target/': typeof AppTargetIndexRoute
 }
 export interface FileRoutesByTo {
   '/labels': typeof LabelsRoute
@@ -423,7 +437,6 @@ export interface FileRoutesByTo {
   '/stock-in': typeof AppStockInRoute
   '/supplier': typeof AppSupplierRoute
   '/suppliers': typeof AppSuppliersRoute
-  '/target': typeof AppTargetRoute
   '/website': typeof AppWebsiteRoute
   '/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/website-blog': typeof AppWebsiteBlogRoute
@@ -449,7 +462,9 @@ export interface FileRoutesByTo {
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/': typeof AppIndexRoute
   '/products/$productId': typeof AppProductsProductIdRoute
+  '/target/cx': typeof AppTargetCxRoute
   '/products': typeof AppProductsIndexRoute
+  '/target': typeof AppTargetIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -481,7 +496,7 @@ export interface FileRoutesById {
   '/_app/stock-in': typeof AppStockInRoute
   '/_app/supplier': typeof AppSupplierRoute
   '/_app/suppliers': typeof AppSuppliersRoute
-  '/_app/target': typeof AppTargetRoute
+  '/_app/target': typeof AppTargetRouteWithChildren
   '/_app/website': typeof AppWebsiteRoute
   '/_app/website-analytics': typeof AppWebsiteAnalyticsRoute
   '/_app/website-blog': typeof AppWebsiteBlogRoute
@@ -507,7 +522,9 @@ export interface FileRoutesById {
   '/api/pathao-proxy': typeof ApiPathaoProxyRoute
   '/_app/': typeof AppIndexRoute
   '/_app/products/$productId': typeof AppProductsProductIdRoute
+  '/_app/target/cx': typeof AppTargetCxRoute
   '/_app/products/': typeof AppProductsIndexRoute
+  '/_app/target/': typeof AppTargetIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -565,7 +582,9 @@ export interface FileRouteTypes {
     | '/whatsapp'
     | '/api/pathao-proxy'
     | '/products/$productId'
+    | '/target/cx'
     | '/products/'
+    | '/target/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/labels'
@@ -594,7 +613,6 @@ export interface FileRouteTypes {
     | '/stock-in'
     | '/supplier'
     | '/suppliers'
-    | '/target'
     | '/website'
     | '/website-analytics'
     | '/website-blog'
@@ -620,7 +638,9 @@ export interface FileRouteTypes {
     | '/api/pathao-proxy'
     | '/'
     | '/products/$productId'
+    | '/target/cx'
     | '/products'
+    | '/target'
   id:
     | '__root__'
     | '/_app'
@@ -677,7 +697,9 @@ export interface FileRouteTypes {
     | '/api/pathao-proxy'
     | '/_app/'
     | '/_app/products/$productId'
+    | '/_app/target/cx'
     | '/_app/products/'
+    | '/_app/target/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1074,6 +1096,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsProductIdRouteImport
       parentRoute: typeof AppProductsRoute
     }
+    '/_app/target/': {
+      id: '/_app/target/'
+      path: '/'
+      fullPath: '/target/'
+      preLoaderRoute: typeof AppTargetIndexRouteImport
+      parentRoute: typeof AppTargetRoute
+    }
+    '/_app/target/cx': {
+      id: '/_app/target/cx'
+      path: '/cx'
+      fullPath: '/target/cx'
+      preLoaderRoute: typeof AppTargetCxRouteImport
+      parentRoute: typeof AppTargetRoute
+    }
   }
 }
 
@@ -1089,6 +1125,20 @@ const AppProductsRouteChildren: AppProductsRouteChildren = {
 
 const AppProductsRouteWithChildren = AppProductsRoute._addFileChildren(
   AppProductsRouteChildren,
+)
+
+interface AppTargetRouteChildren {
+  AppTargetCxRoute: typeof AppTargetCxRoute
+  AppTargetIndexRoute: typeof AppTargetIndexRoute
+}
+
+const AppTargetRouteChildren: AppTargetRouteChildren = {
+  AppTargetCxRoute: AppTargetCxRoute,
+  AppTargetIndexRoute: AppTargetIndexRoute,
+}
+
+const AppTargetRouteWithChildren = AppTargetRoute._addFileChildren(
+  AppTargetRouteChildren,
 )
 
 interface AppRouteChildren {
@@ -1117,7 +1167,7 @@ interface AppRouteChildren {
   AppStockInRoute: typeof AppStockInRoute
   AppSupplierRoute: typeof AppSupplierRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
-  AppTargetRoute: typeof AppTargetRoute
+  AppTargetRoute: typeof AppTargetRouteWithChildren
   AppWebsiteRoute: typeof AppWebsiteRoute
   AppWebsiteAnalyticsRoute: typeof AppWebsiteAnalyticsRoute
   AppWebsiteBlogRoute: typeof AppWebsiteBlogRoute
@@ -1169,7 +1219,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppStockInRoute: AppStockInRoute,
   AppSupplierRoute: AppSupplierRoute,
   AppSuppliersRoute: AppSuppliersRoute,
-  AppTargetRoute: AppTargetRoute,
+  AppTargetRoute: AppTargetRouteWithChildren,
   AppWebsiteRoute: AppWebsiteRoute,
   AppWebsiteAnalyticsRoute: AppWebsiteAnalyticsRoute,
   AppWebsiteBlogRoute: AppWebsiteBlogRoute,

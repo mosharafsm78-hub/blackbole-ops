@@ -118,7 +118,7 @@ function ChecklistPage() {
         <dl className="mt-2 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
           {ladder.now.map(([k, v]) => <div key={k} className="flex justify-between gap-3 border-b border-dashed py-1"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}
         </dl>
-        <p className="mt-2 text-xs text-muted-foreground">Every rung shows these numbers live against what it needs, and a gate step cannot be ticked until they pass. Tk 1 crore delivered is about 23 times today. That is why it is a ladder: each rung is reachable from the one before. Live numbers are on the <Link to="/target" className="underline">Target page</Link> and in Reports.</p>
+        <p className="mt-2 text-xs text-muted-foreground">Every rung shows these numbers live against what it needs, and a gate step cannot be ticked until they pass. Tk 1 crore delivered is about 23 times today. That is why it is a ladder: each rung is reachable from the one before. Live numbers are on the <Link to="/target/cx" className="underline">Target (CX) page</Link> and in Reports.</p>
       </div>
       {phases.map((ph) => {
         const rows = items.filter((i) => i.phase === ph)
