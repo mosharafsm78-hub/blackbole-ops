@@ -326,12 +326,32 @@ async function moveTo(ctx: any, id: Id<"orders">, current: OrderStatus, target: 
   return false
 }
 
-/** The delivery man Pathao assigned (name + phone), when the payload carries them. */
-function riderOf(d: any): { rider?: string; riderPhone?: string } {
+/** Every text value anywhere in a Pathao payload (tracking logs carry the rider and the failure reason as sentences). */
+function allText(x: any, out: string[] = [], depth = 0): string[] {
+  if (depth > 6 || x == null) return out
+  if (typeof x === "string") out.push(x)
+  else if (Array.isArray(x)) for (const i of x) allText(i, out, depth + 1)
+  else if (typeof x === "object") for (const k of Object.keys(x)) allText(x[k], out, depth + 1)
+  return out
+}
+/** The delivery man Pathao assigned (name + phone). Reads named fields first, then the tracking sentence
+ *  "Assigned to Zia Hossen (01778866835) for delivery." (the latest one wins). */
+export function riderOf(d: any): { rider?: string; riderPhone?: string } {
   const g = (keys: string[]) => { for (const k of keys) { const x = d?.[k] ?? d?.delivery_man?.[k.replace(/^delivery_(agent|man)_/, "")] ; if (x != null && typeof x !== "object" && String(x).trim()) return String(x).trim() } return undefined }
   const rider = g(["delivery_agent_name", "delivery_man_name", "rider_name"])
   const riderPhone = g(["delivery_agent_phone", "delivery_man_phone", "rider_phone"])
-  return rider && riderPhone ? { rider, riderPhone } : {}
+  if (rider && riderPhone) return { rider, riderPhone }
+  let found: { rider: string; riderPhone: string } | undefined
+  for (const t of allText(d)) {
+    for (const m of t.matchAll(/Assigned to\s+([^()\n]+?)\s*\(\s*(\+?[\d\s-]{10,16})\s*\)\s*for delivery/gi)) found = { rider: m[1].trim(), riderPhone: m[2].replace(/[\s-]/g, "") }
+  }
+  return found ?? {}
+}
+/** The latest "Reason: …" sentence from the tracking log (e.g. "Customer is not available at the delivery address"). */
+export function reasonOf(d: any): string | undefined {
+  let found: string | undefined
+  for (const t of allText(d)) for (const m of t.matchAll(/Reason:\s*([^\n<]{3,160})/gi)) found = m[1].trim().replace(/[.\s]+$/, "")
+  return found
 }
 
 export const syncAll = internalAction({
@@ -347,7 +367,8 @@ export const syncAll = internalAction({
         const d = res?.data?.data ?? res?.data ?? {}
         const ps = String(d.order_status_slug ?? d.order_status ?? "")
         if (!ps) { failed++; errors.push(`${r.invoice} (${r.consignmentId}): no status`); return }
-        const why = pick(d, ["failed_reason", "delivery_failed_reason", "reason", "return_reason", "hold_reason"])
+        const why = pick(d, ["failed_reason", "delivery_failed_reason", "reason", "return_reason", "hold_reason"]) ?? reasonOf(d)
+        if (/assigned_for_delivery|delivery_failed|on_hold|hold/.test(ps)) console.log("Pathao info keys", ps, Object.keys(d).slice(0, 40).join(","))
         await ctx.runMutation(internal.orders.setCourier, { id: r._id as Id<"orders">, courierStatus: ps, reason: why != null && typeof why !== "object" ? String(why) : undefined, ...riderOf(d) })
         const target = targetFor(ps)
         if (target && (await moveTo(ctx, r._id as Id<"orders">, r.status as OrderStatus, target, `Pathao: ${ps}`))) {
@@ -393,7 +414,7 @@ export const webhook = httpAction(async (ctx, req) => {
   if (consignment && status) {
     const o = await ctx.runQuery(internal.pathao.byConsignment, { consignmentId: consignment })
     if (o) {
-      const why = body.reason ?? body.failed_reason ?? body.delivery_failed_reason ?? body.return_reason
+      const why = body.reason ?? body.failed_reason ?? body.delivery_failed_reason ?? body.return_reason ?? reasonOf(body)
       await ctx.runMutation(internal.orders.setCourier, { id: o._id, courierStatus: status, reason: why != null && typeof why !== "object" ? String(why) : undefined, ...riderOf(body) })
       const target = targetFor(status)
       if (target) await moveTo(ctx, o._id, o.status as OrderStatus, target, `Pathao: ${status}`)

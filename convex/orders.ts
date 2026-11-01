@@ -1590,7 +1590,7 @@ export const setCourier = internalMutation({
     // Customer WhatsApp: a failed delivery attempt (with Pathao's reason) or the parcel going out for delivery.
     if (a.courierStatus !== undefined && a.courierStatus !== cur.courierStatus) {
       const s = a.courierStatus.toLowerCase().replace(/[\s.-]+/g, "_")
-      if (s.includes("delivery_failed")) {
+      if (s.includes("delivery_failed") || s === "on_hold" || s === "on-hold" || s === "hold") {
         if (a.reason) await logOrder(ctx, a.id, `Pathao: delivery attempt failed — ${a.reason}`, "Pathao")
         await ctx.scheduler.runAfter(0, internal.waNotify.send, { orderId: a.id, kind: "failed", reason: a.reason })
       } else if (s.includes("assigned_for_delivery")) {
