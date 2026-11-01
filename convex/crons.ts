@@ -18,6 +18,10 @@ crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.
 // win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every
 // winback.REPEAT1_DAYS until they order again (does nothing before its start date or while switched off)
 crons.interval("abandoned cart emails", { minutes: 10 }, internal.abandonedEmail.run, {})
+// Same idea, over WhatsApp — the official template-based channel (see convex/abandonedWa.ts), not the human-tap
+// queue below. Off until Settings → WhatsApp verify → "Send cart reminders" is switched on and the cart_reminder
+// template is approved.
+crons.interval("abandoned cart WhatsApp reminders", { minutes: 10 }, internal.abandonedWa.run, {})
 // WhatsApp rating survey: new deliveries after 2 days, and the one-off past-90-days blast (only runs after the owner clicks Start)
 crons.interval("survey: ask delivered customers", { minutes: 30 }, internal.survey.tick, {})
 crons.interval("whatsapp: auto-cancel unanswered cancel requests", { minutes: 30 }, internal.whatsappVerify.sweepCancelRequests, {})

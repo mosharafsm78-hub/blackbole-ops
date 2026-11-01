@@ -73,6 +73,7 @@ export function WhatsAppVerifySettings() {
             <Switch checked={!!f.lifecycle} onCheckedChange={(v) => set("lifecycle", v)} aria-label="Parcel updates on WhatsApp" />
           </div>
         </div>
+        <CartReminderCard f={f} set={set} />
         <SurveyCard />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Button size="sm" onClick={() => void doSave()}>Save</Button>
@@ -104,6 +105,33 @@ export function WhatsAppVerifySettings() {
           {data.recent.map((e) => <li key={e._id} className="flex justify-between gap-3"><span>{e.invoice || "—"} · {RESULT[e.result] ?? e.result}</span><span className="text-muted-foreground">{dateTime(e.at)}</span></li>)}
         </ul>
       </section>
+    </div>
+  )
+}
+
+/** Abandoned-cart WhatsApp reminder: same idea as the automatic email, but over WhatsApp (far higher open rate),
+ *  and fully automatic like the confirmation/parcel-update messages above — not the human-tap win-back queue. */
+function CartReminderCard({ f, set }: { f: any; set: (k: string, v: any) => void }) {
+  const preview = useQuery(api.abandonedWa.previewCount)
+  const createTemplate = useAction(api.abandonedWa.createTemplate)
+  const checkStatus = useAction(api.abandonedWa.templateStatus)
+  const [status, setStatus] = useState<{ status: string; detail?: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const STATUS_LABEL: Record<string, string> = { approved: "Approved ✅ — reminders will send once you switch this on and Save", pending: "Pending review at Meta", rejected: "Rejected", not_submitted: "Not submitted yet", unknown: "Unknown" }
+  return (
+    <div className="mt-3 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Send cart reminders on WhatsApp</p>
+          <p className="text-xs text-muted-foreground">A customer who leaves the COD form or website checkout without ordering gets an automatic WhatsApp message 45 minutes later (then every 2 days, up to a month) — no staff tap needed. Needs the approved Utility template <b>cart_reminder</b> below. {preview !== undefined && <span>{preview} cart{preview === 1 ? "" : "s"} would get one right now.</span>}</p>
+        </div>
+        <Switch checked={!!f.cartReminder} onCheckedChange={(v) => set("cartReminder", v)} aria-label="Cart reminders on WhatsApp" />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); try { const r = await createTemplate({}); r.ok ? toast.success(r.message) : toast.error(r.message) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) } }}>Submit template to Meta</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={async () => { setBusy(true); try { setStatus(await checkStatus({})) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) } }}>Check status</Button>
+        {status && <span className="text-xs text-muted-foreground">{STATUS_LABEL[status.status] ?? status.status}{status.detail ? ` — ${status.detail}` : ""}</span>}
+      </div>
     </div>
   )
 }

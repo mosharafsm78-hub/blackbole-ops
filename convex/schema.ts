@@ -710,6 +710,13 @@ export default defineSchema({
     emailSentAt: v.optional(v.number()),
     emailCount: v.optional(v.number()),
     emailError: v.optional(v.string()),
+    // Automatic "finish your order" WhatsApp template message — same idea as the email above, but over WhatsApp
+    // (far higher open rate in Bangladesh). Goes out through the same official WhatsApp Business Platform the
+    // order-confirmation message uses (a Meta-approved template, auto-sent — never the human-tap queue), so it
+    // needs no staff click and carries no automation-ban risk.
+    waReminderSentAt: v.optional(v.number()),
+    waReminderCount: v.optional(v.number()),
+    waReminderError: v.optional(v.string()),
   })
     .index("by_checkout", ["checkoutId"])
     .index("by_token", ["token"])

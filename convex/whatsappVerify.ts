@@ -19,7 +19,7 @@ import { applyStatus, insertOrder } from "./orders"
 import { canTransition } from "./rules"
 import { askList, ratingRows, saveRating } from "./survey"
 
-export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number }
+export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number; cartReminder?: boolean }
 export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "", autoSend: false, templateName: "order_confirmation", templateLang: "en" }
 type Secrets = { token?: string; verifyToken?: string; appSecret?: string }
 const conf = async (ctx: any): Promise<WaConf> => ({ ...DEFAULT_CONF, ...((await getSetting<WaConf>(ctx, "waVerify")) ?? {}) })
@@ -376,7 +376,7 @@ export const settings = query({
 })
 
 export const saveSettings = mutation({
-  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), autoSend: v.optional(v.boolean()), lifecycle: v.optional(v.boolean()), lifecycleSince: v.optional(v.number()), templateName: v.optional(v.string()), templateLang: v.optional(v.string()), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
+  args: { enabled: v.boolean(), mode: v.union(v.literal("test"), v.literal("live")), phoneNumberId: v.string(), businessNumber: v.string(), autoSend: v.optional(v.boolean()), lifecycle: v.optional(v.boolean()), lifecycleSince: v.optional(v.number()), cartReminder: v.optional(v.boolean()), templateName: v.optional(v.string()), templateLang: v.optional(v.string()), token: v.optional(v.string()), verifyToken: v.optional(v.string()), appSecret: v.optional(v.string()) },
   handler: async (ctx, { token, verifyToken, appSecret, ...a }) => {
     await requirePerm(ctx, "settings.manage")
     const businessNumber = a.businessNumber.replace(/\D/g, "")
