@@ -404,21 +404,24 @@ const GROUPS: { key: Group; title: string; note: string }[] = [
 
 const sum = (rows: ProductRow[], f: (r: ProductRow) => number) => rows.reduce((s, r) => s + f(r), 0)
 
+/** Emon's target: 1,200,000 ৳ a month should clear a 15% NET profit margin, not just break even. */
+const NET_MARGIN_TARGET = 0.15
+
 /** The margin rate (on order-total ৳1, same basis as orderCostRate/payFeeRate/adRate) that a sale needs to clear
- *  so the WHOLE month — ads, delivery, fees, and the fixed salary/rent/other costs too — actually breaks even at
- *  this target. Same ingredients as the Profit panel's break-even line, just solved the other way: instead of
- *  "what revenue clears fixed costs at today's margin", this is "what margin clears fixed costs at today's
- *  revenue". Null without profit access or a target. */
+ *  so the WHOLE month — ads, delivery, fees, the fixed salary/rent/other costs, AND a 15% net profit on top —
+ *  actually lands at this target. Same ingredients as the Profit panel's break-even line, just solved the other
+ *  way and for a profit floor instead of zero: instead of "what revenue clears fixed costs at today's margin",
+ *  this is "what margin leaves 15% net profit at today's revenue". Null without profit access or a target. */
 const requiredOrderRate = (profit: NonNullable<TargetProgress["profit"]> | null, target: number): number | null =>
-  profit && target > 0 ? profit.orderCostRate + profit.payFeeRate + profit.adRate + profit.fixed / target : null
+  profit && target > 0 ? profit.orderCostRate + profit.payFeeRate + profit.adRate + profit.fixed / target + NET_MARGIN_TARGET : null
 
 /** The listed price this one product would need to sell at, given its own real purchase cost, for the month
- *  overall to break even. The delivery fee is the customer's own separate charge — it's never folded into this
- *  price, only the product's own cost and its share of ads/fixed costs are. requiredOrderRate is on an
- *  order-total basis (it includes the delivery fee credit baked into grossRate elsewhere), so it's converted
- *  back to a plain item-price margin via `ratio` before being applied to cost — the same conversion grossRate
- *  itself uses, just inverted. Null without a cost on file, or when there's under 5% of price left for the
- *  product itself (ads + fixed costs alone already eat the month). */
+ *  overall to clear a 15% net profit. The delivery fee is the customer's own separate charge — it's never folded
+ *  into this price, only the product's own cost and its share of ads/fixed costs/profit are. requiredOrderRate is
+ *  on an order-total basis (it includes the delivery fee credit baked into grossRate elsewhere), so it's
+ *  converted back to a plain item-price margin via `ratio` before being applied to cost — the same conversion
+ *  grossRate itself uses, just inverted. Null without a cost on file, or when there's under 5% of price left for
+ *  the product itself (ads + fixed costs + the profit target alone already eat the month). */
 const suggestedPrice = (cost: number | null, reqOrderRate: number | null, ratio: number): number | null => {
   if (cost === null || cost <= 0 || reqOrderRate === null) return null
   const reqItemMargin = reqOrderRate * ratio - ratio + 1
@@ -440,7 +443,7 @@ function ProductPlan({ data, target }: { data: TargetProgress; target: number })
       <h2 className="text-sm font-semibold">What to sell — pairs per product</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">Split by what sold best in the last {data.productInfo?.windowDays} days, capped by stock. Re-planned every week.</p>
       {reqOrderRate !== null && (
-        <p className="mt-0.5 text-xs text-muted-foreground"><b className="text-foreground">Suggested price</b>: the listed price, not counting delivery fee (that's the customer's own charge), each product would need so this whole month — ads, delivery, fees and the fixed costs too — actually breaks even, using its real purchase cost.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground"><b className="text-foreground">Suggested price</b>: the listed price, not counting delivery fee (that's the customer's own charge), each product would need so this whole month — ads, delivery, fees, the fixed costs, and a {Math.round(NET_MARGIN_TARGET * 100)}% net profit on top — actually clears, using its real purchase cost.</p>
       )}
       {gap > 0 && (
         <div className="mt-2 flex items-start gap-2 rounded-lg border border-tone-red/30 bg-tone-red-bg/40 p-2.5 text-xs" data-testid="target-stock-gap">
@@ -530,14 +533,14 @@ function Table({ rows, reqOrderRate, ratio }: { rows: ProductRow[]; reqOrderRate
   )
 }
 
-/** Current listed price vs. the price this product needs for the month to actually break even, given its own
+/** Current listed price vs. the price this product needs for the month to clear a 15% net profit, given its own
  *  real cost — the delivery fee is never part of either number, it's the customer's own separate charge. Green
  *  ✓ when today's price already clears the bar; otherwise the shortfall, so it's obvious at a glance which
- *  products are priced too thin to carry their share of ads and fixed costs. */
+ *  products are priced too thin to carry their share of ads, fixed costs, and the profit target. */
 function SuggestedPriceCell({ listedPrice, cost, reqOrderRate, ratio }: { listedPrice: number; cost: number | null; reqOrderRate: number; ratio: number }) {
   const suggested = suggestedPrice(cost, reqOrderRate, ratio)
   if (suggested === null) {
-    return <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground" title={cost === null ? "No purchase cost on file yet" : "Ads + fixed costs alone already use up the price"}>—</td>
+    return <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground" title={cost === null ? "No purchase cost on file yet" : "Ads + fixed costs + the profit target alone already use up the price"}>—</td>
   }
   const short = suggested - listedPrice // positive = priced too low to carry its share
   const ok = short <= 0
