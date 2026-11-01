@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import schema from "../../convex/schema"
-import { api } from "../../convex/_generated/api"
+import { api, internal } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
 import { daysInMonth, dhakaDay, dhakaMonth, monthEndMs, monthStartMs, planMonth, sumDeliveredByDay } from "../../convex/targetMath"
 
@@ -438,5 +438,20 @@ describe("Marketing's manual overrides on the product plan", () => {
     await addProduct("Model A", { "41": 10 }, "BB-A")
     const options = await asAdmin.action(api.targets.marketingProductOptions, {})
     expect(options.find((o) => o.key === "BB-A")).toMatchObject({ name: "Model A", stockUnits: 10 })
+  })
+})
+
+describe("Marketing OS feed follows Marketing's Target page", () => {
+  it("gives the gross-sale target and Marketing's own product plan (with a manual override) to the AI Brain", async () => {
+    const { t, asAdmin, addProduct, place } = await setupWithProducts()
+    await addProduct("Model A", { "41": 50 }, "BB-A")
+    await addProduct("Model B", { "41": 50 }, "BB-B")
+    await place("BB-A-41", 10, NOW - 86400000)
+    await place("BB-B-41", 10, NOW - 86400000)
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-B", name: "Model B", excluded: true })
+    const g = await t.action(internal.targets.marketingForFeed, {})
+    expect(g.target).toBe(1800000)
+    expect(g.products!.map((r) => r.key)).toContain("BB-A")
+    expect(g.products!.map((r) => r.key)).not.toContain("BB-B")
   })
 })

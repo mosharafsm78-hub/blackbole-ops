@@ -1,6 +1,7 @@
 // Read-only data feed for BlackBole Marketing OS (a separate app).
 // It needs MARKETING_FEED_KEY set in this deployment's environment variables; without it the feed is off.
 // Nothing here changes any data.
+import type { MarketingProgress } from "./targets"
 import { httpAction, internalQuery } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { v } from "convex/values"
@@ -151,18 +152,52 @@ export const target = httpAction(async (ctx, req) => {
   // Per-order costs and ONE combined monthly fixed-cost total (never salary / rent / other one by one):
   // Marketing OS uses them in each product's profit sum.
   const { costs: c, fixedMonthly } = await ctx.runQuery(internal.targets.costsForFeed, {})
-  return json({
-    costs: { packaging: c.packaging ?? 0, payFeePct: c.payFeePct ?? 0, delivery: c.delivery ?? 0, returnPct: c.returnPct ?? 0, fixedMonthly },
-    month: p.month, asOf: p.asOf, auto: p.auto,
+  // Marketing's own Target page (gross sale: every order counted once placed) is what the AI Brain plans ads from.
+  // The Cx/delivered numbers stay under `cx`; when the Marketing page can't be built, the feed falls back to them.
+  let g: MarketingProgress | null = null
+  try { g = await ctx.runAction(internal.targets.marketingForFeed, {}) } catch { g = null }
+  const cx = {
     target: p.target?.amount ?? null,
     delivered: p.plan?.delivered ?? null, remaining: p.plan?.remaining ?? null, daysLeft: p.plan?.daysLeft ?? null,
     today: p.plan?.focus ? { day: p.plan.focus.day, target: p.plan.focus.target, delivered: p.plan.focus.delivered, toGo: p.plan.focus.toGo } : null,
     perDayFromTomorrow: p.plan?.perDayFromTomorrow ?? null,
     marketing: p.marketing ? { state: p.marketing.state, mer: mk?.mer ?? null, budget: mk?.budget ?? null, spentMtd: mk?.spentMtd ?? null, status: mk?.status ?? null } : null,
     daily: p.daily ? { adBudget: p.daily.adBudget, adMax: p.daily.adMax, spentToday: p.daily.spentToday, adLeft: p.daily.adLeft, ordersToBook: p.daily.ordersToBook, returnRate: p.daily.returnRate, adsCantPay: p.daily.adsCantPay } : null,
-    products: (p.products ?? []).map((r) => ({
-      key: r.key, name: r.name, group: r.group, price: Math.round(r.price), todayTarget: r.todayTarget, todaySold: r.todaySold, toGo: r.toGo,
-      perDayAfterToday: r.perDayAfterToday, stockUnits: r.stockUnits, sizes: r.sizes, overstock: r.overstock, left: r.left,
-    })),
+    products: (p.products ?? []).map(productRow),
+  }
+  const gm = g?.marketing?.state === "ok" ? g.marketing.plan : null
+  const gf = g?.plan.focus && !g.plan.focus.upcoming ? g.plan.focus : null
+  const gDaily = gm && gm.neededForRest !== null && g!.plan.daysLeft > 0 ? Math.ceil(gm.neededForRest / g!.plan.daysLeft) : null
+  const gross = g && g.products ? {
+    target: g.target, delivered: g.plan.delivered, remaining: g.plan.remaining, daysLeft: g.plan.daysLeft,
+    today: gf ? { day: gf.day, target: gf.target, delivered: gf.delivered, toGo: gf.toGo } : null,
+    perDayFromTomorrow: g.plan.perDayFromTomorrow,
+    marketing: g.marketing ? { state: g.marketing.state, mer: gm?.mer ?? null, budget: gm?.budget ?? null, spentMtd: gm?.spentMtd ?? null, status: gm?.status ?? null } : null,
+    daily: (() => {
+      const spentToday = g!.spentToday ?? cx.daily?.spentToday ?? 0
+      const adBudget = gDaily ?? cx.daily?.adBudget ?? null
+      if (adBudget === null) return cx.daily
+      // Owner, 1 Nov 2026: whatever marketing needs to reach the gross target is funded – the day's maximum is the
+      // Target page's daily ad budget (or the Cx "most that pays" figure if that is higher).
+      const adMax = Math.max(adBudget, cx.daily?.adMax ?? 0)
+      const aov = g!.aov ?? 0
+      return { adBudget, adMax, spentToday, adLeft: adBudget - spentToday, ordersToBook: gf && aov > 0 ? Math.ceil(gf.toGo / aov) : cx.daily?.ordersToBook ?? 0, returnRate: cx.daily?.returnRate ?? 0, adsCantPay: false }
+    })(),
+    products: g.products.map(productRow),
+  } : null
+  const main = gross ?? cx
+  return json({
+    basis: gross ? "gross" : "delivered",
+    costs: { packaging: c.packaging ?? 0, payFeePct: c.payFeePct ?? 0, delivery: c.delivery ?? 0, returnPct: c.returnPct ?? 0, fixedMonthly },
+    month: p.month, asOf: p.asOf, auto: p.auto,
+    ...main,
+    cx: gross ? cx : undefined,
   })
 })
+
+const productRow = (r: any) => ({
+  key: r.key, name: r.name, group: r.group, price: Math.round(r.price), todayTarget: r.todayTarget, todaySold: r.todaySold, toGo: r.toGo,
+  perDayAfterToday: r.perDayAfterToday, stockUnits: r.stockUnits, sizes: r.sizes, overstock: r.overstock, left: r.left,
+})
+
+

@@ -951,6 +951,9 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
 
 export type MarketingProgress = {
   asOf: number
+  /** Meta ad spend so far today, and the average order value of placed orders (for the Marketing OS feed). */
+  spentToday?: number
+  aov?: number
   /** This calendar month, "2026-11" style. */
   month: string
   target: number
@@ -989,12 +992,24 @@ export const marketingProgress = action({
   args: {},
   handler: async (ctx): Promise<MarketingProgress> => {
     await ctx.runQuery(internal.targets.access, {})
+    return computeMarketing(ctx, false)
+  },
+})
+
+/** The same Marketing (gross-sale) numbers for BlackBole Marketing OS – its AI Brain plans ads from this page. */
+export const marketingForFeed = internalAction({
+  args: {},
+  handler: async (ctx): Promise<MarketingProgress> => computeMarketing(ctx, true),
+})
+
+async function computeMarketing(ctx: ActionCtx, system: boolean): Promise<MarketingProgress> {
+  {
     const now = Date.now()
     const today = dhakaDay(now)
     const month = dhakaMonth(now)
 
     const key = `marketing-data:${month}`
-    const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
+    const hit = await ctx.runQuery(system ? internal.dashboard.readCacheSystem : internal.dashboard.readCache, { key })
     let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
     let dirty = false
     if (!data) { data = await gatherGross(ctx, now); dirty = true }
@@ -1003,7 +1018,7 @@ export const marketingProgress = action({
     // efficiency this measures is Marketing's own, not the Cx/delivered one on the other page. ----
     let conf: any = null
     let adsAllowed = true
-    try { conf = await ctx.runQuery(internal.ads.cfg, {}) } catch { adsAllowed = false }
+    try { conf = await ctx.runQuery(system ? internal.ads.cfgForFeed : internal.ads.cfg, {}) } catch { adsAllowed = false }
     const adsConfigured = adsAllowed && !!conf?.token && (conf.accounts?.length ?? 0) > 0
     let spendFailed = false
     if (adsConfigured && (!data.spend || now - data.spend.at > SPEND_MS)) {
@@ -1045,9 +1060,9 @@ export const marketingProgress = action({
       }
     }
 
-    return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount, marketing }
-  },
-})
+    return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount, marketing, spentToday: Math.round(data.spend?.byDay[today] ?? 0), aov: data.aov }
+  }
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // KPI: the Marketing lead earns points for hitting the target — automatically, off the same delivered revenue
