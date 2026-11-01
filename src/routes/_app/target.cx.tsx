@@ -3,20 +3,21 @@ import { Loading, PageHeader } from "@/components/bits"
 import { TargetPlanView, useTargetProgress } from "@/components/revenue-target-card"
 
 // Customer Care / delivery's own page — the delivered-revenue target (counted only once an order is marked
-// Delivered), daily pacing toward it, profit, and the marketing budget it needs. The separate /target page is
-// Marketing's: the gross-sale target, counted from the moment an order is placed. Both pull from the same
-// orders and stock; they differ only in which orders count and when.
+// Delivered), what Marketing is booking (so CX can see what's coming), daily pacing, profit, and which products
+// are still owed. Deliberately none of Marketing's own job — what to sell, ad budget, restock, stock levels,
+// suggested pricing; that's purchasing/Marketing's concern, on its own /target page. CX's job is delivering what
+// Marketing has already brought in, not deciding what gets sold or bought.
 export const Route = createFileRoute("/_app/target/cx")({
   component: () => <CxTargetPage />,
 })
 
 function CxTargetPage() {
-  const [data, refetch] = useTargetProgress()
+  const [data] = useTargetProgress()
   return (
     <div className="space-y-4">
-      <PageHeader title="Target (CX)" sub="This month's delivered-revenue target — profit, ad budget, and what to deliver to reach it" />
+      <PageHeader title="Target (CX)" sub="This month's delivered-revenue target, and how it tracks against what Marketing is booking" />
       <p className="text-xs text-muted-foreground">Looking for the gross-sale target instead? That's Marketing's own page — <Link to="/target" className="font-medium text-tone-blue hover:underline">Target →</Link></p>
-      {!data ? <Loading /> : <TargetPlanView data={data} refetch={refetch} />}
+      {!data ? <Loading /> : <TargetPlanView data={data} />}
     </div>
   )
 }

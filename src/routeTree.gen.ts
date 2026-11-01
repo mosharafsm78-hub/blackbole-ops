@@ -16,7 +16,6 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAbandonedRouteImport } from './routes/_app/abandoned'
 import { Route as AppAccountabilityRouteImport } from './routes/_app/accountability'
 import { Route as AppActionCenterRouteImport } from './routes/_app/action-center'
-import { Route as AppChecklistRouteImport } from './routes/_app/checklist'
 import { Route as AppCourierPaymentsRouteImport } from './routes/_app/courier-payments'
 import { Route as AppCustomerRouteImport } from './routes/_app/customer'
 import { Route as AppCustomersRouteImport } from './routes/_app/customers'
@@ -99,11 +98,6 @@ const AppAccountabilityRoute = AppAccountabilityRouteImport.update({
 const AppActionCenterRoute = AppActionCenterRouteImport.update({
   id: '/action-center',
   path: '/action-center',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppChecklistRoute = AppChecklistRouteImport.update({
-  id: '/checklist',
-  path: '/checklist',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCourierPaymentsRoute = AppCourierPaymentsRouteImport.update({
@@ -359,7 +353,6 @@ export interface FileRoutesByFullPath {
   '/abandoned': typeof AppAbandonedRoute
   '/accountability': typeof AppAccountabilityRoute
   '/action-center': typeof AppActionCenterRoute
-  '/checklist': typeof AppChecklistRoute
   '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
@@ -416,7 +409,6 @@ export interface FileRoutesByTo {
   '/abandoned': typeof AppAbandonedRoute
   '/accountability': typeof AppAccountabilityRoute
   '/action-center': typeof AppActionCenterRoute
-  '/checklist': typeof AppChecklistRoute
   '/courier-payments': typeof AppCourierPaymentsRoute
   '/customer': typeof AppCustomerRoute
   '/customers': typeof AppCustomersRoute
@@ -474,7 +466,6 @@ export interface FileRoutesById {
   '/_app/abandoned': typeof AppAbandonedRoute
   '/_app/accountability': typeof AppAccountabilityRoute
   '/_app/action-center': typeof AppActionCenterRoute
-  '/_app/checklist': typeof AppChecklistRoute
   '/_app/courier-payments': typeof AppCourierPaymentsRoute
   '/_app/customer': typeof AppCustomerRoute
   '/_app/customers': typeof AppCustomersRoute
@@ -535,7 +526,6 @@ export interface FileRouteTypes {
     | '/abandoned'
     | '/accountability'
     | '/action-center'
-    | '/checklist'
     | '/courier-payments'
     | '/customer'
     | '/customers'
@@ -592,7 +582,6 @@ export interface FileRouteTypes {
     | '/abandoned'
     | '/accountability'
     | '/action-center'
-    | '/checklist'
     | '/courier-payments'
     | '/customer'
     | '/customers'
@@ -649,7 +638,6 @@ export interface FileRouteTypes {
     | '/_app/abandoned'
     | '/_app/accountability'
     | '/_app/action-center'
-    | '/_app/checklist'
     | '/_app/courier-payments'
     | '/_app/customer'
     | '/_app/customers'
@@ -758,13 +746,6 @@ declare module '@tanstack/react-router' {
       path: '/action-center'
       fullPath: '/action-center'
       preLoaderRoute: typeof AppActionCenterRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/checklist': {
-      id: '/_app/checklist'
-      path: '/checklist'
-      fullPath: '/checklist'
-      preLoaderRoute: typeof AppChecklistRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/courier-payments': {
@@ -1145,7 +1126,6 @@ interface AppRouteChildren {
   AppAbandonedRoute: typeof AppAbandonedRoute
   AppAccountabilityRoute: typeof AppAccountabilityRoute
   AppActionCenterRoute: typeof AppActionCenterRoute
-  AppChecklistRoute: typeof AppChecklistRoute
   AppCourierPaymentsRoute: typeof AppCourierPaymentsRoute
   AppCustomerRoute: typeof AppCustomerRoute
   AppCustomersRoute: typeof AppCustomersRoute
@@ -1197,7 +1177,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppAbandonedRoute: AppAbandonedRoute,
   AppAccountabilityRoute: AppAccountabilityRoute,
   AppActionCenterRoute: AppActionCenterRoute,
-  AppChecklistRoute: AppChecklistRoute,
   AppCourierPaymentsRoute: AppCourierPaymentsRoute,
   AppCustomerRoute: AppCustomerRoute,
   AppCustomersRoute: AppCustomersRoute,

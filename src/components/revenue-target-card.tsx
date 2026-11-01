@@ -1,12 +1,11 @@
 import { Link } from "@tanstack/react-router"
-import { AlertTriangle, Check, Flag, X } from "lucide-react"
+import { Check, Flag, X } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { addDays, type MonthPlan } from "@/convex/targetMath"
 import { familyOf, GROUP_SHARE, type Group, type ProductRow } from "@/convex/targetPlan"
 import type { MarketingView, TargetProgress } from "@/convex/targets"
 import { useCan } from "@/components/app-shell"
 import { Pill } from "@/components/bits"
-import { RestockSuggestions } from "@/components/restock-suggestions"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -60,8 +59,11 @@ export function RevenueTargetCard() {
   )
 }
 
-/** The Target page: daily and monthly target on top, then profit, marketing budget, the product plan and the day log. */
-export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetch: () => void }) {
+/** Customer Care's own Target page: daily and monthly delivered-revenue target, what Marketing is booking (so CX
+ *  knows what's coming), profit, the day-by-day log, and which products still need delivering. Deliberately
+ *  carries none of Marketing's own job — what to sell, ad budget, restock, stock levels, suggested pricing. Those
+ *  live on Marketing's own /target page; copying them here would blur who is actually responsible for what. */
+export function TargetPlanView({ data }: { data: TargetProgress }) {
   const p = data.plan!
   const t = p.focus
   const beaten = p.remaining === 0
@@ -103,16 +105,43 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
       </div>
 
       {data.gross && <GrossSaleStrip gross={data.gross} />}
-      <StockNotes stockCheck={data.stockCheck} tests={data.tests} />
-      <RestockSuggestions restock={data.restock} restockDismissedCount={data.restockDismissedCount} refetch={refetch} />
-      <DailyMarketing data={data} />
-      <SellList products={data.products} day={p.focus ? dayLabel(p.focus.day) : ""} budget={data.daily?.adBudget ?? 0} />
-      <Models products={data.products} />
-      {data.marketing && <MarketingStrip m={data.marketing} />}
       {data.profit && <ProfitStrip p={data.profit} target={p.target} />}
       <Schedule p={p} />
-      <ProductPlan data={data} target={p.target} />
+      <DeliveredByProduct products={data.products} />
     </div>
+  )
+}
+
+/** What's been delivered so far this month, by product, against what Marketing's bookings call for — and what's
+ *  still owed. No "what to sell", no stock levels, no pricing: delivering what's already been ordered is the
+ *  whole job here, not deciding what gets pushed or restocked (that's Marketing's plan, on its own page). */
+function DeliveredByProduct({ products }: { products: ProductRow[] | null }) {
+  const rows = products
+  if (!rows || rows.length === 0) return null
+  const list = [...rows].filter((r) => r.monthUnits > 0 || r.sold > 0).sort((a, b) => b.left - a.left)
+  if (list.length === 0) return null
+  return (
+    <section className="rounded-xl border bg-card p-4" data-testid="target-delivered-by-product">
+      <h2 className="text-sm font-semibold">Delivered so far, by product</h2>
+      <p className="mt-0.5 text-xs text-muted-foreground">What Marketing's bookings call for this month, what's been delivered, and what's still owed.</p>
+      <div className="mt-2 overflow-x-auto rounded-lg border">
+        <table className="w-full min-w-[420px] text-sm">
+          <thead className="bg-muted/50 text-xs text-muted-foreground">
+            <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Delivered</th><th className="px-3 py-1.5 text-right font-medium">Called for</th><th className="px-3 py-1.5 text-right font-medium">Still owed</th></tr>
+          </thead>
+          <tbody>
+            {list.map((r) => (
+              <tr key={r.key} className="border-t">
+                <td className="px-3 py-1.5 font-medium">{r.name}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums">{r.sold}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{r.monthUnits}</td>
+                <td className={cn("px-3 py-1.5 text-right tabular-nums", r.left === 0 ? "text-tone-green" : "font-semibold")}>{r.left === 0 ? "✓" : r.left}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -182,94 +211,6 @@ export function SellList({ products, day, budget }: { products: ProductRow[] | n
         </table>
       </div>
       <ul className="mt-2 space-y-0.5 text-xs text-muted-foreground">{line("other", "Others")}{line("dead", "Dead stock")}</ul>
-    </section>
-  )
-}
-
-/** Real stock vs fake stock: a nudge to count what is not yet counted, and the products being tested without stock. */
-export function StockNotes({ stockCheck, tests }: { stockCheck: TargetProgress["stockCheck"]; tests: TargetProgress["tests"] }) {
-  const can = useCan()
-  const c = stockCheck
-  const left = c ? c.lines - c.counted : 0
-  if (left <= 0 && tests.length === 0) return null
-  return (
-    <div className="space-y-3" data-testid="target-stock-notes">
-      {c && left > 0 && (
-        <div className="flex items-start gap-2 rounded-lg border border-tone-amber/40 bg-tone-amber-bg/40 p-3 text-xs">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-amber" />
-          <span>
-            <b>{left} of {c.lines} stock lines haven't been counted yet.</b> Until they are, some fake stock may still be inside this plan as if it were in hand.{" "}
-            {can("inventory.adjust") && <Link to="/stock-check" className="font-medium text-tone-blue hover:underline">Count them in Stock check →</Link>}
-          </span>
-        </div>
-      )}
-      {tests.length > 0 && (
-        <section className="rounded-xl border bg-card p-4" data-testid="target-tests">
-          <h2 className="text-sm font-semibold">Marketing tests — stock not in hand</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">Fake pairs are advertised and can be ordered, but aren't planned: there are no real pairs to deliver. A product that gets {5}+ orders in a week has proven demand — buy it from the supplier in Purchases, and it joins the plan by itself once received.</p>
-          <div className="mt-2 overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[480px] text-sm">
-              <thead className="bg-muted/50 text-xs text-muted-foreground">
-                <tr><th className="px-3 py-1.5 text-left font-medium">Product</th><th className="px-3 py-1.5 text-right font-medium">Fake pairs</th><th className="px-3 py-1.5 text-right font-medium">In hand</th><th className="px-3 py-1.5 text-right font-medium">Ordered (7 days)</th><th className="px-3 py-1.5 text-right font-medium">Decision</th></tr>
-              </thead>
-              <tbody>
-                {tests.slice(0, 20).map((t) => (
-                  <tr key={t.key} className="border-t">
-                    <td className="px-3 py-1.5 font-medium">{t.name}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums text-tone-amber">{t.fake}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{t.real}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{t.ordered7}</td>
-                    <td className="px-3 py-1.5 text-right">{t.proven ? <span className="font-semibold text-tone-green">{t.buy > 0 ? `Buy ${t.buy} pairs` : "Enough in hand"}</span> : <span className="text-muted-foreground">Keep testing</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-    </div>
-  )
-}
-
-/** Today's marketing, as three plain instructions: how many orders to book, how much to spend, what to push. */
-function DailyMarketing({ data }: { data: TargetProgress }) {
-  const d = data.daily
-  if (!d) return null
-  const m = data.measured
-  const over = d.adLeft < 0
-  const ret = Math.round(d.returnRate * 100)
-  const push = (data.products ?? []).filter((r) => r.group === "focus" && (r.todayTarget ?? 0) > 0).sort((a, b) => (b.todayTarget ?? 0) - (a.todayTarget ?? 0)).slice(0, 3)
-  return (
-    <section className={cn("rounded-xl border bg-card p-4", d.adsCantPay && "border-tone-amber/40")} data-testid="target-daily-marketing">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold">Marketing — what to do today</h2>
-        <Pill tone={over ? "red" : "green"}>{over ? `${taka(-d.adLeft)} over today's budget` : `${taka(d.spentToday)} spent · ${taka(d.adLeft)} left`}</Pill>
-      </div>
-      <ol className="mt-3 space-y-3 text-sm">
-        <li className="flex gap-3">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">1</span>
-          <div>
-            <div>Bring in <b className="text-lg tabular-nums">{d.ordersToBook}</b> orders today</div>
-            <div className="text-xs text-muted-foreground">Only delivered orders count toward the target, and about {ret}% of orders come back. So {d.ordersToDeliver} must be delivered, and booking {d.ordersToBook} gets you there.</div>
-          </div>
-        </li>
-        <li className="flex gap-3">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">2</span>
-          <div>
-            <div>Spend about <b className="text-lg tabular-nums">{taka(d.adBudget)}</b> on ads — never more than <b className="tabular-nums">{taka(d.adMax)}</b></div>
-            <div className="text-xs text-muted-foreground">Above {taka(d.adMax)} every extra order loses money, after shoe cost, courier, packaging, fees and returns.</div>
-          </div>
-        </li>
-        <li className="flex gap-3">
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-tone-blue/15 text-xs font-bold text-tone-blue">3</span>
-          <div>
-            <div>Push these products first</div>
-            <div className="text-xs text-muted-foreground">{push.length > 0 ? push.map((r) => `${r.name} (${r.todayTarget} pairs)`).join(" · ") : "See the list below."} Full list with the ad budget for each product is just below.</div>
-          </div>
-        </li>
-      </ol>
-      {d.adsCantPay && <p className="mt-3 flex items-start gap-1.5 text-xs text-tone-amber"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" />Ads currently return too little to pay for this target in full, so the budget is held at the safe limit. Improve the ads or the product mix before spending more.</p>}
-      {m && <p className="mt-2 text-xs text-muted-foreground">Return rate, courier cost and payment fee are measured from your last {m.sample} orders ({m.returnPct}% returned).</p>}
     </section>
   )
 }
@@ -430,152 +371,3 @@ export const GROUPS: { key: Group; title: string; note: string }[] = [
 
 export const sum = (rows: ProductRow[], f: (r: ProductRow) => number) => rows.reduce((s, r) => s + f(r), 0)
 
-/** Emon's target: 1,200,000 ৳ a month should clear a 15% NET profit margin, not just break even. */
-const NET_MARGIN_TARGET = 0.15
-
-/** The margin rate (on order-total ৳1, same basis as orderCostRate/payFeeRate/adRate) that a sale needs to clear
- *  so the WHOLE month — ads, delivery, fees, the fixed salary/rent/other costs, AND a 15% net profit on top —
- *  actually lands at this target. Same ingredients as the Profit panel's break-even line, just solved the other
- *  way and for a profit floor instead of zero: instead of "what revenue clears fixed costs at today's margin",
- *  this is "what margin leaves 15% net profit at today's revenue". Null without profit access or a target. */
-const requiredOrderRate = (profit: NonNullable<TargetProgress["profit"]> | null, target: number): number | null =>
-  profit && target > 0 ? profit.orderCostRate + profit.payFeeRate + profit.adRate + profit.fixed / target + NET_MARGIN_TARGET : null
-
-/** The listed price this one product would need to sell at, given its own real purchase cost, for the month
- *  overall to clear a 15% net profit. The delivery fee is the customer's own separate charge — it's never folded
- *  into this price, only the product's own cost and its share of ads/fixed costs/profit are. requiredOrderRate is
- *  on an order-total basis (it includes the delivery fee credit baked into grossRate elsewhere), so it's
- *  converted back to a plain item-price margin via `ratio` before being applied to cost — the same conversion
- *  grossRate itself uses, just inverted. Null without a cost on file, or when there's under 5% of price left for
- *  the product itself (ads + fixed costs + the profit target alone already eat the month). */
-const suggestedPrice = (cost: number | null, reqOrderRate: number | null, ratio: number): number | null => {
-  if (cost === null || cost <= 0 || reqOrderRate === null) return null
-  const reqItemMargin = reqOrderRate * ratio - ratio + 1
-  const room = 1 - reqItemMargin
-  return room >= 0.05 ? cost / room : null
-}
-
-/** Every product's share of the month in pairs, in three groups: the daily pressure sits on the focus products. */
-function ProductPlan({ data, target }: { data: TargetProgress; target: number }) {
-  const rows = data.products
-  if (!rows) return null
-  const reqOrderRate = requiredOrderRate(data.profit, target)
-  const ratio = data.profit?.ratio ?? 1
-  if (rows.length === 0) return <p className="text-xs text-muted-foreground">No product sales or stock to base a product plan on yet.</p>
-  const gap = data.productInfo?.gap ?? 0
-  const short = data.productInfo?.unitsShort ?? 0
-  return (
-    <section className="rounded-xl border bg-card p-4" data-testid="target-products">
-      <h2 className="text-sm font-semibold">What to sell — pairs per product</h2>
-      <p className="mt-0.5 text-xs text-muted-foreground">Split by what sold best in the last {data.productInfo?.windowDays} days, capped by stock. Re-planned every week.</p>
-      {reqOrderRate !== null && (
-        <p className="mt-0.5 text-xs text-muted-foreground"><b className="text-foreground">Suggested price</b>: the listed price, not counting delivery fee (that's the customer's own charge), each product would need so this whole month — ads, delivery, fees, the fixed costs, and a {Math.round(NET_MARGIN_TARGET * 100)}% net profit on top — actually clears, using its real purchase cost.</p>
-      )}
-      {gap > 0 && (
-        <div className="mt-2 flex items-start gap-2 rounded-lg border border-tone-red/30 bg-tone-red-bg/40 p-2.5 text-xs" data-testid="target-stock-gap">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-tone-red" />
-          <span><b>Stock can't carry this target.</b> About {taka(gap)} of it has no stock behind it — restock the best sellers or lower the target.</span>
-        </div>
-      )}
-      {gap === 0 && short > 0 && (
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-tone-amber"><AlertTriangle className="size-3.5" />{short} pair{short === 1 ? "" : "s"} of the plan are more than current stock — restock soon.</p>
-      )}
-      <div className="mt-3 space-y-3">
-        {GROUPS.map((g) => {
-          const list = rows.filter((r) => r.group === g.key)
-          if (list.length === 0) return null
-          const todayT = list.every((r) => r.todayTarget === null) ? null : sum(list, (r) => r.todayTarget ?? 0)
-          const head = (
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-              <div>
-                <div className="text-sm font-semibold">{g.title} <span className="font-normal text-muted-foreground">· {list.length} · ~{Math.round(GROUP_SHARE[g.key] * 100)}% of the target</span></div>
-                <div className="text-xs text-muted-foreground">{g.note}</div>
-              </div>
-              <div className="text-xs tabular-nums text-muted-foreground">
-                {sum(list, (r) => r.monthUnits)} pairs · {sum(list, (r) => r.sold)} sold{todayT !== null && <> · today <b className="text-foreground">{sum(list, (r) => r.todaySold)}/{todayT}</b></>}
-              </div>
-            </div>
-          )
-          return g.key === "focus" ? (
-            <div key={g.key}>{head}<Table rows={list} reqOrderRate={reqOrderRate} ratio={ratio} /></div>
-          ) : (
-            <details key={g.key} className="rounded-lg border p-3">
-              <summary className="cursor-pointer select-none list-none">{head}</summary>
-              <Table rows={list} reqOrderRate={reqOrderRate} ratio={ratio} />
-            </details>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-/** reqOrderRate === null drops the "Suggested price" column entirely — used by the Marketing page's plan, which
- *  has no profit/pricing math of its own. */
-export function Table({ rows, reqOrderRate, ratio }: { rows: ProductRow[]; reqOrderRate: number | null; ratio: number }) {
-  return (
-    <div className="mt-2 overflow-x-auto rounded-lg border">
-      <table className="w-full min-w-[620px] text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
-          <tr>
-            <th className="px-3 py-1.5 text-left font-medium">Product</th>
-            <th className="px-3 py-1.5 text-right font-medium">Month plan</th>
-            <th className="px-3 py-1.5 text-right font-medium">Sold</th>
-            <th className="px-3 py-1.5 text-right font-medium">Today</th>
-            <th className="px-3 py-1.5 text-right font-medium">Each day after</th>
-            <th className="px-3 py-1.5 text-right font-medium">In stock</th>
-            {reqOrderRate !== null && <th className="px-3 py-1.5 text-right font-medium">Suggested price</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.key} className="border-t">
-              <td className="px-3 py-1.5">
-                <div className="font-medium">{r.name}</div>
-                <div className="text-[11px] text-muted-foreground">
-                  {r.left === 0 ? "plan done ✓" : `${r.left} to go`}
-                  {r.sizes && r.sizes.total >= 3 && <span className={cn("ml-1.5", r.sizes.inStock / r.sizes.total < 0.6 && "font-semibold text-tone-red")}>{r.sizes.inStock}/{r.sizes.total} sizes</span>}
-                  {r.overstock && <span className="ml-1.5 font-semibold text-tone-amber">piling up — push in ads</span>}
-                  {r.stockShort > 0 && <span className="ml-1.5 font-semibold text-tone-red">short by {r.stockShort}</span>}
-                </div>
-              </td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{r.monthUnits}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">{r.sold}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums">
-                {r.todayTarget === null ? "—" : (
-                  <span className={cn(r.toGo === 0 && r.todayTarget > 0 && "text-tone-green")}>
-                    {r.todaySold}/{r.todayTarget}{r.toGo === 0 && r.todayTarget > 0 ? " ✓" : ""}
-                  </span>
-                )}
-              </td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">{r.perDayAfterToday || "—"}</td>
-              <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                {r.stockUnits === null ? "pre-order" : r.stockUnits}{r.coverDays !== null && <span className="block text-[11px]">{r.coverDays}d cover</span>}
-              </td>
-              {reqOrderRate !== null && <SuggestedPriceCell listedPrice={r.listedPrice} cost={r.cost} reqOrderRate={reqOrderRate} ratio={ratio} />}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-/** Current listed price vs. the price this product needs for the month to clear a 15% net profit, given its own
- *  real cost — the delivery fee is never part of either number, it's the customer's own separate charge. Green
- *  ✓ when today's price already clears the bar; otherwise the shortfall, so it's obvious at a glance which
- *  products are priced too thin to carry their share of ads, fixed costs, and the profit target. */
-function SuggestedPriceCell({ listedPrice, cost, reqOrderRate, ratio }: { listedPrice: number; cost: number | null; reqOrderRate: number; ratio: number }) {
-  const suggested = suggestedPrice(cost, reqOrderRate, ratio)
-  if (suggested === null) {
-    return <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground" title={cost === null ? "No purchase cost on file yet" : "Ads + fixed costs + the profit target alone already use up the price"}>—</td>
-  }
-  const short = suggested - listedPrice // positive = priced too low to carry its share
-  const ok = short <= 0
-  return (
-    <td className="px-3 py-1.5 text-right tabular-nums">
-      <span className={cn("font-medium", ok ? "text-tone-green" : "text-tone-red")}>{taka(Math.round(suggested))}</span>
-      <span className="block text-[11px] text-muted-foreground">{ok ? "priced OK ✓" : `+${taka(Math.round(short))} needed`}</span>
-    </td>
-  )
-}
