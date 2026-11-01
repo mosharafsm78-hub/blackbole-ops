@@ -49,7 +49,7 @@ function stageOf(f: { status: string }, ls: { status: string } | undefined): Sta
 }
 
 function ActionCenter() {
-  const data = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
+  const [data] = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
   const findingIds = useMemo(() => (data?.findings ?? []).map((f: any) => f.id), [data])
   const latest = useQuery(api.findingLog.latest, findingIds.length ? { findingIds } : "skip")
 

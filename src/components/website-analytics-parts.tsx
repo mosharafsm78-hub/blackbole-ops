@@ -40,7 +40,8 @@ type Count = { n: number; v: number }
 /** Loads the report for a preset; refreshes every 5 minutes while open. undefined = loading, null = no access. */
 export function useWebsiteOverview(range: RangeKey, opts: { todo?: boolean } = {}) {
   const { fromDay, toDay } = useMemo(() => presetRange(range), [range])
-  return usePolledAction(api.websiteAnalytics.overview, { fromDay, toDay, compare: true, todo: !!opts.todo }, 5 * 60000) as Overview | null | undefined
+  const [data] = usePolledAction(api.websiteAnalytics.overview, { fromDay, toDay, compare: true, todo: !!opts.todo }, 5 * 60000)
+  return data as Overview | null | undefined
 }
 
 // ---------------------------------------------------------------- range picker

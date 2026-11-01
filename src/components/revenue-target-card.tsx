@@ -19,12 +19,12 @@ export const monthLabel = (month: string) => {
 
 const dayLabel = (day: string) => `${Number(day.slice(8, 10))} ${new Date(`${day}T00:00:00Z`).toLocaleString("en-US", { month: "short", timeZone: "UTC" })}`
 
-export const useTargetProgress = () => usePolledAction(api.targets.progress, {}, 60000) // live: refreshes every minute
+export const useTargetProgress = () => usePolledAction(api.targets.progress, {}, 60000) // live: refreshes every minute, or instantly via the returned refetch
 
 /** Dashboard: a glance only — today's target, the month, and a way in to the full Target page. */
 export function RevenueTargetCard() {
   const can = useCan()
-  const data = useTargetProgress()
+  const [data] = useTargetProgress()
   if (!data) return null
 
   if (!data.target || !data.plan) {
@@ -61,7 +61,7 @@ export function RevenueTargetCard() {
 }
 
 /** The Target page: daily and monthly target on top, then profit, marketing budget, the product plan and the day log. */
-export function TargetPlanView({ data }: { data: TargetProgress }) {
+export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetch: () => void }) {
   const p = data.plan!
   const t = p.focus
   const beaten = p.remaining === 0
@@ -103,7 +103,7 @@ export function TargetPlanView({ data }: { data: TargetProgress }) {
       </div>
 
       <StockNotes data={data} />
-      <RestockSuggestions data={data} />
+      <RestockSuggestions data={data} refetch={refetch} />
       <DailyMarketing data={data} />
       <SellList data={data} />
       <Models data={data} />

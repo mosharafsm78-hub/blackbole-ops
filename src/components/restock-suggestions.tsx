@@ -25,7 +25,7 @@ const REASON_LABEL: Record<RestockSuggestion["reasons"][number], string> = {
  *  because one size is empty while its siblings pile up. Suggested quantities are a starting point, editable per
  *  size; picking products and creating a draft only opens the purchase page pre-filled, it places nothing — the
  *  team still adds the supplier invoice and places the order from there, same as any other purchase. */
-export function RestockSuggestions({ data }: { data: TargetProgress }) {
+export function RestockSuggestions({ data, refetch }: { data: TargetProgress; refetch: () => void }) {
   const can = useCan()
   const canBuy = can("purchases.manage")
   const navigate = useNavigate()
@@ -55,6 +55,8 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
 
   // The literal ask: pick a product, press "Remove from pipeline", and it is gone from this list — not just
   // unchecked. Removed server-side (settings-backed), so it stays gone across refreshes until restored below.
+  // The page polls this data only once a minute, so refetch() pulls the fresh list in right away instead of
+  // leaving the row sitting there looking unchanged until the next poll.
   const removeFromPipeline = async () => {
     if (selectedRows.length === 0) return
     setRemoving(true)
@@ -62,11 +64,12 @@ export function RestockSuggestions({ data }: { data: TargetProgress }) {
       await Promise.all(selectedRows.map((r) => dismiss({ key: r.key, name: r.name, dismissed: true })))
       toast.success(`Removed ${selectedRows.length} from this list`)
       setSelected(new Set())
+      refetch()
     } catch (e) { toast.error(errMsg(e)) } finally { setRemoving(false) }
   }
 
   const restore = async (key: string) => {
-    try { await dismiss({ key, name: "", dismissed: false }) } catch (e) { toast.error(errMsg(e)) }
+    try { await dismiss({ key, name: "", dismissed: false }); refetch() } catch (e) { toast.error(errMsg(e)) }
   }
   const lines = selectedRows
     .flatMap((r) => r.sizes.map((s) => ({ variantId: s.variantId, orderedQty: qty[s.variantId] ?? s.suggest, unitCost: s.cost })))

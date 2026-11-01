@@ -44,7 +44,7 @@ function Dashboard() {
   const [range, setRange] = useState("30d")
   const days = RANGES.find((r) => r.key === range)!.days
   const { from, to } = useMemo(() => ({ from: startOfDayBD() - (days - 1) * 86400000, to: startOfDayBD() + 86400000 - 1 }), [days])
-  const data = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
+  const [data] = usePolledAction(api.dashboard.overview, { from, to }, 5 * 60000)
   const counts = useQuery(api.orders.counts)
   const urgency = useQuery(api.orders.urgency)
   const flagCounts = useQuery(api.accountability.openCounts)
@@ -307,7 +307,7 @@ function Delta({ v }: { v: number }) {
 
 /** A tiny, specific corner: the biggest money-losing problem (or growth lever) the data points to, and exactly what to do about it. */
 function BusinessInsights() {
-  const data = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
+  const [data] = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
   const [open, setOpen] = useState(false)
   if (!data || data.findings.length === 0) return null
   const [top, ...rest] = data.findings
@@ -450,7 +450,7 @@ function BirthdayRow({ c, open, onToggle }: { c: any; open: boolean; onToggle: (
 
 function MonthlySummary() {
   const [months, setMonths] = useState(6)
-  const rows = usePolledAction(api.dashboard.monthly, { months }, 15 * 60000)
+  const [rows] = usePolledAction(api.dashboard.monthly, { months }, 15 * 60000)
   const max = Math.max(1, ...(rows ?? []).map((r: any) => r.sales))
   const fmtMonth = (k: string) => new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" })
   return (

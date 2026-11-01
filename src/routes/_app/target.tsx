@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_app/target")({
 
 function TargetPage() {
   const can = useCan()
-  const data = useTargetProgress()
+  const [data, refetch] = useTargetProgress()
   return (
     <div className="space-y-4">
       <PageHeader title="Target" sub="Daily and monthly revenue target, what to sell, and the marketing budget" />
@@ -20,7 +20,7 @@ function TargetPage() {
           <p className="font-semibold">No revenue target for {monthLabel(data.month)} yet.</p>
           {can("team.manage") && <p className="mt-1 text-muted-foreground">Set one in <Link to="/settings" className="font-medium text-tone-blue hover:underline">Settings → KPI</Link> and this page fills itself in.</p>}
         </div>
-      ) : <TargetPlanView data={data} />}
+      ) : <TargetPlanView data={data} refetch={refetch} />}
     </div>
   )
 }
