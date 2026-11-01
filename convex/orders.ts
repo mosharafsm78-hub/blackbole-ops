@@ -1567,6 +1567,7 @@ export const setCourier = internalMutation({
     courierFee: v.optional(v.number()),
     courierError: v.optional(v.string()),
     log: v.optional(v.string()),
+    rider: v.optional(v.string()), riderPhone: v.optional(v.string()), // delivery man Pathao assigned
     reason: v.optional(v.string()), // Pathao's failed / hold reason, passed on to the customer's WhatsApp
   },
   handler: async (ctx, a) => {
@@ -1593,7 +1594,7 @@ export const setCourier = internalMutation({
         if (a.reason) await logOrder(ctx, a.id, `Pathao: delivery attempt failed — ${a.reason}`, "Pathao")
         await ctx.scheduler.runAfter(0, internal.waNotify.send, { orderId: a.id, kind: "failed", reason: a.reason })
       } else if (s.includes("assigned_for_delivery")) {
-        await ctx.scheduler.runAfter(0, internal.waNotify.send, { orderId: a.id, kind: "out_for_delivery" })
+        await ctx.scheduler.runAfter(0, internal.waNotify.send, { orderId: a.id, kind: "out_for_delivery", rider: a.rider, riderPhone: a.riderPhone })
       }
     }
   },

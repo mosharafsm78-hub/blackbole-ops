@@ -326,6 +326,14 @@ async function moveTo(ctx: any, id: Id<"orders">, current: OrderStatus, target: 
   return false
 }
 
+/** The delivery man Pathao assigned (name + phone), when the payload carries them. */
+function riderOf(d: any): { rider?: string; riderPhone?: string } {
+  const g = (keys: string[]) => { for (const k of keys) { const x = d?.[k] ?? d?.delivery_man?.[k.replace(/^delivery_(agent|man)_/, "")] ; if (x != null && typeof x !== "object" && String(x).trim()) return String(x).trim() } return undefined }
+  const rider = g(["delivery_agent_name", "delivery_man_name", "rider_name"])
+  const riderPhone = g(["delivery_agent_phone", "delivery_man_phone", "rider_phone"])
+  return rider && riderPhone ? { rider, riderPhone } : {}
+}
+
 export const syncAll = internalAction({
   args: {},
   handler: async (ctx): Promise<{ checked: number; moved: number; failed: number; changes: string[]; errors: string[] }> => {
@@ -340,7 +348,7 @@ export const syncAll = internalAction({
         const ps = String(d.order_status_slug ?? d.order_status ?? "")
         if (!ps) { failed++; errors.push(`${r.invoice} (${r.consignmentId}): no status`); return }
         const why = pick(d, ["failed_reason", "delivery_failed_reason", "reason", "return_reason", "hold_reason"])
-        await ctx.runMutation(internal.orders.setCourier, { id: r._id as Id<"orders">, courierStatus: ps, reason: why != null && typeof why !== "object" ? String(why) : undefined })
+        await ctx.runMutation(internal.orders.setCourier, { id: r._id as Id<"orders">, courierStatus: ps, reason: why != null && typeof why !== "object" ? String(why) : undefined, ...riderOf(d) })
         const target = targetFor(ps)
         if (target && (await moveTo(ctx, r._id as Id<"orders">, r.status as OrderStatus, target, `Pathao: ${ps}`))) {
           moved++
@@ -386,7 +394,7 @@ export const webhook = httpAction(async (ctx, req) => {
     const o = await ctx.runQuery(internal.pathao.byConsignment, { consignmentId: consignment })
     if (o) {
       const why = body.reason ?? body.failed_reason ?? body.delivery_failed_reason ?? body.return_reason
-      await ctx.runMutation(internal.orders.setCourier, { id: o._id, courierStatus: status, reason: why != null && typeof why !== "object" ? String(why) : undefined })
+      await ctx.runMutation(internal.orders.setCourier, { id: o._id, courierStatus: status, reason: why != null && typeof why !== "object" ? String(why) : undefined, ...riderOf(body) })
       const target = targetFor(status)
       if (target) await moveTo(ctx, o._id, o.status as OrderStatus, target, `Pathao: ${status}`)
     }

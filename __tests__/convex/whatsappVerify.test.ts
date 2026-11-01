@@ -174,6 +174,15 @@ describe("WhatsApp parcel updates", () => {
     const wrong = await t.mutation(internal.whatsappVerify.inbound, { waId: "8801999999999", wamid: "r2", buttonId: `wv:r:${fresh.id}` })
     expect(wrong.result).toBe("not_found")
   })
+  it("passes the Pathao rider name and a cleaned phone number through", async () => {
+    const { t, as, order } = await setup()
+    await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "test", phoneNumberId: "", businessNumber: "8801700000000", lifecycle: true })
+    await new Promise((r) => setTimeout(r, 5))
+    const o = await order("01711000024")
+    const c = await t.mutation(internal.waNotify.claim, { orderId: o.id, kind: "shipped", rider: "Karim Uddin", riderPhone: "+880 1712-345678" })
+    expect(c?.params.rider).toBe("Karim Uddin")
+    expect(c?.params.riderPhone).toBe("+8801712345678")
+  })
   it("off by default: nothing is claimed", async () => {
     const { t, order } = await setup()
     const o = await order("01711000023")

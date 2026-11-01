@@ -9,15 +9,17 @@ import { internal } from "./_generated/api"
 import { getSetting, invoiceLabel, logOrder } from "./lib"
 
 export type Kind = "shipped" | "out_for_delivery" | "failed" | "delivered" | "returned"
-type Params = { first: string; invoice: string; amount: string; reason: string }
+type Params = { first: string; invoice: string; amount: string; reason: string; rider: string; riderPhone: string }
 /** Template names as created in Meta. Variables are numbered in the order of `params`. */
 export const TEMPLATES: Record<Kind, { name: string; params: (m: Params) => string[]; buttons?: "reorder" }> = {
   shipped: { name: "order_shipped", params: (m) => [m.first, m.invoice] },
   out_for_delivery: { name: "out_for_delivery", params: (m) => [m.first, m.invoice, m.amount] },
-  failed: { name: "delivery_failed_v2", params: (m) => [m.first, m.invoice, m.reason] },
+  failed: { name: "delivery_failed_v3", params: (m) => [m.first, m.invoice, m.reason] },
   delivered: { name: "order_delivered", params: (m) => [m.first, m.invoice] },
   returned: { name: "order_returned", params: (m) => [m.first, m.invoice], buttons: "reorder" },
 }
+/** Out for delivery with the rider's name and phone (from Pathao) when we have them; otherwise the plain version. */
+const OUT_WITH_RIDER = { name: "out_for_delivery_v2", params: (m: Params) => [m.first, m.invoice, m.rider, m.riderPhone, m.amount] }
 const KINDS = new Set<string>(Object.keys(TEMPLATES))
 
 const first = (name: string) => (name || "").trim().split(/\s+/)[0] || "there"
@@ -30,8 +32,8 @@ export const cleanReason = (r?: string) => {
 /** Decide whether this order should get this message now. Returns what to send, or null. Once per order for
  *  shipped / delivered / returned; failed and out-for-delivery can repeat but not within 4 hours. */
 export const claim = internalMutation({
-  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()) },
-  handler: async (ctx, { orderId, kind, reason }) => {
+  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()) },
+  handler: async (ctx, { orderId, kind, reason, rider, riderPhone }) => {
     const c: any = (await getSetting<any>(ctx, "waVerify")) ?? {}
     if (!c.enabled || !c.lifecycle || !KINDS.has(kind)) return null
     const o = await ctx.db.get(orderId)
@@ -48,7 +50,7 @@ export const claim = internalMutation({
     await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "life_pending", out: [`${kind}: ${TEMPLATES[kind as Kind].name}`], at: Date.now() })
     return {
       wamid, waId, id: o._id, mode: c.mode as string, phoneNumberId: String(c.phoneNumberId ?? ""), lang: String(c.templateLang || "en"),
-      params: { first: first(o.customerName), invoice: invoiceLabel(o), amount: `Tk ${Math.round(amountNum).toLocaleString("en-IN")}`, reason: cleanReason(reason) } as Params,
+      params: { first: first(o.customerName), invoice: invoiceLabel(o), amount: `Tk ${Math.round(amountNum).toLocaleString("en-IN")}`, reason: cleanReason(reason), rider: cleanReason(rider).replace(/^we could not reach you on the phone$/, ""), riderPhone: String(riderPhone ?? "").replace(/[^\d+]/g, "") } as Params,
     }
   },
 })
@@ -64,11 +66,11 @@ export const finish = internalMutation({
 })
 
 export const send = internalAction({
-  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()) },
-  handler: async (ctx, { orderId, kind, reason }) => {
-    const m = await ctx.runMutation(internal.waNotify.claim, { orderId, kind, reason })
+  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()) },
+  handler: async (ctx, { orderId, kind, reason, rider, riderPhone }) => {
+    const m = await ctx.runMutation(internal.waNotify.claim, { orderId, kind, reason, rider, riderPhone })
     if (!m) return
-    const t = TEMPLATES[kind as Kind]
+    const t: { name: string; params: (m: Params) => string[]; buttons?: "reorder" } = kind === "out_for_delivery" && m.params.rider && m.params.riderPhone ? OUT_WITH_RIDER : TEMPLATES[kind as Kind]
     const { sec } = await ctx.runQuery(internal.whatsappVerify.liveConf, {})
     if (m.mode !== "live" || !m.phoneNumberId || !sec.token) {
       await ctx.runMutation(internal.waNotify.finish, { wamid: m.wamid, orderId, kind, result: "life_test", note: `Would send ${t.name} to ${m.waId}: ${t.params(m.params).join(" | ")}` })

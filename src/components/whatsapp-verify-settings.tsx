@@ -69,7 +69,7 @@ export function WhatsAppVerifySettings() {
         </div>
         <div className="mt-3 rounded-md border p-3">
           <div className="flex items-center justify-between gap-2">
-            <div><p className="text-sm font-medium">Send parcel updates on WhatsApp</p><p className="text-xs text-muted-foreground">Shipped (In Transit), out for delivery, failed delivery attempt (with Pathao's reason), delivered, and returned (with a “Yes, order again” button that tells the team to call). Only orders placed after you switch this on are messaged. Needs these approved templates in Meta: order_shipped, out_for_delivery, delivery_failed_v2, order_delivered, order_returned.</p></div>
+            <div><p className="text-sm font-medium">Send parcel updates on WhatsApp</p><p className="text-xs text-muted-foreground">Shipped (In Transit), out for delivery, failed delivery attempt (with Pathao's reason), delivered, and returned (with a “Yes, order again” button that tells the team to call). Only orders placed after you switch this on are messaged. Needs these approved templates in Meta: order_shipped, out_for_delivery, out_for_delivery_v2 (with rider name and phone), delivery_failed_v3, order_delivered, order_returned.</p></div>
             <Switch checked={!!f.lifecycle} onCheckedChange={(v) => set("lifecycle", v)} aria-label="Parcel updates on WhatsApp" />
           </div>
         </div>
