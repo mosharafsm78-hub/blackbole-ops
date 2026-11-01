@@ -5,7 +5,7 @@ import type { MarketingProgress } from "@/convex/targets"
 import { Pill } from "@/components/bits"
 import { RestockSuggestions } from "@/components/restock-suggestions"
 import {
-  dayLabel, Fig, GROUPS, Models, Schedule, SellList, StockNotes, Table, monthLabel, sum,
+  dayLabel, Fig, GROUPS, Models, Schedule, SellList, Table, monthLabel, sum,
 } from "@/components/revenue-target-card"
 import { usePolledAction } from "@/lib/use-polled-action"
 import { taka } from "@/lib/format"
@@ -60,7 +60,6 @@ export function MarketingTargetView({ data, refetch }: { data: MarketingProgress
         </section>
       </div>
 
-      <StockNotes stockCheck={data.stockCheck} tests={data.tests} />
       <RestockSuggestions restock={data.restock} restockDismissedCount={data.restockDismissedCount} refetch={refetch} />
       <SellList products={data.products} day={t ? dayLabel(t.day) : ""} budget={0} />
       <Models products={data.products} />
