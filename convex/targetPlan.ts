@@ -174,7 +174,7 @@ export function allocateGrouped(products: ProductInput[], revenue: number): { ro
 }
 
 export type PlanProduct = { name: string; units: number; price: number; group?: Group }
-export const PLAN_VERSION = 5 // bumped so today's already-cached plan rebuilds at once after the catalog-duplicate merge fix
+export const PLAN_VERSION = 6 // bumped so today's already-cached plan rebuilds at once after dropping inactive/discontinued products from the plan
 /** A plan is re-made at once when total sellable stock moves by this share or more (a stock count was corrected). */
 export const STOCK_REPLAN_SHARE = 0.1
 export const stockMoved = (before: number | undefined, now: number) => before === undefined || Math.abs(now - before) > Math.max(5, before * STOCK_REPLAN_SHARE)

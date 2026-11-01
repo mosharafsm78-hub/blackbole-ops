@@ -325,6 +325,51 @@ describe("catalog duplicates are merged into one plan row", () => {
   })
 })
 
+describe("inactive products never get pushed with ad budget just because they used to sell", () => {
+  // Emon's report: a product marked inactive (discontinued, not sellable on the website) with no catalog SKUs
+  // left and no stock-check entry was still showing up on the Target page's sell list with ad budget, because
+  // old sales history alone was enough to plan it as an uncapped "pre-order" item. gatherStock() already leaves
+  // inactive/deleted products out of the stock map on purpose — the fix is to stop treating "no stock-map row"
+  // as "unlimited pre-order" for anything that isn't a real, currently-active pre-order product.
+
+  it("drops a product that's marked inactive from the plan, even with recent sales history and no stock left", async () => {
+    const { t, asAdmin, addProduct, sell } = await setup()
+    await addProduct("Morning Running Shoe - Unisex", 0, "BB-MRS")
+    await sell("BB-MRS-41", "Morning Running Shoe - Unisex", 5, 1527, NOW - 20 * DAY)
+    await t.run(async (ctx) => {
+      const prod = (await ctx.db.query("products").collect()).find((p) => p.name === "Morning Running Shoe - Unisex")!
+      await ctx.db.patch(prod._id, { active: false })
+    })
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.find((r) => r.name === "Morning Running Shoe - Unisex")).toBeUndefined()
+  })
+
+  it("still folds an inactive duplicate's old sales onto its active, currently-sellable twin of the same name", async () => {
+    // Regression guard: dropping orphans with no active listing must not break the existing catalog-duplicate
+    // fix, which relies on exactly this kind of entry being merged into its live twin rather than dropped.
+    const { t, asAdmin, addProduct, sell } = await setup()
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 70, "BB-SH-BHSS-BLACK-NEW")
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 0, "BB-SH-BHSS-BLACK-OLD")
+    await sell("BB-SH-BHSS-BLACK-OLD-41", "BlackBole Harbor Shore Sandal For Men - Black", 6, 1000, NOW - 25 * DAY)
+    await sell("BB-SH-BHSS-BLACK-NEW-41", "BlackBole Harbor Shore Sandal For Men - Black", 10, 1000, NOW - 20 * DAY)
+    await t.run(async (ctx) => {
+      const old = (await ctx.db.query("products").collect()).find((p) => p.name === "BlackBole Harbor Shore Sandal For Men - Black" && p.active)!
+      // keep the NEW one active; deactivate whichever insert landed first (the OLD shell) by its variant's SKU
+      const variants = await ctx.db.query("variants").collect()
+      const oldVariant = variants.find((v) => v.sku === "BB-SH-BHSS-BLACK-OLD-41")!
+      await ctx.db.patch(oldVariant.productId, { active: false })
+    })
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    const rows = p.products!.filter((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")
+    expect(rows).toHaveLength(1)
+    expect(rows[0].stockUnits).toBe(70) // the live twin's stock; the deactivated one only contributed sales history
+  })
+})
+
 describe("marketing budget vs spend", () => {
   const meta = (spendPerDay: number) =>
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {

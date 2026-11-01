@@ -560,6 +560,14 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       const soldMtd = Object.fromEntries(Object.entries(data.mtd).map(([k, d]) => [k, Object.values(d).reduce((s, n) => s + n, 0)]))
       const sizeInfo: Record<string, { inStock: number; total: number } | null> = {}
       const inputs: ProductInput[] = []
+      // Whether each input actually has a row in today's stock map — a real, currently-active listing — as
+      // opposed to only having sales history. A genuine pre-order product always gets its own stockMap entry
+      // (with stockUnits explicitly null, see gatherStock()); gatherStock() deliberately excludes inactive and
+      // deleted products, so a key with sales history but no stockMap entry means the product isn't sellable on
+      // the website any more. Tracked here (rather than on ProductInput itself) so the dedupe pass below can
+      // still fold an orphaned SKU's history onto an active twin of the same name, while anything left with no
+      // active listing afterward gets dropped instead of planned and pushed with ad budget forever.
+      const hasStock: Record<string, boolean> = {}
       const keys = new Set([...Object.keys(data.trailing), ...Object.keys(stockMap)])
       for (const k of keys) {
         const t = data.trailing[k]
@@ -570,12 +578,13 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
         const price = sold ? (sold.revenue / sold.units) * data.ratio : st.price * data.ratio
         if (!(price > 0)) continue
         sizeInfo[k] = st && st.units !== null ? { inStock: st.sizesIn, total: st.sizes } : null
+        hasStock[k] = !!st
         inputs.push({
           key: k,
           name: st?.name ?? sold!.name,
           price,
           demandRevenue: sold ? sold.revenue : (st.units ?? 0) * price,
-          stockUnits: st ? st.units : null, // no stock record: not capped
+          stockUnits: st ? st.units : null, // no stock record: not capped (unless dropped below as inactive)
           group: classify({ stockUnits: st ? st.units : null, sizesIn: st?.sizesIn ?? 0, sizesTotal: st?.sizes ?? 0, soldUnits: sold?.units ?? 0 }),
         })
       }
@@ -597,7 +606,11 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
           deduped.push({ ...canonical, demandRevenue: canonical.demandRevenue + extra })
         }
         inputs.length = 0
-        inputs.push(...deduped)
+        // A row that's still unmatched to any currently-active listing after the merge above isn't a pre-order
+        // (a real pre-order product always has its own active stockMap entry) — it's an inactive or deleted
+        // product whose old sales are still on file. Plan it out entirely rather than push ad budget at
+        // something customers can no longer buy on the website.
+        inputs.push(...deduped.filter((inp) => hasStock[inp.key]))
       }
       snapshot = row.plan as ProductPlan | undefined
       const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
