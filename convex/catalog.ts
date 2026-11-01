@@ -1,6 +1,7 @@
 import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
+import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
 import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { COMMITTED_STATUSES } from "./rules"
@@ -85,14 +86,22 @@ export const saveProduct = mutation({
     if (productId) await ctx.db.patch(productId, data)
     else productId = await ctx.db.insert("products", { ...data, createdAt: Date.now() })
 
+    // A SKU renamed here used to only ever change Ops' own record — Shopify kept showing the old SKU forever.
+    // Collect renames on variants already linked to Shopify (shopifyItemId cached) and push them after saving.
+    const renames: { itemId: string; sku: string }[] = []
     for (const vr of a.variants) {
+      const sku = vr.sku.trim().toUpperCase()
       const row = {
-        productId, sku: vr.sku.trim().toUpperCase(), title: vr.title.trim() || "Default",
+        productId, sku, title: vr.title.trim() || "Default",
         attrs: vr.attrs, weightKg: vr.weightKg, price: vr.price, purchasePrice: vr.purchasePrice, active: vr.active,
       }
-      if (vr.id) await ctx.db.patch(vr.id, row)
-      else await ctx.db.insert("variants", row)
+      if (vr.id) {
+        const before = await ctx.db.get(vr.id)
+        if (before && before.sku !== sku && before.shopifyItemId) renames.push({ itemId: before.shopifyItemId, sku })
+        await ctx.db.patch(vr.id, row)
+      } else await ctx.db.insert("variants", row)
     }
+    if (renames.length) await ctx.scheduler.runAfter(0, internal.shopifyStock.pushSkuRename, { list: renames })
     await marketingChanged(ctx, { productId })
     return productId
   },

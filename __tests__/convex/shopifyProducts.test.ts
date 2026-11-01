@@ -115,3 +115,24 @@ describe("Ops → Shopify product creation", () => {
     expect(first).toMatchObject({ price: "1200", compareAtPrice: "1800", optionValues: [{ optionName: "Size", name: "41" }] })
   })
 })
+
+describe("Push all now — full repair, not just quantities", () => {
+  // A product that fell out of sync before live sync was on, or whose one push attempt failed, used to just sit
+  // wrong forever: "Push all now" only ever set quantities on variants Shopify already knew about. It now also
+  // creates whatever's missing, same as the automatic per-change flush does.
+  it("creates a product that has stock in Ops but was never pushed to Shopify, not just the already-linked ones", async () => {
+    const calls = shopify()
+    const { t, a } = await setup()
+    const { api } = await import("../../convex/_generated/api")
+    const userId = await t.run((ctx) => ctx.db.insert("users", { email: "admin@blackbole.com" }))
+    const as = t.withIdentity({ subject: `${userId}|s1` })
+    await as.mutation(api.team.claim, { name: "Admin" })
+    const res: any = await as.action(api.shopifyStock.pushAll, {})
+    expect(res.notes).toEqual([])
+    expect(res.pushed).toBeGreaterThan(0)
+    const set = calls.find((c) => c.q.includes("productSet"))
+    expect(set).toBeTruthy()
+    const row = await t.run((ctx) => ctx.db.get(a))
+    expect(row!.shopifyItemId).toBeTruthy()
+  })
+})

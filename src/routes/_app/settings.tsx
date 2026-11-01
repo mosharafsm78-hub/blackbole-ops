@@ -208,7 +208,11 @@ function ShopifyStockSync() {
           }}>Preview (changes nothing)</Button>
           {st.on && <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
             setBusy(true)
-            try { const r = await pushAll(); toast.success(`Shopify updated for ${r.pushed} products${r.missing ? ` · ${r.missing} SKUs not in Shopify` : ""}`) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+            try {
+              const r = await pushAll()
+              if (r.notes.length) toast.error(`${r.notes.length} product(s) still couldn't be created in Shopify — see the error below`)
+              else toast.success(`Shopify updated for ${r.pushed} products${r.missing ? ` · ${r.missing} SKUs not in Shopify` : ""}`)
+            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Push all now</Button>}
           {st.last && <span className="text-xs text-muted-foreground">Last update {dateTime(st.last.at)} · {st.last.count} products</span>}
         </div>

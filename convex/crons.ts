@@ -90,6 +90,12 @@ crons.daily("kpi revenue target month check", { hourUTC: 3, minuteUTC: 25 }, int
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
 
+// Shopify stock full repair: the per-change live sync only ever processes the variant that just changed, so a
+// product that fell out of sync before sync was on, or whose one push attempt failed, would sit wrong forever
+// with nothing to re-check it. This runs the same full repair as "Push all now" every night.
+// 3:30 Asia/Dhaka (UTC+6) = 21:30 UTC — off-peak, well clear of the midnight BD rollover other crons use.
+crons.daily("shopify stock nightly repair", { hourUTC: 21, minuteUTC: 30 }, internal.shopifyStock.nightlyReconcile, {})
+
 crons.interval("one-time email re-send", { minutes: 10 }, internal.abandonedEmail.resendOnce, {})
 
 export default crons

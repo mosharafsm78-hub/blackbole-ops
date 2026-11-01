@@ -212,6 +212,25 @@ async function itemIds(ctx: any, rows: { variantId: string; sku: string; itemId?
   if (save.length) await ctx.runMutation(internal.shopifyStock.saveItemIds, { list: [...new Map(save.map((x) => [x.id, x])).values()] })
 }
 
+/** Push a SKU rename made in Ops onto the matching Shopify inventory item, so a product renamed here doesn't
+ *  keep showing its old SKU on the website forever — until now nothing did this: editing a SKU in the product
+ *  form only ever changed Ops' own record, never Shopify's. Scheduled from catalog.ts's saveProduct right after
+ *  a SKU actually changes on a variant that's already linked to Shopify (has a cached shopifyItemId). */
+export const pushSkuRename = internalAction({
+  args: { list: v.array(v.object({ itemId: v.string(), sku: v.string() })) },
+  handler: async (ctx, { list }) => {
+    for (const { itemId, sku } of list) {
+      try {
+        const res = await gql(ctx, `mutation($id: ID!, $input: InventoryItemInput!) { inventoryItemUpdate(id: $id, input: $input) { userErrors { field message } } }`, { id: itemId, input: { sku } })
+        const errs = res.inventoryItemUpdate.userErrors
+        if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; "))
+      } catch (e: any) {
+        await ctx.runMutation(internal.shopifyStock.putToken, { error: `${new Date().toISOString()} SKU rename to Shopify failed for ${sku}: ${String(e?.message ?? e)}`.slice(0, 400) })
+      }
+    }
+  },
+})
+
 async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string; qty: number }[], reason = "correction") {
   const ok = rows.filter((r) => r.itemId)
   for (let k = 0; k < ok.length; k += 200) {
@@ -456,17 +475,38 @@ export const preview = action({
   },
 })
 
-/** Push every product now (used once when switching on, or to repair). */
+/** Shared by the "Push all now" button and the nightly repair cron. Unlike the automatic per-change flush
+ *  (which only ever processes the handful of variants that just changed), this also creates any product in
+ *  Shopify that has stock in Ops but was never created there — the gap that let a backlog of products quietly
+ *  drift out of sync (never pushed once, or missed before "Live stock → Shopify" was switched on) and just sit
+ *  that way forever, since nothing else ever re-checked them. */
+async function reconcileAll(ctx: any): Promise<{ pushed: number; missing: number; notes: string[] }> {
+  const rows = await ctx.runQuery(internal.shopifyStock.targets, {})
+  await itemIds(ctx, rows)
+  const notes = await ensureProducts(ctx, rows)
+  const n = await setQuantities(ctx, rows)
+  await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 900) : null })
+  await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: n })
+  return { pushed: n, missing: rows.length - n, notes }
+}
+
+/** Push every product now (the Settings page button). */
 export const pushAll = action({
   args: {},
-  handler: async (ctx): Promise<{ pushed: number; missing: number }> => {
+  handler: async (ctx): Promise<{ pushed: number; missing: number; notes: string[] }> => {
     if (!(await ctx.runQuery(internal.shopifyStock.isAdmin, {}))) throw new ConvexError("Not allowed")
-    try {
-      const rows = await ctx.runQuery(internal.shopifyStock.targets, {})
-      await itemIds(ctx, rows)
-      const n = await setQuantities(ctx, rows)
-      await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: n })
-      return { pushed: n, missing: rows.length - n }
-    } catch (e: any) { throw new ConvexError(String(e?.message ?? e)) }
+    try { return await reconcileAll(ctx) } catch (e: any) { throw new ConvexError(String(e?.message ?? e)) }
+  },
+})
+
+/** Nightly: same full repair, run automatically so a product that fell out of sync (a one-off failed push, or
+ *  one that never had a stock change since sync went on) doesn't just sit wrong until someone notices and
+ *  clicks "Push all now" by hand. No-op if Shopify sync isn't configured/on. */
+export const nightlyReconcile = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const conf = await ctx.runQuery(internal.shopifyStock.creds, {})
+    if (!conf.conf?.on) return
+    try { await reconcileAll(ctx) } catch { /* flush() retries transient failures on its own cadence; this is best-effort */ }
   },
 })
