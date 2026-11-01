@@ -17,8 +17,10 @@ const DAY = 86400000
 export const SLA_DAYS = 2
 
 /** The real departments a case can be routed to. Kept in step with the team tags the UI shows (CX / OPS / MKT /
- *  DEV) so a re-route can only ever pick a department the rest of the app knows how to label. */
-export const DEPARTMENTS = ["Customer Care", "Fulfillment", "Marketing", "Development"]
+ *  DEV / OPR) so a re-route can only ever pick a department the rest of the app knows how to label. "Operations"
+ *  is the courier/rider relationship specifically (Pathao issues) — kept separate from "Fulfillment" (packing
+ *  and dispatch mistakes), since a different person owns each. */
+export const DEPARTMENTS = ["Customer Care", "Fulfillment", "Marketing", "Development", "Operations"]
 
 type Owners = { byTeam: Record<string, { name: string; email: string }>; opsHead?: { name: string; email: string }; founder?: { name: string; email: string } }
 

@@ -27,8 +27,8 @@ export const Route = createFileRoute("/_app/accountability")({
 type View = "open" | "closed"
 
 const SLA_DAYS = 2
-const TEAMS = ["Fulfillment", "Marketing", "Customer Care"]
-const ALL_TEAMS = ["Fulfillment", "Marketing", "Customer Care", "Development"]
+const TEAMS = ["Fulfillment", "Marketing", "Customer Care", "Operations"]
+const ALL_TEAMS = ["Fulfillment", "Marketing", "Customer Care", "Development", "Operations"]
 
 function daysOpen(raisedAt: number) {
   return Math.floor((Date.now() - raisedAt) / 86400000)

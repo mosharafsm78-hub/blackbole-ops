@@ -274,7 +274,7 @@ export const CSAT_FOLLOWUP_OUTCOMES = ["Could not reach"]
 // a typed-out reason can never be counted, a picked one always can. Shared by the "Edit reason" category chips
 // and the Return feedback call outcomes below, so a customer's actual return reason is the same vocabulary
 // whether it was picked when the return was first raised or confirmed later on a call.
-export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Other"]
+export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Customer changed mind", "Size didn't fit", "Late delivery", "Rider issue", "Other"]
 
 /** Post-return feedback call: confirming with the customer the actual reason the order came back — same
  *  category list as the return reason itself (RETURN_REASONS), not a separate made-up set of outcomes, plus
@@ -283,9 +283,9 @@ export const RETURN_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged
 export const RETURN_CSAT_OUTCOMES = [...RETURN_REASONS, "Could not reach", "Declined to answer"]
 
 /** Of the return reasons, these are BlackBole's own doing — the wrong item, a damaged item, a late delivery,
- *  a listing that didn't match — rather than the customer's own call (changed mind, size didn't fit). These
- *  are the ones worth a recovery attempt: a mistake we can still make right. */
-export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Late delivery"]
+ *  a listing that didn't match, the courier/rider mishandling it — rather than the customer's own call (changed
+ *  mind, size didn't fit). These are the ones worth a recovery attempt: a mistake we can still make right. */
+export const RETURN_AT_FAULT_REASONS = ["Wrong size sent", "Wrong product sent", "Damaged / defective", "Doesn't match description", "Late delivery", "Rider issue"]
 
 /** Accountability: once a return call confirms it was really our own fault, the one department that actually
  *  caused it gets a flag it has to answer — inside this system, not a side chat. Picking/packing mistakes go to
@@ -309,6 +309,10 @@ export const ACCOUNTABILITY_ROUTING: Record<string, string> = {
   "Wrong size sent": "Fulfillment",
   "Damaged / defective": "Fulfillment",
   "Late delivery": "Fulfillment",
+  // The courier/rider itself (Pathao) lost it, damaged it, or mishandled it — not a packing mistake on our end,
+  // so it doesn't belong on Fulfillment's plate. Routes to its own "Operations" team instead, whose owner is
+  // the person who actually deals with the courier relationship (Settings → Accountability).
+  "Rider issue": "Operations",
   "Doesn't match description": "Marketing",
   "Customer changed mind": "Customer Care",
   "Size didn't fit": "Customer Care",

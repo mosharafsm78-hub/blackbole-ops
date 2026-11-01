@@ -9,10 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Loading } from "@/components/bits"
 import { errMsg } from "@/lib/format"
 
-// The teams accountability flags can route to today — Fulfillment/Marketing from ACCOUNTABILITY_ROUTING
+// The teams accountability flags can route to today — Fulfillment/Marketing/Operations from ACCOUNTABILITY_ROUTING
 // (convex/rules.ts), Customer Care so free-form questions can be raised against it too even though no return
 // reason auto-routes there yet.
-const TEAMS = ["Fulfillment", "Marketing", "Customer Care"]
+const TEAMS = ["Fulfillment", "Marketing", "Customer Care", "Operations"]
 
 type Owner = { name: string; email: string }
 
@@ -72,7 +72,7 @@ export function AccountabilitySettings() {
               <span className={`shrink-0 rounded px-2 py-1 text-xs font-bold uppercase tracking-wide ${TEAM_STYLE[t] ?? "bg-muted text-muted-foreground"}`}>{t}</span>
               <div className="min-w-[160px] flex-1 space-y-1">
                 <Label className="text-xs">Owner's name</Label>
-                <Input value={byTeam[t]?.name ?? ""} onChange={(e) => setOwner(t, "name", e.target.value)} placeholder="e.g. Rafi" />
+                <Input value={byTeam[t]?.name ?? ""} onChange={(e) => setOwner(t, "name", e.target.value)} placeholder={t === "Operations" ? "e.g. Saju" : "e.g. Rafi"} />
               </div>
               <div className="min-w-[200px] flex-1 space-y-1">
                 <Label className="text-xs">Owner's email</Label>

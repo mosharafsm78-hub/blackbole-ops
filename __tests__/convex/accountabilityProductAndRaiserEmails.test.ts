@@ -58,6 +58,26 @@ describe("product name on a flagged issue", () => {
   })
 })
 
+describe("a courier/rider mistake routes to Operations, not Fulfillment", () => {
+  // Emon's ask: a Pathao rider losing/damaging a parcel isn't a packing mistake, so it shouldn't land on
+  // Fulfillment's plate — it should go straight to whoever owns the courier relationship (the Operations head).
+  it("raises a 'Rider issue' return reason against the Operations team and its named owner", async () => {
+    const { t, as, orderId } = await setup({
+      Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" },
+      Operations: { name: "Saju", email: "saju@blackbole.com" },
+    })
+    await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Rider issue", note: "Pathao rider damaged the box in transit" })
+
+    const open = await as.query(api.accountability.listOpen, {})
+    expect(open).toHaveLength(1)
+    expect(open[0]!.team).toBe("Operations")
+    expect(open[0]!.assignee).toBe("Saju")
+
+    const flag = await t.run((ctx) => ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", orderId)).first())
+    expect(flag).toMatchObject({ team: "Operations", assignee: "Saju", assigneeEmail: "saju@blackbole.com", reason: "Rider issue" })
+  })
+})
+
 describe("raiser gets their own email", () => {
   it("emails the person who raised the flag, separately from the department lead, exactly once", async () => {
     vi.useFakeTimers()

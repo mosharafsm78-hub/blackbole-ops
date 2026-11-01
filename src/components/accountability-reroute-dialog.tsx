@@ -73,7 +73,7 @@ export function RerouteDialog({ flag, open, onOpenChange }: { flag: any; open: b
     }
   }
 
-  const teams: string[] = choices?.teams ?? ["Customer Care", "Fulfillment", "Marketing", "Development"]
+  const teams: string[] = choices?.teams ?? ["Customer Care", "Fulfillment", "Marketing", "Development", "Operations"]
   const people: { name: string; email: string }[] = choices?.people ?? []
   const teamLead = choices?.byTeam?.[form.team] ?? null
   // Whoever currently holds the department is the natural default, so re-routing normally needs one click.
