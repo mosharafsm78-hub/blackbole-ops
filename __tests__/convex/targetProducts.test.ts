@@ -245,6 +245,32 @@ describe("restock suggestions on the Target page", () => {
     expect(hero.sizes[0].suggest).toBeGreaterThan(0)
     expect(hero.sizes.reduce((s, x) => s + x.suggest, 0)).toBe(hero.suggestedTotal)
   })
+
+  it("drops a product from the list once someone removes it from the pipeline, and brings it back on restore", async () => {
+    // Emon's literal complaint: pick "Pro Asics", press remove, and it must vanish from the visible list — not
+    // just get unchecked from whatever purchase draft is being built. This is a durable, server-side removal.
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Pro Asics Gel Nimbus", 4, "BB-ASICS")
+    await sell("BB-ASICS-41", "Pro Asics Gel Nimbus", 60, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const before = await asAdmin.action(api.targets.progress, {})
+    expect(before.restock!.map((r) => r.name)).toEqual(["Pro Asics Gel Nimbus"])
+    expect(before.restockDismissedCount).toBe(0)
+
+    await asAdmin.mutation(api.targets.dismissRestock, { key: before.restock![0].key, name: "Pro Asics Gel Nimbus", dismissed: true })
+
+    const after = await asAdmin.action(api.targets.progress, {})
+    expect(after.restock).toEqual([]) // actually gone, not merely deselected
+    expect(after.restockDismissedCount).toBe(1)
+    expect(await asAdmin.query(api.targets.listDismissedRestock, {})).toEqual([{ key: before.restock![0].key, name: "Pro Asics Gel Nimbus", at: NOW }])
+
+    await asAdmin.mutation(api.targets.dismissRestock, { key: before.restock![0].key, name: "", dismissed: false })
+
+    const restored = await asAdmin.action(api.targets.progress, {})
+    expect(restored.restock!.map((r) => r.name)).toEqual(["Pro Asics Gel Nimbus"])
+    expect(restored.restockDismissedCount).toBe(0)
+  })
 })
 
 describe("catalog duplicates are merged into one plan row", () => {

@@ -105,6 +105,34 @@ export const costsForProgress = internalQuery({
   },
 })
 
+// ---- restock dismissals: "remove from pipeline" — stop suggesting a product, until someone brings it back ----
+
+export const dismissRestock = mutation({
+  args: { key: v.string(), name: v.string(), dismissed: v.boolean() },
+  handler: async (ctx, { key, name, dismissed }) => {
+    await requirePerm(ctx, "purchases.manage")
+    const map = (await getSetting<Record<string, { name: string; at: number }>>(ctx, "restockDismissed")) ?? {}
+    if (dismissed) map[key] = { name, at: Date.now() }
+    else delete map[key]
+    await setSetting(ctx, "restockDismissed", map)
+  },
+})
+
+/** Everything currently removed from "Restock soon" — so it can be reviewed and brought back. */
+export const listDismissedRestock = query({
+  args: {},
+  handler: async (ctx) => {
+    try { await requirePerm(ctx, "purchases.manage") } catch { return [] }
+    const map = (await getSetting<Record<string, { name: string; at: number }>>(ctx, "restockDismissed")) ?? {}
+    return Object.entries(map).map(([key, v]) => ({ key, name: v.name, at: v.at })).sort((a, b) => b.at - a.at)
+  },
+})
+
+export const restockDismissedForProgress = internalQuery({
+  args: {},
+  handler: async (ctx) => (await getSetting<Record<string, { name: string; at: number }>>(ctx, "restockDismissed")) ?? {},
+})
+
 export const access = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -470,9 +498,11 @@ export type TargetProgress = {
   stockCheck: { lines: number; counted: number } | null
   /** What to buy soon, and in which sizes — running low overall, or a size run with a gap in it. Null when there's no plan. */
   restock: RestockSuggestion[] | null
+  /** How many products someone explicitly removed from the restock list — hidden above, but not gone for good. */
+  restockDismissedCount: number
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null, restock: null })
+const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null, restock: null, restockDismissedCount: 0 })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -548,6 +578,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
     let products: ProductRow[] | null = null
     let productInfo: TargetProgress["productInfo"] = null
     let restock: TargetProgress["restock"] = null
+    let restockDismissedCount = 0
     if (data.stock) {
       const stockMap = data.stock
       tests = Object.entries(stockMap)
@@ -631,6 +662,10 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       products = all
       productInfo = { at: snapshot.at, gap: snapshot.gap, unitsShort: all.reduce((s, r) => s + r.stockShort, 0), windowDays: WINDOW_DAYS }
       restock = restockSuggestions({ rows: all, sizesByKey: data.sizeBreakdown ?? {} })
+      // A product someone explicitly removed from this list stays off it until they bring it back themselves.
+      const dismissed = await ctx.runQuery(internal.targets.restockDismissedForProgress, {})
+      restockDismissedCount = Object.keys(dismissed).length
+      if (restock) restock = restock.filter((r) => !dismissed[r.key])
     }
 
     // ---- marketing budget vs spend ----
@@ -684,7 +719,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock }
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
