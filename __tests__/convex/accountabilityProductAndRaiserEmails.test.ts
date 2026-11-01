@@ -114,6 +114,59 @@ describe("resolved — both parties told", () => {
   })
 })
 
+describe("founder gets a copy on creation and resolution", () => {
+  it("emails the configured founder once when a case is raised, and once when it's resolved", async () => {
+    vi.useFakeTimers()
+    try {
+      const { t, as, orderId } = await setup({ Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" } })
+      await as.mutation(api.accountability.saveOwners, {
+        byTeam: { Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" } },
+        founder: { name: "Mosharaf Hossain", email: "founder@blackbole.com" },
+      })
+      await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Wrong product sent", note: "Sent the wrong size" })
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+      const created = (await sentEmails(t)).filter((e: any) => e.to === "founder@blackbole.com")
+      expect(created).toHaveLength(1)
+
+      const flag = (await t.run((ctx) => ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", orderId)).first()))!
+      expect(flag.founderEmailSentAt).toBeDefined()
+
+      // Re-logging the same outcome reuses the still-open flag — the founder must not get a second creation email.
+      await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Wrong product sent", note: "Still wrong size, called again" })
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+      expect((await sentEmails(t)).filter((e: any) => e.to === "founder@blackbole.com")).toHaveLength(1)
+
+      await as.mutation(api.accountability.respond, {
+        id: flag._id,
+        rootCause: "The picker read an old printout instead of the screen.",
+        correctiveAction: "Customer refunded and the correct item re-shipped.",
+        preventiveAction: "Pickers now scan the SKU barcode before sealing.",
+      })
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+
+      const founderEmails = (await sentEmails(t)).filter((e: any) => e.to === "founder@blackbole.com")
+      expect(founderEmails).toHaveLength(2)
+      expect(founderEmails.some((e: any) => /resolved/i.test(e.subject ?? ""))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("sends nothing to the founder when none is configured", async () => {
+    vi.useFakeTimers()
+    try {
+      const { t, as, orderId } = await setup({ Fulfillment: { name: "Rafi", email: "rafi@blackbole.com" } })
+      await as.mutation(api.orders.logReturnCsat, { id: orderId, outcome: "Wrong product sent", note: "Sent the wrong size" })
+      await t.finishAllScheduledFunctions(vi.runAllTimers)
+      const flag = (await t.run((ctx) => ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", orderId)).first()))!
+      expect(flag.founderEmailSentAt).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe("business health — stuck approved orders", () => {
   it("flags Fulfillment once when approved orders have sat untouched past the SLA", async () => {
     const { t, as, orderId } = await setup()

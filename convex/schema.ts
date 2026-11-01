@@ -991,6 +991,10 @@ export default defineSchema({
     raiserEmailSentAt: v.optional(v.number()),
     raiserEmailSkippedReason: v.optional(v.string()),
     resolvedEmailSentAt: v.optional(v.number()), // latch for the "both parties told it's resolved" email, so a resolve can never double-send
+    // Same idempotency pattern, for the founder (Settings → Accountability): one email the moment a case is
+    // created, so they see every case as it happens rather than just the ones that go overdue. The closure
+    // side reuses resolvedEmailSentAt above — it already gates the whole sendResolvedEmails function.
+    founderEmailSentAt: v.optional(v.number()),
 
     // ---- Super Admin edit / re-route (additive) ----
     // A case can be raised against the wrong department, or with a typo in its title. A Super Admin fixes it in

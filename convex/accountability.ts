@@ -20,7 +20,7 @@ export const SLA_DAYS = 2
  *  DEV) so a re-route can only ever pick a department the rest of the app knows how to label. */
 export const DEPARTMENTS = ["Customer Care", "Fulfillment", "Marketing", "Development"]
 
-type Owners = { byTeam: Record<string, { name: string; email: string }>; opsHead?: { name: string; email: string } }
+type Owners = { byTeam: Record<string, { name: string; email: string }>; opsHead?: { name: string; email: string }; founder?: { name: string; email: string } }
 
 export async function ownersConf(ctx: MutationCtx | any): Promise<Owners> {
   return (await getSetting<Owners>(ctx, "accountabilityOwners")) ?? { byTeam: {} }
@@ -79,6 +79,7 @@ export async function raiseAccountabilityFlag(
     subject: `Accountability: your flag on ${invoiceLabel(order)} was routed to ${owner?.name ?? team}`,
     body: `Hi {first},\n\nYou flagged ${invoiceLabel(order)} (${order.customerName}, ${order.phone}) for "${outcome}". It's been routed to ${owner?.name ?? team} and must be answered within ${SLA_DAYS} days. You'll get another email the moment it's resolved.\n\n— BlackBole Ops`,
   })
+  await sendFounderCreatedEmailOnce(ctx, flagId, { team, reason: outcome, note, raisedByName: byName, orderLabel: invoiceLabel(order) })
   return flagId
 }
 
@@ -123,6 +124,21 @@ async function sendRaiserEmailOnce(ctx: MutationCtx, flagId: Doc<"opsFlags">["_i
   })
 }
 
+/** One email to the founder (Settings → Accountability) the moment a case is created — not just when it goes
+ *  overdue. Latched on its own field so re-flagging an existing order (the "reuse" branch in
+ *  raiseAccountabilityFlag) never sends a second creation notice for the same still-open case. Silently does
+ *  nothing when no founder is configured yet. */
+async function sendFounderCreatedEmailOnce(ctx: MutationCtx, flagId: Doc<"opsFlags">["_id"], opts: { team: string; reason: string; note?: string; raisedByName: string; orderLabel?: string }) {
+  const flag = await ctx.db.get(flagId)
+  if (!flag || flag.founderEmailSentAt) return
+  const owners = await ownersConf(ctx)
+  if (!isValidEmail(owners.founder?.email)) return
+  await ctx.db.patch(flagId, { founderEmailSentAt: Date.now() })
+  const subject = `Accountability: new case — ${opts.reason}`
+  const body = `Hi ${owners.founder!.name.split(" ")[0] || "there"},\n\n${opts.orderLabel ? `${opts.orderLabel} — ` : ""}"${opts.reason}" was raised by ${opts.raisedByName}, routed to ${opts.team}${opts.note ? `.\n\nNote: "${opts.note}"` : "."}\n\nYou'll get another email the moment it's resolved.\n\n— BlackBole Ops`
+  await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, { to: owners.founder!.email, subject, text: body })
+}
+
 /** Resolved notice to BOTH the person who raised the flag and the person/department it was answered by — sent
  *  exactly once, latched on resolvedEmailSentAt so a repeated call (there shouldn't be one — `respond` only
  *  runs on a still-open flag) can never send it twice. */
@@ -155,6 +171,14 @@ async function sendResolvedEmails(ctx: MutationCtx, flag: Doc<"opsFlags">, respo
       sentTo.add(extra)
       await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, { to: extra, subject, text: bodyFor((flag.assignee ?? "there").split(" ")[0] || "there") })
     }
+  }
+  // Founder gets a closure notice too, same as they got one when this case was first raised — covered by the
+  // resolvedEmailSentAt gate at the top of this function, so no separate latch is needed here.
+  const owners = await ownersConf(ctx)
+  if (isValidEmail(owners.founder?.email) && !sentTo.has(owners.founder!.email)) {
+    await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, {
+      to: owners.founder!.email, subject, text: bodyFor(owners.founder!.name.split(" ")[0] || "there"),
+    })
   }
 }
 
@@ -237,6 +261,7 @@ export const raiseFreeform = mutation({
       subject: `Accountability: your question was routed to ${owner?.name ?? team}`,
       body: `Hi {first},\n\nYour question was routed to ${owner?.name ?? team}: "${q}". You'll get another email the moment it's answered.\n\n— BlackBole Ops`,
     })
+    await sendFounderCreatedEmailOnce(ctx, id, { team, reason: q, raisedByName: me.staff.name })
     return id
   },
 })
@@ -637,6 +662,7 @@ export const saveOwners = mutation({
   args: {
     byTeam: v.record(v.string(), v.object({ name: v.string(), email: v.string() })),
     opsHead: v.optional(v.object({ name: v.string(), email: v.string() })),
+    founder: v.optional(v.object({ name: v.string(), email: v.string() })),
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "team.manage")

@@ -24,11 +24,13 @@ export function AccountabilitySettings() {
   const save = useMutation(api.accountability.saveOwners)
   const [byTeam, setByTeam] = useState<Record<string, Owner> | null>(null)
   const [opsHead, setOpsHead] = useState<Owner>({ name: "", email: "" })
+  const [founder, setFounder] = useState<Owner>({ name: "", email: "" })
   const [busy, setBusy] = useState(false)
   useEffect(() => {
     if (data && !byTeam) {
       setByTeam(data.byTeam ?? {})
       if (data.opsHead) setOpsHead(data.opsHead)
+      if (data.founder) setFounder(data.founder)
     }
   }, [data, byTeam])
 
@@ -45,7 +47,11 @@ export function AccountabilitySettings() {
         const o = byTeam[t]
         if (o?.name?.trim() && o?.email?.trim()) clean[t] = { name: o.name.trim(), email: o.email.trim() }
       }
-      await save({ byTeam: clean, opsHead: opsHead.name.trim() && opsHead.email.trim() ? { name: opsHead.name.trim(), email: opsHead.email.trim() } : undefined })
+      await save({
+        byTeam: clean,
+        opsHead: opsHead.name.trim() && opsHead.email.trim() ? { name: opsHead.name.trim(), email: opsHead.email.trim() } : undefined,
+        founder: founder.name.trim() && founder.email.trim() ? { name: founder.name.trim(), email: founder.email.trim() } : undefined,
+      })
       toast.success("Saved")
     } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
   }
@@ -91,6 +97,24 @@ export function AccountabilitySettings() {
           <div className="min-w-[200px] flex-1 space-y-1">
             <Label className="text-xs">Email</Label>
             <Input value={opsHead.email} onChange={(e) => setOpsHead((o) => ({ ...o, email: e.target.value }))} placeholder="name@example.com" />
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border bg-card p-5">
+        <h2 className="font-semibold">Founder — every case, as it happens</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This person gets an email the moment any accountability case is raised, and another the moment it's
+          resolved — a regular, ongoing feed of every case, not just the ones that go overdue.
+        </p>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="min-w-[160px] flex-1 space-y-1">
+            <Label className="text-xs">Name</Label>
+            <Input value={founder.name} onChange={(e) => setFounder((o) => ({ ...o, name: e.target.value }))} placeholder="e.g. Emon" />
+          </div>
+          <div className="min-w-[200px] flex-1 space-y-1">
+            <Label className="text-xs">Email</Label>
+            <Input value={founder.email} onChange={(e) => setFounder((o) => ({ ...o, email: e.target.value }))} placeholder="name@example.com" />
           </div>
         </div>
       </section>
