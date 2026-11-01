@@ -123,8 +123,8 @@ export async function saveRating(ctx: any, surveyId: string, waId: string, n: nu
 
 const thanks = (name: string, n: number, amount: number, code: string | null) =>
   code
-    ? `Thank you ${first(name)}! 🙏 You rated us ${n}/10.\n\nWelcome to the BlackBole family! 💛 As a thank-you, here is your Tk ${amount} discount code for your next order:\n\n*${code}*\n\nValid for ${CODE_DAYS} days on orders of Tk ${MIN_ORDER.toLocaleString("en-IN")} or more at blackbole.top. — BlackBole`
-    : `Thank you ${first(name)}! 🙏 You rated us ${n}/10.\n\nWelcome to the BlackBole family! 💛 Our team will send your Tk ${amount} discount code for your next order very soon. — BlackBole`
+    ? `Thank you ${first(name)}! 🙏 You rated us ${n}/10.\n\nWelcome to the BlackBole family! 💛 As a thank-you, here is your Tk ${amount} discount code for your next order:\n\n*${code}*\n\nValid for ${CODE_DAYS} days on orders of Tk ${MIN_ORDER.toLocaleString("en-IN")} or more at blackbole.top.\n\nLooking for your next pair? Reply here with your size and we will help you choose. — BlackBole`
+    : `Thank you ${first(name)}! 🙏 You rated us ${n}/10.\n\nWelcome to the BlackBole family! 💛 Our team will send your Tk ${amount} discount code for your next order very soon.\n\nLooking for your next pair? Reply here with your size and we will help you choose. — BlackBole`
 
 const randomCode = () => Array.from({ length: 5 }, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]).join("")
 
