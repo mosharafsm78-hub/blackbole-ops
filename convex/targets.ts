@@ -281,8 +281,9 @@ type Gathered = {
 const preOrderKey = (category: string | null) => `cat:${category || "Uncategorized"}`
 
 /** Sellable REAL pairs per product (system stock minus the fake/test part the team marked), plus how much of the
- *  stock has been counted so far, and the skuBase → category-plan-key map for pre-order products (used to fold
- *  their sales history into the same category bucket before the plan is built). */
+ *  stock has been counted so far, and the skuBase → final-plan-key remap (used to fold sales history onto the
+ *  right row): a pre-order SKU maps onto its category's key, and any SKU whose product is a catalog duplicate —
+ *  the same product listed more than once — maps onto the single canonical row it was merged into. */
 async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: number; counted: number; preOrderKeyBySku: Record<string, string> }> {
   type P = { id: string; name: string; active: boolean; deleted: boolean; preOrder: boolean; category: string | null }
   type V = { id: string; sku: string; productId: string; active: boolean; cost: number; price: number }
@@ -307,6 +308,7 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
   const out: StockMap = {}
   const costSum: Record<string, { sum: number; n: number }> = {}
   const preOrderKeyBySku: Record<string, string> = {}
+  const skusByKey: Record<string, string[]> = {} // plan key -> every skuBase that landed there, for the merge below
   for (const x of variants) {
     if (!x.active) continue
     const p = prod.get(x.productId)
@@ -315,6 +317,7 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
     const skuKey = skuBase(x.sku)
     const key = isPreOrder ? preOrderKey(p.category) : skuKey
     if (isPreOrder) preOrderKeyBySku[skuKey] = key
+    ;(skusByKey[key] ??= []).push(skuKey)
     const entry = (out[key] ??= { name: isPreOrder ? `${p.category || "Uncategorized"} — pre-order` : p.name, units: 0, cost: null, price: 0, sizes: 0, sizesIn: 0, fake: 0 })
     entry.sizes++
     entry.fake += fakeByVariant.get(x.id) ?? 0
@@ -326,6 +329,30 @@ async function gatherStock(ctx: ActionCtx): Promise<{ map: StockMap; lines: numb
   }
   for (const e of Object.values(out)) e.price = e.sizes > 0 ? e.price / e.sizes : 0
   for (const [k, c] of Object.entries(costSum)) out[k].cost = c.sum / c.n
+
+  // Catalog duplicates: the exact same product listed under the catalog more than once — a relaunch that
+  // added new SKUs without deactivating the old shell, say, or a duplicate created by mistake — otherwise
+  // split one product's demand and stock into several paper-thin plan rows, each getting its own ad-push line
+  // on the Target page even though they're the same real-world listing. Any plan rows that ended up with the
+  // exact same display name are folded into one here, so the plan — and the ad spend it drives — treats them
+  // as the single product they are. The row with the most sellable stock becomes the canonical one.
+  const byName: Record<string, string[]> = {}
+  for (const [key, e] of Object.entries(out)) (byName[e.name] ??= []).push(key)
+  for (const keys of Object.values(byName)) {
+    if (keys.length < 2) continue
+    const canonicalKey = keys.slice().sort((a, b) => (out[b].units ?? Infinity) - (out[a].units ?? Infinity) || a.localeCompare(b))[0]
+    const merged = out[canonicalKey]
+    for (const key of keys) {
+      if (key === canonicalKey) continue
+      const e = out[key]
+      merged.sizes += e.sizes
+      merged.sizesIn += e.sizesIn
+      merged.fake += e.fake
+      merged.units = merged.units === null || e.units === null ? null : merged.units + e.units
+      for (const sku of skusByKey[key] ?? []) preOrderKeyBySku[sku] = canonicalKey
+      delete out[key]
+    }
+  }
   return { map: out, lines, counted, preOrderKeyBySku }
 }
 
@@ -358,8 +385,9 @@ async function gather(ctx: ActionCtx, month: string, start: string | undefined, 
   const from = historic ? mStart : Math.min(mStart, now - WINDOW_DAYS * DAY)
   const to = historic ? mEnd : now + 1
   const [rows, gotStock, returned] = await Promise.all([salesRows(ctx, from, to), historic ? Promise.resolve(null) : gatherStock(ctx), historic ? Promise.resolve(undefined) : returnedStats(ctx, now - WINDOW_DAYS * DAY, now + 1)])
-  // Fold each pre-order SKU's sales into its category's plan key before summarizing, so demand (and the plan
-  // built from it) is measured per category, same as gatherStock already keys their stock/name entry.
+  // Fold each sale onto its final plan key before summarizing — a pre-order SKU onto its category's key, and
+  // any SKU whose product turned out to be a catalog duplicate onto the canonical row gatherStock merged it
+  // into — so demand is measured the same way the stock/name entry is already keyed.
   if (gotStock) for (const r of rows) for (const it of r.items) { const k = gotStock.preOrderKeyBySku[it.k]; if (k) it.k = k }
   const s = summarizeSales(rows, { startMs: mStart, endMs: mEnd })
   // Real costs are measured on the same trailing window as the sales that decide the plan.

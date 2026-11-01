@@ -226,6 +226,48 @@ describe("pre-order is planned by category, not by product", () => {
   })
 })
 
+describe("catalog duplicates are merged into one plan row", () => {
+  // The team found the same product listed several times in the catalog — a relaunch under new SKUs that never
+  // deactivated the old shell. Left alone, each duplicate gets its own paper-thin plan row and its own ad-push
+  // line on the Target page: the same listing competing against itself for marketing budget.
+
+  it("folds two in-stock products with the exact same name into one row, summing their stock and sales", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 2, "BB-SH-BHSS-BLACK") // the old, nearly-dead shell
+    await addProduct("BlackBole Harbor Shore Sandal For Men - Black", 70, "BB-SH-BHSS-BLACK-NEW") // the real, relaunched listing
+    await sell("BB-SH-BHSS-BLACK-NEW-41", "BlackBole Harbor Shore Sandal For Men - Black", 10, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.filter((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")).toHaveLength(1)
+    const row = p.products!.find((r) => r.name === "BlackBole Harbor Shore Sandal For Men - Black")!
+    expect(row.stockUnits).toBe(72) // 2 + 70, not two separate rows each getting their own ad budget
+  })
+
+  it("merges a duplicate even when the two catalog entries have different categories", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Duplicate Loafer", 1, "BB-DUP-OLD", { category: "Shoe" })
+    await addProduct("Duplicate Loafer", 50, "BB-DUP-NEW", { category: "Sandals" })
+    await sell("BB-DUP-NEW-41", "Duplicate Loafer", 8, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.filter((r) => r.name === "Duplicate Loafer")).toHaveLength(1)
+  })
+
+  it("never merges two genuinely different products that just happen to both have stock", async () => {
+    const { asAdmin, addProduct, sell } = await setup()
+    await addProduct("Hero Sandal", 10, "BB-HERO")
+    await addProduct("Soft Slide", 500, "BB-SOFT")
+    await sell("BB-HERO-41", "Hero Sandal", 60, 1000, NOW - 20 * DAY)
+    await sell("BB-SOFT-41", "Soft Slide", 30, 1000, NOW - 20 * DAY)
+    await asAdmin.mutation(api.targets.setMonthlyTarget, { month: "2026-11", amount: 100000 })
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.products!.map((r) => r.name).sort()).toEqual(["Hero Sandal", "Soft Slide"])
+  })
+})
+
 describe("marketing budget vs spend", () => {
   const meta = (spendPerDay: number) =>
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
