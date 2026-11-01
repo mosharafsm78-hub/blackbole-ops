@@ -17,7 +17,7 @@ import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { ownersConf } from "./accountability"
 import { awardPoints } from "./kpi"
-import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
+import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, monthStartMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
   buildPlan, buySuggestion, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, restockSuggestions, skuBase, summarizeSales,
   type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type RestockSuggestion, type SaleRow, type SalesSummary, type SizeStock,
@@ -29,6 +29,10 @@ const WINDOW_DAYS = 60 // how far back "what sells" is measured
 const CACHE_MS = 60000
 const SPEND_MS = 5 * 60000
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])
+// Marketing's own KPI, separate from the delivered-revenue target above: the full order total counts the moment
+// an order is first approved, and keeps counting even if it's later cancelled or comes back — Marketing only
+// brings the order in, it isn't responsible for delivery. Fixed for now (Settings → KPI can change it).
+const DEFAULT_GROSS_TARGET = 1800000
 
 // ---------------------------------------------------------------------------------------------------------------
 // The target itself
@@ -66,6 +70,30 @@ export const setMonthlyTarget = mutation({
     if (existing) await ctx.db.patch(existing._id, existing.amount === whole ? row : { ...row, plan: undefined })
     else await ctx.db.insert("revenueTargets", row)
   },
+})
+
+/** Marketing's own gross-sale target (a flat number for now, not month-keyed): the full value of orders once
+ *  approved, whatever happens to them afterward. */
+export const getGrossTarget = query({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    if (!(await currentStaff(ctx))) return DEFAULT_GROSS_TARGET
+    return (await getSetting<number>(ctx, "grossSaleTarget")) ?? DEFAULT_GROSS_TARGET
+  },
+})
+
+export const setGrossTarget = mutation({
+  args: { amount: v.number() },
+  handler: async (ctx, { amount }) => {
+    await requirePerm(ctx, "team.manage")
+    if (!Number.isFinite(amount) || amount < 0) throw new ConvexError("The target must be zero or more.")
+    await setSetting(ctx, "grossSaleTarget", Math.round(amount))
+  },
+})
+
+export const grossTargetForProgress = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<number> => (await getSetting<number>(ctx, "grossSaleTarget")) ?? DEFAULT_GROSS_TARGET,
 })
 
 // ---- monthly running costs (salary, rent, other): they decide what target is needed to make a profit ----
@@ -193,6 +221,20 @@ export const salesPage = internalQuery({
   },
 })
 
+/** One page of orders first approved in [from, to), for Marketing's gross-sale number. Unlike salesPage, this is
+ *  NOT filtered by current status: an order counts the moment it's approved and keeps counting even if it's
+ *  later cancelled or returned — Marketing brought the order in, delivery isn't theirs to answer for. */
+export const grossPage = internalQuery({
+  args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, to, cursor }): Promise<Page<{ total: number }>> => {
+    const res = await ctx.db
+      .query("orders")
+      .withIndex("by_approved", (q) => q.gte("approvedAt", from).lt("approvedAt", to))
+      .paginate({ cursor, numItems: 300 })
+    return { isDone: res.isDone, cursor: res.continueCursor, rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ total: o.total })) }
+  },
+})
+
 /** Returned parcels whose status changed in [from, to): what came back, and what the courier charged for it. */
 export const returnedPage = internalQuery({
   args: { status: v.union(v.literal("returned"), v.literal("pending_returned"), v.literal("damaged")), from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
@@ -274,6 +316,18 @@ async function pageAll<T>(next: (cursor: string | null) => Promise<Page<T>>): Pr
 
 const salesRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]> =>
   pageAll<SaleRow>((cursor) => ctx.runQuery(internal.targets.salesPage, { from, to, cursor }))
+
+/** Marketing's gross sale for a calendar month: every order's full total, counted once it was first approved,
+ *  whatever happened to it after. */
+async function grossSales(ctx: ActionCtx, month: string): Promise<number> {
+  const rows = await pageAll<{ total: number }>((cursor) => ctx.runQuery(internal.targets.grossPage, { from: monthStartMs(month), to: monthEndMs(month), cursor }))
+  return rows.reduce((s, r) => s + r.total, 0)
+}
+
+async function grossProgress(ctx: ActionCtx, month: string): Promise<{ target: number; mtd: number }> {
+  const [target, mtd] = await Promise.all([ctx.runQuery(internal.targets.grossTargetForProgress, {}), grossSales(ctx, month)])
+  return { target, mtd }
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Gathering what the plan is built from
@@ -500,9 +554,12 @@ export type TargetProgress = {
   restock: RestockSuggestion[] | null
   /** How many products someone explicitly removed from the restock list — hidden above, but not gone for good. */
   restockDismissedCount: number
+  /** Marketing's own KPI — gross sale, this calendar month: every order's full total once approved, counted
+   *  whatever happens to it afterward (unlike `plan`, which is delivered orders only). A fixed target for now. */
+  gross: { target: number; mtd: number } | null
 }
 
-const EMPTY = (month: string, now: number): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null, restock: null, restockDismissedCount: 0 })
+const EMPTY = (month: string, now: number, gross: TargetProgress["gross"] = null): TargetProgress => ({ month, asOf: now, target: null, plan: null, products: null, productInfo: null, marketing: null, profit: null, daily: null, measured: null, auto: false, tests: [], stockCheck: null, restock: null, restockDismissedCount: 0, gross })
 
 /** Where the month stands against its target: totals, today's target, every product's plan, and budget vs spend.
  *  Shows the current month's target, or next month's when this month has none yet. */
@@ -534,13 +591,18 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
     const current = dhakaMonth(now)
     if (month !== undefined && !isMonthKey(month)) throw new ConvexError("Pick a valid month.")
 
+    // Marketing's gross-sale KPI tracks the real calendar month, independent of the delivered-target period
+    // logic below (which can roll over to next month early) — always computed, so it shows even with no
+    // delivered target set at all.
+    const gross = await grossProgress(ctx, current)
+
     let m = month ?? current
     let row = await ctx.runQuery(internal.targets.targetRow, { month: m })
     if (!row && month === undefined) {
       const next = await ctx.runQuery(internal.targets.targetRow, { month: nextMonthKey(current) })
       if (next) { row = next; m = next.month }
     }
-    if (!row) return EMPTY(m, now)
+    if (!row) return EMPTY(m, now, gross)
     if (!row.start && m > current) { // entered before this feature: it starts today
       const day = dhakaDay(now)
       await ctx.runMutation(internal.targets.backfillStart, { month: m, day })
@@ -721,7 +783,7 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
       }
     }
 
-    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount }
+    return { month: m, asOf: now, target: { amount: row.amount, setByName: row.setByName }, plan: monthPlan, products, productInfo, marketing, profit, daily, measured, auto: !!row.auto, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount, gross }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -88,7 +88,7 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
         </section>
         <section className="rounded-xl border bg-card p-4" data-testid="target-monthly">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">Monthly target — {monthLabel(p.month)}{data.auto && <span className="ml-2 rounded bg-tone-blue/15 px-1.5 py-0.5 text-[11px] font-semibold text-tone-blue">set automatically</span>}</h2>
+            <h2 className="text-sm font-semibold">Monthly target (Cx — delivered) — {monthLabel(p.month)}{data.auto && <span className="ml-2 rounded bg-tone-blue/15 px-1.5 py-0.5 text-[11px] font-semibold text-tone-blue">set automatically</span>}</h2>
             <Pill tone={beaten || onPace ? "green" : "amber"}>{beaten ? "Target reached" : `${p.pct}%`}</Pill>
           </div>
           <div className="mt-2 text-3xl font-bold tabular-nums">{taka(p.target)}</div>
@@ -102,6 +102,7 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
         </section>
       </div>
 
+      {data.gross && <GrossSaleStrip gross={data.gross} />}
       <StockNotes data={data} />
       <RestockSuggestions data={data} refetch={refetch} />
       <DailyMarketing data={data} />
@@ -112,6 +113,30 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
       <Schedule p={p} />
       <ProductPlan data={data} target={p.target} />
     </div>
+  )
+}
+
+/** Marketing's own KPI: the full value of orders once approved, this month — regardless of whether they're later
+ *  delivered, cancelled or returned. Deliberately styled apart from the delivered-revenue cards above so the two
+ *  audiences (finance/ops vs. marketing) don't mix them up. */
+export function GrossSaleStrip({ gross }: { gross: NonNullable<TargetProgress["gross"]> }) {
+  const pct = gross.target > 0 ? Math.round((gross.mtd / gross.target) * 100) : 0
+  const beaten = gross.mtd >= gross.target
+  return (
+    <section className="rounded-xl border border-tone-violet/30 bg-tone-violet-bg/20 p-4" data-testid="target-gross-sale">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Gross sale (Marketing)</h2>
+        <Pill tone={beaten ? "green" : "violet"}>{beaten ? "Target reached" : `${pct}%`}</Pill>
+      </div>
+      <p className="mt-0.5 text-xs text-muted-foreground">Every order counted the moment it's approved, whatever happens to it after — Marketing brings the order in, delivery isn't theirs to answer for. Separate from the delivered-revenue target below.</p>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.min(100, pct)} aria-valuemin={0} aria-valuemax={100}>
+        <div className={cn("h-full rounded-full", beaten ? "bg-tone-green" : "bg-tone-violet")} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <Fig label="Gross sale so far" value={taka(gross.mtd)} sub={`of ${taka(gross.target)} this month`} tone={beaten ? "green" : undefined} />
+        <Fig label="Still needed" value={taka(Math.max(0, gross.target - gross.mtd))} sub={beaten ? "target reached" : "to reach the gross-sale target"} />
+      </div>
+    </section>
   )
 }
 

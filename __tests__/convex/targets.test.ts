@@ -171,7 +171,7 @@ async function setup() {
     ctx.db.insert("customers", { code: 1, name: "Test Customer", phone: "01711000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: NOW }),
   )
   let invoiceNo = 1000
-  const addOrder = (o: { status: string; total: number; deliveredAt?: number; deletedAt?: number }) =>
+  const addOrder = (o: { status: string; total: number; deliveredAt?: number; deletedAt?: number; approvedAt?: number }) =>
     t.run((ctx) =>
       ctx.db.insert("orders", {
         invoiceNo: ++invoiceNo, status: o.status as any, source: "Website", customerId, customerName: "Test Customer", phone: "01711000000",
@@ -179,7 +179,7 @@ async function setup() {
         items: [{ sku: "BB-X-41", name: "Test Sandal", price: o.total, qty: 1, discount: 0, weightKg: 0.4 }],
         subtotal: o.total, discount: 0, deliveryFee: 0, paidAmount: 0, total: o.total, due: o.total, callCount: 0,
         createdByName: "Emon", createdAt: NOW - 20 * 86400000, updatedAt: NOW, statusChangedAt: NOW,
-        deliveredAt: o.deliveredAt, deletedAt: o.deletedAt,
+        deliveredAt: o.deliveredAt, deletedAt: o.deletedAt, approvedAt: o.approvedAt,
       }),
     )
   return { t, asAdmin, asCx, addOrder }
@@ -289,5 +289,47 @@ describe("progress against the target", () => {
     const { t, asAdmin } = await setup()
     await expect(asAdmin.action(api.targets.progress, { month: "nope" })).rejects.toThrow(/valid month/)
     await expect(t.action(api.targets.progress, {})).rejects.toThrow(/not signed in/)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------------------------
+// Marketing's own KPI: gross sale. Separate from the Cx (delivered) target above — counts an order's full total
+// the moment it's first approved, THIS calendar month, whatever happens to the order afterward (cancelled,
+// returned, still in transit — it doesn't matter, Marketing already brought it in).
+describe("gross sale (Marketing's target)", () => {
+  it("defaults to 18,00,000 until someone sets it, and is readable without a delivered target existing at all", async () => {
+    const { asAdmin } = await setup()
+    expect(await asAdmin.query(api.targets.getGrossTarget, {})).toBe(1800000)
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.target).toBeNull() // no delivered target set
+    expect(p.gross).toEqual({ target: 1800000, mtd: 0 })
+  })
+
+  it("lets an admin change it, but not someone without team-management rights", async () => {
+    const { asAdmin, asCx } = await setup()
+    await asAdmin.mutation(api.targets.setGrossTarget, { amount: 2000000 })
+    expect(await asAdmin.query(api.targets.getGrossTarget, {})).toBe(2000000)
+    await expect(asCx.mutation(api.targets.setGrossTarget, { amount: 1 })).rejects.toThrow(/permission/)
+  })
+
+  it("refuses a negative or non-numeric amount", async () => {
+    const { asAdmin } = await setup()
+    await expect(asAdmin.mutation(api.targets.setGrossTarget, { amount: -1 })).rejects.toThrow(/zero or more/)
+    await expect(asAdmin.mutation(api.targets.setGrossTarget, { amount: Number.NaN })).rejects.toThrow(/zero or more/)
+  })
+
+  it("counts an order's full total once approved, THIS month, regardless of its current status", async () => {
+    const { asAdmin, addOrder } = await setup()
+    await addOrder({ status: "approved", total: 5000, approvedAt: Date.parse("2026-11-02T04:00:00Z") })
+    await addOrder({ status: "cancelled", total: 3000, approvedAt: Date.parse("2026-11-05T04:00:00Z") }) // approved, then cancelled — still counts
+    await addOrder({ status: "returned", total: 2000, approvedAt: Date.parse("2026-11-09T04:00:00Z") }) // approved, then returned — still counts
+    await addOrder({ status: "delivered_paid", total: 1000, approvedAt: Date.parse("2026-11-10T04:00:00Z") })
+    // none of these count:
+    await addOrder({ status: "approved", total: 9999, approvedAt: Date.parse("2026-11-10T04:00:00Z"), deletedAt: NOW }) // deleted
+    await addOrder({ status: "approved", total: 7777, approvedAt: Date.parse("2026-10-31T17:30:00Z") }) // 23:30 Dhaka, Oct 31 — last month
+    await addOrder({ status: "pending", total: 4444 }) // never approved
+
+    const p = await asAdmin.action(api.targets.progress, {})
+    expect(p.gross).toEqual({ target: 1800000, mtd: 11000 })
   })
 })

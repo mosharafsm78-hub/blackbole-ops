@@ -20,18 +20,60 @@ export function RevenueTargetSettings() {
   const thisMonth = dhakaMonth(Date.now())
   return (
     <section className="rounded-lg border bg-card p-5" data-testid="revenue-target-settings">
-      <h2 className="font-semibold">Monthly revenue target</h2>
+      <h2 className="font-semibold">Monthly revenue target (Cx — net delivered)</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        One target for the whole company. Only delivered orders count, on the day they're delivered. The Dashboard
-        turns it into a daily target that re-balances every day — a slow day raises tomorrow's target, a big day
-        lowers it. Set 0 to remove a target.
+        One target for the whole company, for the Cx/delivery side. Only delivered orders count, on the day they're
+        delivered. The Dashboard turns it into a daily target that re-balances every day — a slow day raises
+        tomorrow's target, a big day lowers it. Set 0 to remove a target.
       </p>
       <div className="mt-4 space-y-3">
         <TargetRow month={thisMonth} />
         <TargetRow month={nextMonth(thisMonth)} />
       </div>
+      <GrossTargetForm />
       <CostsForm />
     </section>
+  )
+}
+
+/** Marketing's own KPI: a flat gross-sale target (every order's full total, counted once approved — not tied
+ *  to delivery). Not month-keyed, unlike the delivered-revenue target above. */
+function GrossTargetForm() {
+  const current = useQuery(api.targets.getGrossTarget)
+  const save = useMutation(api.targets.setGrossTarget)
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { if (current !== undefined) setDraft(String(current)) }, [current])
+
+  if (current === undefined) return <Loading />
+
+  const amount = draft.trim() === "" ? 0 : Number(draft)
+  const invalid = !Number.isFinite(amount) || amount < 0
+  const unchanged = Math.round(amount) === current
+
+  const commit = async () => {
+    setBusy(true)
+    try { await save({ amount }); toast.success(`Gross-sale target set to ${taka(amount)}`) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="mt-5 border-t pt-4" data-testid="gross-target-settings">
+      <h3 className="text-sm font-semibold">Gross-sale target (Marketing)</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Marketing is liable for bringing orders in, not for whether they're later delivered. This target counts
+        every order's full total the moment it's approved — a fixed number, shown on the Target page separately
+        from the delivered-revenue target above.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">৳</span>
+        <Input
+          type="number" inputMode="numeric" min={0} step={1000} placeholder="e.g. 1800000" value={draft}
+          onChange={(e) => setDraft(e.target.value)} className="w-40 text-right tabular-nums" disabled={busy} aria-label="Gross-sale target"
+        />
+        <Button size="sm" disabled={busy || invalid || unchanged} onClick={() => void commit()}>Save</Button>
+      </div>
+    </div>
   )
 }
 
