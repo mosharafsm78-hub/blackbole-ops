@@ -333,3 +333,110 @@ describe("gross sale (Marketing's target)", () => {
     expect(p.gross).toEqual({ target: 1800000, mtd: 13500 })
   })
 })
+
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Like setup(), but with real products/stock/sales so the product plan itself (not just the gross total) can be
+ *  exercised — needed for the manual-override tests below. */
+async function setupWithProducts() {
+  const t = makeT()
+  const adminUser = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+  const asAdmin = t.withIdentity({ subject: `${adminUser}|s1` })
+  await asAdmin.mutation(api.team.claim, { name: "Emon" })
+  const locationId = (await asAdmin.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id as Id<"locations">
+  const customerId = await t.run((ctx) =>
+    ctx.db.insert("customers", { code: 1, name: "C", phone: "01711000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: NOW }),
+  )
+  const addProduct = async (name: string, sizes: Record<string, number>, base: string) => {
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name, active: true, createdAt: NOW }))
+    const variantIds: Id<"variants">[] = []
+    for (const [size, qty] of Object.entries(sizes)) {
+      const variantId = await t.run((ctx) => ctx.db.insert("variants", { productId, sku: `${base}-${size}`, title: size, weightKg: 0.4, price: 1000, purchasePrice: 500, active: true }))
+      await t.run((ctx) => ctx.db.insert("stock", { variantId, locationId, available: qty, processing: 0, inTransit: 0, returning: 0, damaged: 0 }))
+      variantIds.push(variantId)
+    }
+    return { productId, variantIds }
+  }
+  let inv = 2000
+  // Placed (gross) orders, same as the DEFAULT_GROSS_TARGET counting basis: createdAt is what matters.
+  const place = (sku: string, qty: number, at: number) =>
+    t.run((ctx) => ctx.db.insert("orders", {
+      invoiceNo: ++inv, status: "approved", source: "Website", customerId, customerName: "C", phone: "01711000000", address: "House 1", locationId, deliveryType: "regular",
+      items: [{ sku, name: sku, price: 1000, qty, discount: 0, weightKg: 0.4 }], subtotal: 1000 * qty, discount: 0, deliveryFee: 0, paidAmount: 0, total: 1000 * qty, due: 0, callCount: 0,
+      createdByName: "Emon", createdAt: at, updatedAt: at, statusChangedAt: at,
+    }))
+  return { t, asAdmin, locationId, addProduct, place }
+}
+
+describe("Marketing's manual overrides on the product plan", () => {
+  it("leaves the plan untouched with no overrides set", async () => {
+    const { asAdmin, addProduct, place } = await setupWithProducts()
+    await addProduct("Model A", { "41": 50 }, "BB-A")
+    await place("BB-A-41", 10, NOW - 86400000)
+    const p = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(p.products!.find((r) => r.key === "BB-A")).toBeTruthy()
+  })
+
+  it("drops an excluded product from the plan entirely, sold-so-far included", async () => {
+    const { asAdmin, addProduct, place } = await setupWithProducts()
+    await addProduct("Model A", { "41": 50 }, "BB-A")
+    await addProduct("Model B", { "41": 50 }, "BB-B")
+    await place("BB-A-41", 10, NOW - 86400000)
+    await place("BB-B-41", 10, NOW - 86400000)
+    const before = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(before.products!.find((r) => r.key === "BB-A")).toBeTruthy()
+
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-A", name: "Model A", excluded: true })
+    vi.setSystemTime(NOW + 70000) // past the 60s data cache, so the plan is re-read fresh
+    const after = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(after.products!.find((r) => r.key === "BB-A")).toBeUndefined()
+    expect(after.products!.find((r) => r.key === "BB-B")).toBeTruthy()
+  })
+
+  it("fixes a manual month-total target instead of the automatic split, and still flags it short against stock", async () => {
+    const { asAdmin, addProduct, place } = await setupWithProducts()
+    await addProduct("Model A", { "41": 50 }, "BB-A")
+    await place("BB-A-41", 5, NOW - 86400000)
+
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-A", name: "Model A", units: 80 }) // more than its 50 in stock
+    vi.setSystemTime(NOW + 70000)
+    const p = await asAdmin.action(api.targets.marketingProgress, {})
+    const row = p.products!.find((r) => r.key === "BB-A")!
+    expect(row.monthUnits).toBe(80)
+    expect(row.stockShort).toBe(25) // 75 still to sell (80 - 5 already placed), only 50 in stock
+  })
+
+  it("force-includes a product that wouldn't otherwise qualify (sold out, no recent sales)", async () => {
+    const { asAdmin, addProduct } = await setupWithProducts()
+    await addProduct("Model D", { "41": 0 }, "BB-D") // nothing in stock, nothing sold
+
+    const before = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(before.products!.find((r) => r.key === "BB-D")).toBeUndefined()
+
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-D", name: "Model D", units: 15 })
+    vi.setSystemTime(NOW + 70000)
+    const after = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(after.products!.find((r) => r.key === "BB-D")).toMatchObject({ monthUnits: 15 })
+  })
+
+  it("clearing an override reverts the product to its automatic behaviour", async () => {
+    const { asAdmin, addProduct } = await setupWithProducts()
+    await addProduct("Model D", { "41": 0 }, "BB-D")
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-D", name: "Model D", units: 15 })
+    vi.setSystemTime(NOW + 70000)
+    expect((await asAdmin.action(api.targets.marketingProgress, {})).products!.find((r) => r.key === "BB-D")).toBeTruthy()
+
+    await asAdmin.mutation(api.targets.setMarketingOverride, { key: "BB-D", name: "Model D" }) // no fields set → clears it
+    expect(await asAdmin.query(api.targets.marketingOverrides, {})).toEqual({})
+    vi.setSystemTime(NOW + 140000)
+    const after = await asAdmin.action(api.targets.marketingProgress, {})
+    expect(after.products!.find((r) => r.key === "BB-D")).toBeUndefined() // back to not qualifying on its own
+  })
+
+  it("lists every active product for the picker, keyed the same way the plan keys them", async () => {
+    const { asAdmin, addProduct } = await setupWithProducts()
+    await addProduct("Model A", { "41": 10 }, "BB-A")
+    const options = await asAdmin.action(api.targets.marketingProductOptions, {})
+    expect(options.find((o) => o.key === "BB-A")).toMatchObject({ name: "Model A", stockUnits: 10 })
+  })
+})

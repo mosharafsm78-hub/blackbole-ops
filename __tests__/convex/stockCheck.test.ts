@@ -236,7 +236,7 @@ describe("the plan follows the counts as they are entered", () => {
     const second = await asAdmin.action(api.targets.progress, {})
     expect(second.products!.find((r) => r.key === "BB-A")!.stockUnits).toBe(495)
     const saved = await t.run((ctx) => ctx.db.query("revenueTargets").first())
-    expect(saved!.plan.check).toBe("1:5") // one line counted, 5 test pairs
+    expect(saved!.plan.check).toBe("1:5:") // one line counted, 5 test pairs, no overrides
     void planA
   })
 })

@@ -20,7 +20,7 @@ import { awardPoints } from "./kpi"
 import { dayNo, dayStartMs, dhakaDay, dhakaMonth, isMonthKey, monthEndMs, monthStartMs, nextMonthKey, periodOf, planMonth, prevMonthKey, type MonthPlan } from "./targetMath"
 import {
   buildPlan, buySuggestion, classify, dailyPlan, DEFAULT_COSTS, measureCosts, PLAN_VERSION, stockMoved, fixedTotal, marketingPlan, mixMargin, suggestTarget, onPace, productRows, profitPlan, restockSuggestions, skuBase, summarizeSales,
-  type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductPlan, type ProductRow, type RestockSuggestion, type SaleRow, type SalesSummary, type SizeStock,
+  type DailyPlan, type MarketingPlan, type MeasuredCosts, type MonthlyCosts, type ProfitPlan, type ProductInput, type ProductOverride, type ProductPlan, type ProductRow, type RestockSuggestion, type SaleRow, type SalesSummary, type SizeStock,
 } from "./targetPlan"
 
 const DAY = 86400000
@@ -160,6 +160,52 @@ export const listDismissedRestock = query({
 export const restockDismissedForProgress = internalQuery({
   args: {},
   handler: async (ctx) => (await getSetting<Record<string, { name: string; at: number }>>(ctx, "restockDismissed")) ?? {},
+})
+
+// ---- Marketing's manual say over its own product plan: add a product, drop one, or fix its pairs target ----
+
+/** Everything currently overridden on Marketing's product plan, by key. */
+export const marketingOverrides = query({
+  args: {},
+  handler: async (ctx): Promise<Record<string, ProductOverride>> => {
+    if (!(await currentStaff(ctx))) return {}
+    return (await getSetting<Record<string, ProductOverride>>(ctx, "marketingPlanOverrides")) ?? {}
+  },
+})
+
+export const marketingOverridesForProgress = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<Record<string, ProductOverride>> => (await getSetting<Record<string, ProductOverride>>(ctx, "marketingPlanOverrides")) ?? {},
+})
+
+/** Sets (or, with every field left out, clears) one product's manual override on the Marketing plan: `included`
+ *  forces it in even with no sales or stock of its own, `excluded` drops it whatever its sales or stock say, and
+ *  `units` fixes its month-total pairs target instead of the automatic split. Open to every signed-in staff
+ *  member, same as the Target page itself. */
+export const setMarketingOverride = mutation({
+  args: { key: v.string(), name: v.string(), included: v.optional(v.boolean()), excluded: v.optional(v.boolean()), units: v.optional(v.number()) },
+  handler: async (ctx, { key, name, included, excluded, units }) => {
+    if (!(await currentStaff(ctx))) throw new ConvexError("You are not signed in or your access was removed.")
+    if (units !== undefined && (!Number.isFinite(units) || units < 0)) throw new ConvexError("The target must be zero or more.")
+    const overrides = (await getSetting<Record<string, ProductOverride>>(ctx, "marketingPlanOverrides")) ?? {}
+    if (!included && !excluded && units === undefined) delete overrides[key]
+    else overrides[key] = { name, ...(included ? { included: true } : {}), ...(excluded ? { excluded: true } : {}), ...(units !== undefined ? { units: Math.round(units) } : {}) }
+    await setSetting(ctx, "marketingPlanOverrides", overrides)
+  },
+})
+
+/** Every currently active, sellable product (or pre-order category) — for the "add a product" picker, keyed
+ *  exactly the way the real plan keys them (same merge rules as gatherStock), so an override always lands on
+ *  the right row. */
+export const marketingProductOptions = action({
+  args: {},
+  handler: async (ctx): Promise<{ key: string; name: string; stockUnits: number | null; price: number }[]> => {
+    await ctx.runQuery(internal.targets.access, {})
+    const { map } = await gatherStock(ctx)
+    return Object.entries(map)
+      .map(([key, e]) => ({ key, name: e.name, stockUnits: e.units, price: Math.round(e.price) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  },
 })
 
 export const access = internalQuery({
@@ -636,10 +682,13 @@ type ProductsResult = {
  *  Marketing (gross) plan below — identical mechanics, different revenue basis: `revenueLeft` and the sales
  *  figures baked into `data` are the only things that differ between them. `snapshotIn` is whatever plan was
  *  saved last time (so it's only rebuilt when stock, the day, or the target actually changed); `save` persists a
- *  freshly built one wherever the caller keeps it (a revenueTargets row for Cx, a setting for Marketing). */
+ *  freshly built one wherever the caller keeps it (a revenueTargets row for Cx, a setting for Marketing).
+ *  `overrides` is Marketing's manual say over its own plan (see setMarketingOverride) — always empty for Cx, which
+ *  never reads it. */
 async function planProducts(
   ctx: ActionCtx, data: Gathered, revenueLeft: number, now: number, today: string, daysLeft: number, started: boolean,
   snapshotIn: ProductPlan | undefined, save: (plan: ProductPlan) => Promise<void>,
+  overrides: Record<string, ProductOverride> = {},
 ): Promise<ProductsResult> {
   if (!data.stock) return { snapshot: undefined, products: null, productInfo: null, restock: null, restockDismissedCount: 0, tests: [] }
   const stockMap = data.stock
@@ -661,22 +710,25 @@ async function planProducts(
   // orphaned SKU's history onto an active twin of the same name, while anything left with no active listing
   // afterward gets dropped instead of planned and pushed with ad budget forever.
   const hasStock: Record<string, boolean> = {}
-  const keys = new Set([...Object.keys(data.trailing), ...Object.keys(stockMap)])
+  const keys = new Set([...Object.keys(data.trailing), ...Object.keys(stockMap), ...Object.keys(overrides)])
   for (const k of keys) {
     const t = data.trailing[k]
     const st = stockMap[k]
+    const ov = overrides[k]
     const sold = t && t.units > 0 && t.revenue > 0 ? t : null
     // Stock with no recent sales still gets a (small) share, so dead stock is worked on rather than ignored.
-    if (!sold && !(st && st.units !== null && st.units > 0)) continue
-    const price = sold ? (sold.revenue / sold.units) * data.ratio : st.price * data.ratio
+    // An override (add, remove, or a fixed quantity) forces the product in for consideration even when neither
+    // of those would otherwise qualify it — it's resolved into the plan (or dropped from it) further below.
+    if (!sold && !(st && st.units !== null && st.units > 0) && !ov) continue
+    const price = sold ? (sold.revenue / sold.units) * data.ratio : st ? st.price * data.ratio : 0
     if (!(price > 0)) continue
     sizeInfo[k] = st && st.units !== null ? { inStock: st.sizesIn, total: st.sizes } : null
     hasStock[k] = !!st
     inputs.push({
       key: k,
-      name: st?.name ?? sold!.name,
+      name: st?.name ?? sold?.name ?? ov?.name ?? k,
       price,
-      demandRevenue: sold ? sold.revenue : (st.units ?? 0) * price,
+      demandRevenue: sold ? sold.revenue : (st?.units ?? 0) * price,
       stockUnits: st ? st.units : null, // no stock record: not capped (unless dropped below as inactive)
       group: classify({ stockUnits: st ? st.units : null, sizesIn: st?.sizesIn ?? 0, sizesTotal: st?.sizes ?? 0, soldUnits: sold?.units ?? 0 }),
     })
@@ -707,11 +759,24 @@ async function planProducts(
   }
   let snapshot = snapshotIn
   const stockNow = Object.values(stockMap).reduce((s, e) => s + (e.units ?? 0), 0)
-  // Any change to the team's counts (a line counted, test pairs added or removed) re-makes the plan at once, so
-  // the pairs per product follow the real stock the moment it is entered — not only when the total moves a lot.
-  const check = `${data.stockCheck?.counted ?? 0}:${Object.values(stockMap).reduce((s, e) => s + e.fake, 0)}`
+  // Any change to the team's counts (a line counted, test pairs added or removed) — or to a manual override —
+  // re-makes the plan at once, so the pairs per product follow the real stock, and the team's own calls, the
+  // moment they're made — not only when the total moves a lot.
+  const overridesFingerprint = Object.entries(overrides).map(([k, o]) => `${k}:${o.units ?? ""}:${o.excluded ? 1 : 0}:${o.included ? 1 : 0}`).sort().join(",")
+  const check = `${data.stockCheck?.counted ?? 0}:${Object.values(stockMap).reduce((s, e) => s + e.fake, 0)}:${overridesFingerprint}`
   if (!snapshot || snapshot.v !== PLAN_VERSION || dhakaDay(snapshot.at) !== today || stockMoved(snapshot.stock, stockNow) || snapshot.check !== check) {
-    snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, revenueLeft), products: inputs, soldMtd, check })
+    // Excluded products never reach buildPlan at all — they vanish from the plan entirely, sold-so-far included.
+    // A fixed (manual) quantity is pulled out before the automatic split: its own revenue need comes off the top,
+    // so the rest of the plan reshapes itself around it, then it's written into the finished plan directly —
+    // buildPlan never gets a chance to reassign it a different number.
+    const excluded = new Set(Object.entries(overrides).filter(([, o]) => o.excluded).map(([k]) => k))
+    const manual = new Map(Object.entries(overrides).filter(([, o]) => !o.excluded && o.units !== undefined).map(([k, o]) => [k, o.units!]))
+    const liveInputs = inputs.filter((inp) => !excluded.has(inp.key))
+    const freeInputs = liveInputs.filter((inp) => !manual.has(inp.key))
+    const manualInputs = liveInputs.filter((inp) => manual.has(inp.key))
+    const manualRevenueLeft = manualInputs.reduce((s, inp) => s + Math.max(0, manual.get(inp.key)! - (soldMtd[inp.key] ?? 0)) * inp.price, 0)
+    snapshot = buildPlan({ at: now, revenueLeft: Math.max(0, revenueLeft - manualRevenueLeft), products: freeInputs, soldMtd, check })
+    for (const inp of manualInputs) snapshot.products[inp.key] = { name: inp.name, units: manual.get(inp.key)!, price: inp.price, group: inp.group }
     await save(snapshot)
   }
   const all = productRows({
@@ -898,9 +963,11 @@ export const marketingProgress = action({
     const monthPlan = planMonth({ month, target, deliveredByDay: data.byDay, today })
 
     const snapshotIn = await ctx.runQuery(internal.targets.marketingSnapshot, {})
+    const overrides = await ctx.runQuery(internal.targets.marketingOverridesForProgress, {})
     const { products, productInfo, restock, restockDismissedCount, tests } = await planProducts(
       ctx, data, target - monthPlan.delivered, now, today, monthPlan.daysLeft, monthPlan.started,
       snapshotIn, async (plan) => { await ctx.runMutation(internal.targets.saveMarketingSnapshot, { plan }) },
+      overrides,
     )
 
     return { asOf: now, month, target, mtd: monthPlan.delivered, plan: monthPlan, products, productInfo, tests, stockCheck: data.stockCheck ?? null, restock, restockDismissedCount }

@@ -174,6 +174,21 @@ export function allocateGrouped(products: ProductInput[], revenue: number): { ro
 }
 
 export type PlanProduct = { name: string; units: number; price: number; group?: Group }
+
+/** A person's manual say over one product in a plan — set, cleared independently of one another. Currently only
+ *  wired up for Marketing's own plan (see targets.ts); the Cx delivered plan never reads these. */
+export type ProductOverride = {
+  name: string
+  /** Forces this product into the plan even though it wouldn't otherwise qualify (no recent sales and no stock
+   *  right now) — the "add a product" case. Has no effect once the product has real demand or stock of its own. */
+  included?: boolean
+  /** Drops this product from the plan entirely, whatever its sales or stock say — the "remove from the list" case.
+   *  Takes priority over `included` and `units`. */
+  excluded?: boolean
+  /** A fixed month-total pairs target for this product, replacing its automatic share of the plan. */
+  units?: number
+}
+
 export const PLAN_VERSION = 6 // bumped so today's already-cached plan rebuilds at once after dropping inactive/discontinued products from the plan
 /** A plan is re-made at once when total sellable stock moves by this share or more (a stock count was corrected). */
 export const STOCK_REPLAN_SHARE = 0.1
