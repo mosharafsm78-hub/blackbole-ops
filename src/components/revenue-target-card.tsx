@@ -116,7 +116,7 @@ export function TargetPlanView({ data, refetch }: { data: TargetProgress; refetc
   )
 }
 
-/** Marketing's own KPI: the full value of orders once approved, this month — regardless of whether they're later
+/** Marketing's own KPI: the full value of orders once placed, this month — regardless of whether they're later
  *  delivered, cancelled or returned. Deliberately styled apart from the delivered-revenue cards above so the two
  *  audiences (finance/ops vs. marketing) don't mix them up. */
 export function GrossSaleStrip({ gross }: { gross: NonNullable<TargetProgress["gross"]> }) {
@@ -128,7 +128,7 @@ export function GrossSaleStrip({ gross }: { gross: NonNullable<TargetProgress["g
         <h2 className="text-sm font-semibold">Gross sale (Marketing)</h2>
         <Pill tone={beaten ? "green" : "violet"}>{beaten ? "Target reached" : `${pct}%`}</Pill>
       </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">Every order counted the moment it's approved, whatever happens to it after — Marketing brings the order in, delivery isn't theirs to answer for. Separate from the delivered-revenue target below.</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">Every order counted the moment it's placed, whatever happens to it after — Marketing brings the order in, confirming and delivering it isn't theirs to answer for. Separate from the delivered-revenue target below.</p>
       <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuenow={Math.min(100, pct)} aria-valuemin={0} aria-valuemax={100}>
         <div className={cn("h-full rounded-full", beaten ? "bg-tone-green" : "bg-tone-violet")} style={{ width: `${Math.min(100, pct)}%` }} />
       </div>

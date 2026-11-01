@@ -36,7 +36,7 @@ export function RevenueTargetSettings() {
   )
 }
 
-/** Marketing's own KPI: a flat gross-sale target (every order's full total, counted once approved — not tied
+/** Marketing's own KPI: a flat gross-sale target (every order's full total, counted once placed — not tied
  *  to delivery). Not month-keyed, unlike the delivered-revenue target above. */
 function GrossTargetForm() {
   const current = useQuery(api.targets.getGrossTarget)
@@ -61,9 +61,9 @@ function GrossTargetForm() {
     <div className="mt-5 border-t pt-4" data-testid="gross-target-settings">
       <h3 className="text-sm font-semibold">Gross-sale target (Marketing)</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        Marketing is liable for bringing orders in, not for whether they're later delivered. This target counts
-        every order's full total the moment it's approved — a fixed number, shown on the Target page separately
-        from the delivered-revenue target above.
+        Marketing is liable for bringing orders in, not for whether they're later confirmed or delivered. This
+        target counts every order's full total the moment it's placed — a fixed number, shown on the Target page
+        separately from the delivered-revenue target above.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="text-sm text-muted-foreground">৳</span>

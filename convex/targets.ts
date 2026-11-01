@@ -30,8 +30,9 @@ const CACHE_MS = 60000
 const SPEND_MS = 5 * 60000
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])
 // Marketing's own KPI, separate from the delivered-revenue target above: the full order total counts the moment
-// an order is first approved, and keeps counting even if it's later cancelled or comes back — Marketing only
-// brings the order in, it isn't responsible for delivery. Fixed for now (Settings → KPI can change it).
+// an order is placed (created), and keeps counting even if it's later cancelled, never confirmed, or comes
+// back — Marketing only brings the order in, it isn't responsible for confirmation or delivery. Fixed for now
+// (Settings → KPI can change it).
 const DEFAULT_GROSS_TARGET = 1800000
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -73,7 +74,7 @@ export const setMonthlyTarget = mutation({
 })
 
 /** Marketing's own gross-sale target (a flat number for now, not month-keyed): the full value of orders once
- *  approved, whatever happens to them afterward. */
+ *  placed, whatever happens to them afterward. */
 export const getGrossTarget = query({
   args: {},
   handler: async (ctx): Promise<number> => {
@@ -221,15 +222,16 @@ export const salesPage = internalQuery({
   },
 })
 
-/** One page of orders first approved in [from, to), for Marketing's gross-sale number. Unlike salesPage, this is
- *  NOT filtered by current status: an order counts the moment it's approved and keeps counting even if it's
- *  later cancelled or returned — Marketing brought the order in, delivery isn't theirs to answer for. */
+/** One page of orders placed (created) in [from, to), for Marketing's gross-sale number. Unlike salesPage, this
+ *  is NOT filtered by current status: an order counts the moment it comes in and keeps counting even if it's
+ *  later cancelled, never confirmed, or returned — Marketing brought the order in, what happens to it after
+ *  isn't theirs to answer for. */
 export const grossPage = internalQuery({
   args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { from, to, cursor }): Promise<Page<{ total: number }>> => {
     const res = await ctx.db
       .query("orders")
-      .withIndex("by_approved", (q) => q.gte("approvedAt", from).lt("approvedAt", to))
+      .withIndex("by_created", (q) => q.gte("createdAt", from).lt("createdAt", to))
       .paginate({ cursor, numItems: 300 })
     return { isDone: res.isDone, cursor: res.continueCursor, rows: res.page.filter((o) => !o.deletedAt).map((o) => ({ total: o.total })) }
   },
@@ -317,7 +319,7 @@ async function pageAll<T>(next: (cursor: string | null) => Promise<Page<T>>): Pr
 const salesRows = (ctx: ActionCtx, from: number, to: number): Promise<SaleRow[]> =>
   pageAll<SaleRow>((cursor) => ctx.runQuery(internal.targets.salesPage, { from, to, cursor }))
 
-/** Marketing's gross sale for a calendar month: every order's full total, counted once it was first approved,
+/** Marketing's gross sale for a calendar month: every order's full total, counted once it was placed,
  *  whatever happened to it after. */
 async function grossSales(ctx: ActionCtx, month: string): Promise<number> {
   const rows = await pageAll<{ total: number }>((cursor) => ctx.runQuery(internal.targets.grossPage, { from: monthStartMs(month), to: monthEndMs(month), cursor }))
@@ -554,7 +556,7 @@ export type TargetProgress = {
   restock: RestockSuggestion[] | null
   /** How many products someone explicitly removed from the restock list — hidden above, but not gone for good. */
   restockDismissedCount: number
-  /** Marketing's own KPI — gross sale, this calendar month: every order's full total once approved, counted
+  /** Marketing's own KPI — gross sale, this calendar month: every order's full total once placed, counted
    *  whatever happens to it afterward (unlike `plan`, which is delivered orders only). A fixed target for now. */
   gross: { target: number; mtd: number } | null
 }
