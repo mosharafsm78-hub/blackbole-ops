@@ -31,7 +31,11 @@ export async function bumpStatusCount(ctx: MutationCtx, status: string, delta: n
 
 const isDelivered = (s: OrderStatus) => s === "delivered_due" || s === "delivered_paid"
 const isFlagged = (s: OrderStatus) => s === "pending_returned" || s === "returned" || s === "damaged"
-const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship"]
+// Also drives "Multiple orders, same number" (same phone, more than one order still here): everything up to and
+// including In Transit counts, since a second order placed while the first hasn't been delivered yet is exactly
+// the double/triple-order case the flag is for. Only delivered, flagged (pending_returned/returned/damaged) and
+// cancelled are closed.
+const OPEN: OrderStatus[] = ["pending", "on_hold", "approved", "processing", "pre_order", "pre_order_bd", "ready_to_ship", "in_transit"]
 
 async function updateCustomerStats(ctx: MutationCtx, order: Doc<"orders">, from: OrderStatus, to: OrderStatus) {
   const c = await ctx.db.get(order.customerId)
