@@ -329,6 +329,7 @@ export default defineSchema({
   })
     .index("by_phone", ["phone"])
     .index("by_created", ["createdAt"])
+    .index("by_dob", ["dob"])
     .searchIndex("search_name", { searchField: "name" }),
 
   orders: defineTable({

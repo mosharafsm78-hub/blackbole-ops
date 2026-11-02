@@ -546,13 +546,33 @@ export const resolveProductLinks = query({
   handler: async (ctx, { items }) => {
     const s = await currentStaff(ctx)
     if (!s) return items.map(() => null)
-    // Batch the lookups once for the whole page instead of once per line item.
-    const products = new Map<string, Doc<"products">>()
-    for (const p of await ctx.db.query("products").collect()) products.set(p._id as string, p)
-    const variants = new Map<string, Doc<"variants">>()
-    for (const vr of await ctx.db.query("variants").collect()) variants.set(vr._id as string, vr)
+    // Look up only what the page needs (a handful of rows) instead of reading the whole products and variants
+    // tables on every Order View — that full scan was one of the biggest database readers.
+    const productIds = new Set<string>()
+    const variantIds = new Map<string, Doc<"variants">>()
     const bySku = new Map<string, Doc<"variants">>()
-    for (const vr of variants.values()) bySku.set(vr.sku.trim().toLowerCase(), vr)
+    for (const item of items) {
+      const pid = item.productId?.trim()
+      if (pid) {
+        const id = ctx.db.normalizeId("products", pid)
+        if (id && !productIds.has(pid) && (await ctx.db.get(id))) productIds.add(pid)
+      }
+      const vid = item.variantId?.trim()
+      if (vid && !variantIds.has(vid)) {
+        const id = ctx.db.normalizeId("variants", vid)
+        const vr = id ? await ctx.db.get(id) : null
+        if (vr) variantIds.set(vid, vr)
+      }
+      const sku = item.sku?.trim()
+      if (sku && !bySku.has(sku.toLowerCase())) {
+        for (const candidate of new Set([sku, sku.toUpperCase(), sku.toLowerCase()])) {
+          const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", candidate)).first()
+          if (vr) { bySku.set(sku.toLowerCase(), vr); break }
+        }
+      }
+    }
+    const products = { has: (id: string) => productIds.has(id) }
+    const variants = { has: (id: string) => variantIds.has(id) }
 
     return items.map((item) => {
       const pid = item.productId?.trim()

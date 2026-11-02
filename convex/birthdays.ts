@@ -94,7 +94,8 @@ export const today = query({
     await requirePerm(ctx, "dashboard.view")
     const md = monthDay(Date.now())
     const year = new Date(Date.now() + BD_OFFSET).getUTCFullYear()
-    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    // Only customers who have a birthday saved — not the whole customers table.
+    const rows = await ctx.db.query("customers").withIndex("by_dob", (q) => q.gt("dob", "")).collect()
     return rows
       .filter((c) => !c.deletedAt && c.dob && c.dob.slice(5, 10) === md)
       .map((c) => {
@@ -138,7 +139,8 @@ export const dueToday = internalQuery({
   args: {},
   handler: async (ctx) => {
     const md = monthDay(Date.now())
-    const rows = await ctx.db.query("customers").withIndex("by_created").collect()
+    // Only customers who have a birthday saved — not the whole customers table.
+    const rows = await ctx.db.query("customers").withIndex("by_dob", (q) => q.gt("dob", "")).collect()
     return rows
       .filter((c) => !c.deletedAt && c.dob && c.dob.slice(5, 10) === md)
       .map((c) => ({
