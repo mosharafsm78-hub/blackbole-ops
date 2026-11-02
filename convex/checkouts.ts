@@ -325,6 +325,21 @@ export const list = query({
   },
 })
 
+/** Just the red sidebar badge (new + follow-ups due). The sidebar runs on every page in every open browser, so it
+ *  must not load the other tab totals that `counts` computes — it reads only the open, abandoned carts. */
+export const badge = query({
+  args: {},
+  handler: async (ctx) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const now = Date.now()
+    const open = (await ctx.db.query("checkouts")
+      .withIndex("by_status", (q) => q.eq("status", "open").lte("shopUpdatedAt", now - ABANDON_AFTER))
+      .take(1000)).filter((c) => !c.isArchived)
+    return open.filter((c) => c.callCount === 0).length + open.filter((c) => c.followUpAt && c.followUpAt <= now).length
+  },
+})
+
 export const counts = query({
   args: {},
   handler: async (ctx) => {
@@ -334,15 +349,16 @@ export const counts = query({
     const open = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "open")).take(1000))
       .filter((c) => !c.isArchived && now - c.shopUpdatedAt >= ABANDON_AFTER)
     const since = now - 30 * 86400000
-    const converted = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(2000))
-      .filter((c) => !c.isArchived && (c.closedAt ?? 0) >= since)
+    const convertedAll = await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(2000)
+    const converted = convertedAll.filter((c) => !c.isArchived && (c.closedAt ?? 0) >= since)
     return {
       new: open.filter((c) => c.callCount === 0).length,
       followup: open.filter((c) => c.callCount > 0).length,
       followupDue: open.filter((c) => c.followUpAt && c.followUpAt <= now).length,
       recovered30d: converted.length,
       // tab numbers (capped so the page stays light; shows 999+)
-      recovered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(1000)).filter((c) => !c.isArchived).length,
+      // same first-1000 slice as before, taken from the list already read above (one read instead of two)
+      recovered: convertedAll.slice(0, 1000).filter((c) => !c.isArchived).length,
       ordered: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "ordered")).take(1000)).filter((c) => !c.isArchived).length,
       lost: (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "lost")).take(1000)).filter((c) => !c.isArchived).length,
       archived: (await ctx.db.query("checkouts").withIndex("by_archived", (q) => q.eq("isArchived", true)).take(1000)).length,

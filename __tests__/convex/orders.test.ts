@@ -342,6 +342,7 @@ describe("abandoned carts", () => {
     let rows: any = await as.query(api.checkouts.list, { tab: "new" })
     expect(rows.map((r: any) => r.checkoutId)).toEqual(["900001"])
     expect(rows[0].phone).toBe("01812345678")
+    expect(await as.query(api.checkouts.badge, {})).toBe(1) // one abandoned cart; the one still paying is not counted
     await t.mutation(internal.checkouts.markOrdered, { token: "tok1", externalId: "shopify-1" })
     rows = await as.query(api.checkouts.list, { tab: "new" })
     expect(rows).toHaveLength(0)
@@ -355,6 +356,7 @@ describe("abandoned carts", () => {
     await as.mutation(api.checkouts.logCall, { id: c._id, outcome: "Will order later", followUpAt: Date.now() - 1000 })
     expect(await as.query(api.checkouts.list, { tab: "new" })).toHaveLength(0)
     expect(await as.query(api.checkouts.counts, {})).toMatchObject({ new: 0, followup: 1, followupDue: 1 })
+    expect(await as.query(api.checkouts.badge, {})).toBe(1) // sidebar badge = new (0) + follow-ups due (1)
     const r = await as.mutation(api.checkouts.convert, { id: c._id, customerName: "Cart Buyer", phone: "01812345678", address: "Road 5, Dhanmondi", deliveryFee: 90, status: "approved" })
     const o: any = await t.run((ctx) => ctx.db.get(r.orderId))
     expect(o).toMatchObject({ status: "approved", total: 1570, externalName: "Abandoned cart" })

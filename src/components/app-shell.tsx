@@ -167,10 +167,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>
   const inWebsite = path === "/website" || path.startsWith("/website-")
-  const carts = useQuery(api.checkouts.counts)
+  const cartBadge = useQuery(api.checkouts.badge)
   const orderCounts = useQuery(api.orders.counts)
   const flagCounts = useQuery(api.accountability.openCounts)
-  const badge = (to: string) => (to === "/abandoned" && carts ? carts.new + carts.followupDue : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : to === "/accountability" && flagCounts ? flagCounts.total : 0)
+  const badge = (to: string) => (to === "/abandoned" && cartBadge ? cartBadge : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : to === "/accountability" && flagCounts ? flagCounts.total : 0)
   return (
     <nav className="space-y-0.5">
       {NAV.map((n, i) => {
