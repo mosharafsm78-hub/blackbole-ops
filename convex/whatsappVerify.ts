@@ -69,6 +69,11 @@ async function markWa(ctx: any, o: Doc<"orders">, result: "confirmed" | "cancell
   await notify(ctx, title, `${invoiceLabel(o)} · ${o.customerName}`, o._id, "action")
 }
 
+/** Words that suggest a customer is trying to verify an order (English, Bangla, and the Banglish spellings). */
+const VERIFY_WORDS = /verif|confirm|order|কনফার্ম|ভেরিফাই|অর্ডার/i
+/** The how-to-verify hint is sent to one customer at most once in this time. */
+const HINT_EVERY_MS = 24 * 3600 * 1000
+
 /** A cancel tap does not cancel the order: the team calls first. If nobody decides within this time, a Pending / On Hold order is cancelled. */
 export const CANCEL_GRACE_MS = 24 * 3600 * 1000
 
@@ -197,7 +202,16 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
 
   // ---- a text message: "Verify BB-12345" ----
   const ref = invoiceFromText(a.text ?? "")
-  if (!ref) return record("not_found", [txt("Hi! To verify your order, tap the Verify on WhatsApp button after you place it, or send your order number like: Verify BB-12345")])
+  if (!ref) {
+    // Ordinary chat ("I like the shoe", a size question…) is for the Customer Care team, not the bot. The how-to-verify
+    // hint goes out ONLY when the message looks like a verification attempt, and at most once a day per customer —
+    // before this it was sent after every message and annoyed customers.
+    if (!VERIFY_WORDS.test(a.text ?? "")) return record("chat_ignored", [])
+    const since = Date.now() - HINT_EVERY_MS
+    const recent = await ctx.db.query("waVerifyEvents").withIndex("by_at", (q: any) => q.gt("at", since)).collect()
+    if (recent.some((e: any) => e.waId === a.waId && e.result === "not_found" && (e.out?.length ?? 0) > 0)) return record("chat_ignored", [])
+    return record("not_found", [txt("Hi! To verify your order, tap the Verify on WhatsApp button after you place it, or send your order number like: Verify BB-12345")])
+  }
   const o = await findOrder(ctx, ref)
   if (!o) return record("not_found", [txt("Sorry, we could not find that order number. Please check it and try again, or contact BlackBole.")])
   if (mismatch(o)) {

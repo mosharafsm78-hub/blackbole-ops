@@ -201,6 +201,20 @@ describe("WhatsApp parcel updates", () => {
     const wrong = await t.mutation(internal.whatsappVerify.inbound, { waId: "8801999999999", wamid: "r2", buttonId: `wv:r:${fresh.id}` })
     expect(wrong.result).toBe("not_found")
   })
+  it("ordinary chat gets no bot reply; the verify hint is sent only for verify-like words, once a day", async () => {
+    const { t } = await setup()
+    const send = (wamid: string, text: string) => t.mutation(internal.whatsappVerify.inbound, { waId: "8801939982410", wamid, text })
+    for (const [i, text] of ["জুতা টা অনেক পছন্দ হয়েছে। সাইজের জটিলতায়।", "ওকে আমি ৪৩ সাইজটি ফেরত দিয়ে দিবো", "ok thanks"].entries()) {
+      const r = await send(`c${i}`, text)
+      expect(r.result).toBe("chat_ignored")
+      expect(r.out).toHaveLength(0)
+    }
+    const hint = await send("h1", "how to verify my order")
+    expect(hint.result).toBe("not_found")
+    expect(hint.out).toHaveLength(1)
+    const again = await send("h2", "please confirm my order")
+    expect(again.result).toBe("chat_ignored") // already told them today
+  })
   it("returned customer: Yes → asked same/different; same → new pending order once; different → team notified", async () => {
     const { t, order } = await setup()
     const o = await order("01711000025")
