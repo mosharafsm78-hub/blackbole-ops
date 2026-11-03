@@ -13,6 +13,8 @@ crons.interval("pathao exchange parcels", { minutes: 60 }, internal.pathao.cronT
 // Shopify → Ops product sync (price, title, description, tags, SEO…): marketing edits in Shopify show up in Ops within minutes
 crons.interval("shopify product pull", { minutes: 5 }, internal.shopifyPull.run, {})
 crons.interval("shopify clearance codes", { minutes: 60 }, internal.shopifyDiscounts.syncAll, {})
+// COD-popup orders: fill in the ad campaign from the order attributes (Marketing OS matches orders to ads with it)
+crons.interval("shopify order campaigns", { hours: 1 }, internal.campaignBackfill.run, {})
 crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tick, {})
 crons.interval("auto approve scheduled orders", { minutes: 5 }, internal.orders.runAutoApprove, {})
 // win-back SMS, tier 1: one-time buyers who never came back get an automatic discount SMS, repeated every

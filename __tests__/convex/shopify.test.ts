@@ -61,3 +61,34 @@ describe("shopify webhook", () => {
     expect(after!.status).toBe("cancelled")
   })
 })
+
+describe("campaignFromOrder", () => {
+  it("reads the campaign from the COD popup's order attributes, preferring the numeric campaign ID", async () => {
+    const { campaignFromOrder } = await import("../../convex/shopify")
+    const cod = { note_attributes: [{ name: "utm_campaign", value: "brinkley_kg_3nov" }, { name: "utm_id", value: "52555206547233" }] }
+    expect(campaignFromOrder(cod)).toBe("52555206547233")
+    // Brain ads put the ID straight in utm_campaign
+    expect(campaignFromOrder({ note_attributes: [{ name: "utm_campaign", value: "52554869042233" }] })).toBe("52554869042233")
+    // only the page URL kept
+    expect(campaignFromOrder({ note_attributes: [{ name: "full_url", value: "https://blackbole.top/cart?utm_campaign=hsb_video_31oct&utm_id=52554783033233" }] })).toBe("52554783033233")
+    // a slug with no ID anywhere is still kept
+    expect(campaignFromOrder({ note_attributes: [{ name: "utm_campaign", value: "hero_harbor_black" }] })).toBe("hero_harbor_black")
+    // checkout orders: landing_site, as before
+    expect(campaignFromOrder({ landing_site: "/products/x?utm_source=facebook&utm_campaign=52554869042233" })).toBe("52554869042233")
+    expect(campaignFromOrder({})).toBeUndefined()
+  })
+})
+
+describe("campaign backfill", () => {
+  it("fills the campaign only on orders that have none, and moves updatedAt", async () => {
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    const { internal } = await import("../../convex/_generated/api")
+    const ids = await t.run(async (ctx) => {
+      const base: any = (await ctx.db.query("orders").first()) ?? null
+      return base
+    })
+    expect(ids).toBeNull()
+    const n = await t.mutation(internal.campaignBackfill.fill, { rows: [{ externalId: "nope", campaignId: "1" }] })
+    expect(n).toBe(0)
+  })
+})

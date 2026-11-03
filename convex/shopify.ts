@@ -47,6 +47,24 @@ async function hmacOk(body: string, header: string | null, key: string) {
 
 const num = (x: unknown) => Number(x ?? 0) || 0
 
+/** The Meta/TikTok campaign an order came from. COD-popup (COD Lion) orders have no landing_site – the popup puts
+ *  the ad's UTMs in note_attributes instead (utm_id / campaign_id = the numeric campaign ID, utm_campaign may be a
+ *  readable slug, full_url = the page the customer ordered from). The numeric ID wins because Marketing matches
+ *  campaigns by ID. Checkout orders fall back to landing_site as before. */
+export function campaignFromOrder(o: any): string | undefined {
+  const attrs = new Map<string, string>()
+  for (const a of o?.note_attributes ?? []) {
+    const k = String(a?.name ?? "").trim().toLowerCase()
+    const val = String(a?.value ?? "").trim()
+    if (k && val && !attrs.has(k)) attrs.set(k, val)
+  }
+  const params = (u: unknown) => { try { return u ? new URL(String(u), "https://x.y").searchParams : null } catch { return null } }
+  const sources = [attrs, params(attrs.get("full_url")), params(o?.landing_site)]
+  const get = (key: string) => { for (const s of sources) { const val = s?.get(key)?.trim(); if (val) return val } return undefined }
+  const id = [get("utm_id"), get("campaign_id"), get("utm_campaign")].find((x) => x && /^\d{6,}$/.test(x))
+  return id ?? get("utm_campaign") ?? undefined
+}
+
 /** The "Birthday" custom attribute the COD popup (bb26-cod.js / bb-cod-order) attaches to the order when the
  *  customer gave one — note_attributes is Shopify's top-level order-attribute array (distinct from a line item's
  *  own `properties`). "YYYY-MM-DD" only, sanity-checked the same way as everywhere else this is validated. */
@@ -129,7 +147,7 @@ export const webhook = httpAction(async (ctx, req) => {
       customerNote: o.note || undefined,
       ipAddress: o.browser_ip || o.client_details?.browser_ip || undefined,
       origin: o.referring_site ? String(o.referring_site) : o.source_name && o.source_name !== "web" ? String(o.source_name) : undefined,
-      campaignId: (() => { try { return new URL(o.landing_site, "https://x.y").searchParams.get("utm_campaign") || new URL(o.landing_site, "https://x.y").searchParams.get("campaign_id") || undefined } catch { return undefined } })(),
+      campaignId: campaignFromOrder(o),
     })
     if (o.checkout_token || o.checkout_id) {
       await ctx.runMutation(internal.checkouts.markOrdered, {
