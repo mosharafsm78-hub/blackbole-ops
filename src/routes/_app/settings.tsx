@@ -256,11 +256,11 @@ function ShopifyStockSync() {
             <div>{pp.checked} sizes checked · <b className="text-tone-red">{pp.diffs.length} different</b> · {pp.notInShopify} not in Shopify</div>
             {pp.missing.length > 0 && (
               <div className="mt-2">
-                <div className="text-xs font-medium">In Shopify but missing in Ops ({pp.missing.length})</div>
+                <div className="text-xs font-medium">In Shopify but missing in Ops ({pp.missing.length}) · active {pp.missing.filter((m) => m.status === "ACTIVE" && !m.sku.startsWith("PO-")).length} · pre-order active {pp.missing.filter((m) => m.status === "ACTIVE" && m.sku.startsWith("PO-")).length} · draft/archived {pp.missing.filter((m) => m.status !== "ACTIVE").length}</div>
                 <div className="mt-1 max-h-72 overflow-auto rounded border">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted"><tr><th className="p-1.5 text-left">Product</th><th className="p-1.5 text-left">Size</th><th className="p-1.5 text-left">SKU</th><th className="p-1.5 text-right">Price</th><th className="p-1.5 text-left">Shopify status</th></tr></thead>
-                    <tbody>{pp.missing.slice(0, 500).map((m) => <tr key={m.sku} className="border-t"><td className="p-1.5">{m.product}</td><td className="p-1.5">{m.title}</td><td className="p-1.5 font-mono">{m.sku}</td><td className="p-1.5 text-right">{m.price}</td><td className="p-1.5">{m.status}</td></tr>)}</tbody>
+                    <tbody>{pp.missing.slice(0, 2000).map((m) => <tr key={m.sku} className="border-t"><td className="p-1.5">{m.product}</td><td className="p-1.5">{m.title}</td><td className="p-1.5 font-mono">{m.sku}</td><td className="p-1.5 text-right">{m.price}</td><td className="p-1.5">{m.status}</td></tr>)}</tbody>
                   </table>
                 </div>
               </div>
