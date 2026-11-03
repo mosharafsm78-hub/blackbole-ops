@@ -64,6 +64,13 @@ export const creds = internalQuery({
     token: (await getSetting<{ token: string; exp: number }>(ctx, "shopifyApiToken")) ?? null,
   }),
 })
+/** Forget the saved Shopify inventory item id of these sizes; the next sync looks it up again by SKU. */
+export const forgetItemIds = internalMutation({
+  args: { variantIds: v.array(v.id("variants")) },
+  handler: async (ctx, { variantIds }) => {
+    for (const id of variantIds) await ctx.db.patch(id, { shopifyItemId: undefined })
+  },
+})
 export const putToken = internalMutation({
   args: { token: v.optional(v.any()), error: v.optional(v.any()) },
   handler: async (ctx, { token, error }) => {
@@ -231,7 +238,7 @@ export const pushSkuRename = internalAction({
   },
 })
 
-async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string; qty: number; sku?: string }[], reason = "correction", fails?: string[]) {
+async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string; qty: number; sku?: string; variantId?: string }[], reason = "correction", fails?: { sku: string; variantId?: string; msg: string }[]) {
   const ok = rows.filter((r) => r.itemId)
   const push = async (part: typeof ok) => {
     const res = await gql(ctx, `mutation($input: InventorySetQuantitiesInput!) {
@@ -246,7 +253,7 @@ async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string;
       // One bad item (e.g. a size deleted in Shopify) must not block every other size: push them one by one and report only the bad ones.
       if (!fails || part.length === 1) { if (!fails) throw e }
       for (const r of part) {
-        try { await push([r]) } catch (e2: any) { fails?.push(`${r.sku ?? r.itemId}: ${String(e2?.message ?? e2).slice(0, 80)}`) }
+        try { await push([r]) } catch (e2: any) { fails?.push({ sku: String(r.sku ?? r.itemId), variantId: r.variantId, msg: String(e2?.message ?? e2).slice(0, 80) }) }
       }
     }
   }
@@ -428,9 +435,18 @@ export const flush = internalAction({
         const rows = await ctx.runQuery(internal.shopifyStock.targets, { variantIds: ids })
         await itemIds(ctx, rows)
         const notes = await ensureProducts(ctx, rows) // new products go to Shopify by themselves
-        const fails: string[] = []
+        const fails: { sku: string; variantId?: string; msg: string }[] = []
         await setQuantities(ctx, rows, "correction", fails)
-        if (fails.length) notes.push(`Not updated in Shopify (item missing there): ${fails.join(", ")}`)
+        if (fails.length) {
+          // A saved Shopify item id can go stale (size re-created in Shopify). Forget it so the next sync finds the item again by SKU.
+          const stale = [...new Set(fails.filter((f) => f.variantId && /could not be found/i.test(f.msg)).map((f) => f.variantId as string))]
+          if (stale.length) {
+            await ctx.runMutation(internal.shopifyStock.forgetItemIds, { variantIds: stale as any })
+            await ctx.runMutation(internal.shopifyStock.requeue, { ids: stale as any })
+            await ctx.scheduler.runAfter(30_000, internal.shopifyStock.flush, {})
+          }
+          notes.push(`Not updated in Shopify (retrying by SKU): ${fails.map((f) => f.sku).join(", ")}`)
+        }
         await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 900) : null })
         await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: rows.length })
       } catch (e: any) {
