@@ -11,7 +11,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
-import { requirePerm } from "./lib"
+import { invoiceLabel, requirePerm } from "./lib"
 import { fill, firstName, pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
 
 const DAY = 86400000
@@ -99,6 +99,24 @@ export const run2 = internalAction({
       idx++
     }
     if (list.length) await ctx.runMutation(internal.winback.bumpRotation, { channel: "wa", count: list.length })
+  },
+})
+
+/** A parcel came back: put a ready-to-send "we are sorry, give us another chance, free delivery" message in the shared WhatsApp
+ *  queue. The team sends it by hand (a person-sent message is not a paid template). Once per order; never for exchange parcels. */
+export const enqueueReturn = internalMutation({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => {
+    const o = await ctx.db.get(orderId)
+    if (!o || o.deletedAt || o.isExchange) return
+    const phone = (o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")
+    if (!/^01[3-9]\d{8}$/.test(phone)) return
+    const key = `rc-wa-${orderId}`
+    if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", key)).first()) return
+    await ctx.db.insert("waVerifyEvents", { wamid: key, waId: "", orderId, result: "once", at: Date.now() })
+    const first = (o.customerName || "").trim().split(/\s+/)[0] || "there"
+    const text = `Hi ${first}, we are sorry about your return of order ${invoiceLabel(o)}. Please give us another chance: order any other pair and get free delivery with code COMEBACKFREE. Reply here and we will help you choose a pair. https://blackbole.top`
+    await ctx.db.insert("waQueue", { customerId: o.customerId, phone, name: o.customerName, text, source: "return", status: "pending", createdAt: Date.now() })
   },
 })
 

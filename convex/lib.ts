@@ -219,7 +219,10 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   // Same message by email when the customer gave an email address (checked in the action)
   const email = await getSetting<any>(ctx, "email")
   // A returned parcel gets one comeback email (free-delivery code + pairs to try); it checks its own conditions
-  if (status === "pending_returned") await ctx.scheduler.runAfter(0, internal.emailNode.sendReturnComeback, { orderId })
+  if (status === "pending_returned") {
+    await ctx.scheduler.runAfter(0, internal.emailNode.sendReturnComeback, { orderId })
+    await ctx.scheduler.runAfter(0, internal.waQueue.enqueueReturn, { orderId }) // ready-to-send WhatsApp message for the team (WhatsApp page)
+  }
   if (email?.enabled && (sms?.statuses ?? []).includes(status)) {
     await ctx.scheduler.runAfter(0, internal.emailNode.sendOrderEmail, { orderId, status })
   }
