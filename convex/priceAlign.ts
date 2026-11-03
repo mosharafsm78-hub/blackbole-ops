@@ -176,3 +176,29 @@ export const linkMochaNow = action({
     return await ctx.runMutation(internal.priceAlign.linkMocha, {})
   },
 })
+
+// ONE-TIME: the Tk 1,580 Shopify product is Khaki Green (not Mocha Brown): rename its Ops sizes MB -> KGF and the product.
+export const renameToKgf = liveMutation({
+  args: {},
+  handler: async (ctx) => {
+    let n = 0
+    for (const sz of Object.keys(MB_QTY)) {
+      const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `BB-SN-BBSFN-MB-${sz}`)).first()
+      if (!vr) continue
+      if (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `BB-SN-BBSFN-KGF-${sz}`)).first()) continue
+      await ctx.db.patch(vr._id, { sku: `BB-SN-BBSFN-KGF-${sz}` })
+      n++
+    }
+    const prod = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", "Brinkley Breeze Sandal for Men Mocha Brown")).take(10))
+      .find((p) => p.name === "Brinkley Breeze Sandal for Men - Mocha Brown" && !p.deletedAt)
+    if (prod) await ctx.db.patch(prod._id, { name: "Brinkley Breeze Sandal for Men - Khaki Green (Flat)" })
+    return n
+  },
+})
+export const renameToKgfNow = action({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    if (!(await ctx.runQuery(internal.shopifyStock.isAdmin, {}))) throw new ConvexError("Not allowed")
+    return await ctx.runMutation(internal.priceAlign.renameToKgf, {})
+  },
+})
