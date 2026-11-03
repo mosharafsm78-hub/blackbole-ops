@@ -3,7 +3,7 @@ import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
-import { bumpStock, currentStaff, nextCounter, receiveAvailable, requirePerm } from "./lib"
+import { bumpStock, currentStaff, invoiceLabel, nextCounter, receiveAvailable, requirePerm } from "./lib"
 import { COMMITTED_STATUSES } from "./rules"
 import { marketingChanged } from "./marketingPush"
 
@@ -602,5 +602,27 @@ export const saveProductFeatures = mutation({
     const clean = features.map((f) => f.trim()).filter(Boolean)
     await ctx.db.patch(productId, { features: clean.length ? clean : undefined })
     return productId
+  },
+})
+
+/** Newest orders that contain one size of a product — customer, date, status — for the product page. Called once per size (not live). */
+export const recentOrdersForVariant = query({
+  args: { variantId: v.id("variants") },
+  handler: async (ctx, { variantId }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return []
+    const variant = await ctx.db.get(variantId)
+    if (!variant) return []
+    const sku = variant.sku.trim().toUpperCase()
+    const out: { _id: Id<"orders">; invoice: string; customerName: string; phone: string; createdAt: number; status: string; qty: number; source: string }[] = []
+    for (const o of await ctx.db.query("orders").withIndex("by_created").order("desc").take(1500)) {
+      if (o.deletedAt) continue
+      let qty = 0
+      for (const i of o.items) if ((i.variantId as string | undefined) === (variantId as string) || (!i.variantId && (i.sku ?? "").trim().toUpperCase() === sku)) qty += i.qty
+      if (!qty) continue
+      out.push({ _id: o._id, invoice: invoiceLabel(o), customerName: o.customerName, phone: o.phone, createdAt: o.createdAt, status: o.status, qty, source: o.source })
+      if (out.length >= 20) break
+    }
+    return out
   },
 })

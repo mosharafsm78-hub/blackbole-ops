@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, createFileRoute, useParams } from "@tanstack/react-router"
-import { useMutation, useQuery } from "convex/react"
+import { useConvex, useMutation, useQuery } from "convex/react"
 import { ArrowLeft, Check, Pencil, X } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
 import { Guard, useCan } from "@/components/app-shell"
-import { Empty, Loading, PageHeader, Pill, Stat } from "@/components/bits"
+import { Empty, Loading, PageHeader, Pill, Stat, StatusPill } from "@/components/bits"
 import { StockMetricCards, WarehouseStockTable, sumWarehouses, type WarehouseStock } from "@/components/product-stock"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { errMsg, taka } from "@/lib/format"
+import { dateTime, errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/products/$productId")({
@@ -141,6 +141,7 @@ function ProductDetailPage() {
                     totals={sumWarehouses(active.warehouses as WarehouseStock[])}
                   />
                 </div>
+                <RecentOrders key={active._id} variantId={active._id as Id<"variants">} sizeTitle={active.title} />
                 <div className="text-xs text-muted-foreground">
                   Internal variant ID <span className="font-mono">{active._id}</span>
                 </div>
@@ -151,6 +152,45 @@ function ProductDetailPage() {
           <FeaturesCard productId={product._id} features={product.features} canEdit={can("products.manage")} />
         </div>
       </div>
+    </div>
+  )
+}
+
+function RecentOrders({ variantId, sizeTitle }: { variantId: Id<"variants">; sizeTitle: string }) {
+  const convex = useConvex()
+  const [rows, setRows] = useState<any[] | null>(null)
+  useEffect(() => {
+    let live = true
+    convex.query(api.catalog.recentOrdersForVariant, { variantId }).then((r) => { if (live) setRows(r) }).catch(() => { if (live) setRows([]) })
+    return () => { live = false }
+  }, [convex, variantId])
+  return (
+    <div>
+      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent orders · size {sizeTitle}</div>
+      {rows === null ? (
+        <div className="rounded-lg border px-3 py-4 text-sm text-muted-foreground">Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-lg border px-3 py-4 text-sm text-muted-foreground">No recent orders for this size.</div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
+              <tr><th className="px-3 py-2 font-medium">Order</th><th className="px-3 py-2 font-medium">Customer</th><th className="px-3 py-2 font-medium">Date</th><th className="px-3 py-2 text-right font-medium">Qty</th><th className="px-3 py-2 font-medium">Status</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((o) => (
+                <tr key={o._id} className="border-t">
+                  <td className="whitespace-nowrap px-3 py-2"><Link to="/order" search={{ id: o._id }} className="font-semibold text-tone-blue hover:underline">{o.invoice}</Link></td>
+                  <td className="px-3 py-2"><div className="font-medium">{o.customerName}</div><div className="text-xs text-muted-foreground">{o.phone}</div></td>
+                  <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{dateTime(o.createdAt)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{o.qty}</td>
+                  <td className="px-3 py-2"><StatusPill status={o.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
