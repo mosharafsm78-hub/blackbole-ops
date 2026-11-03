@@ -231,15 +231,24 @@ export const pushSkuRename = internalAction({
   },
 })
 
-async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string; qty: number }[], reason = "correction") {
+async function setQuantities(ctx: any, rows: { itemId?: string; shopLoc: string; qty: number; sku?: string }[], reason = "correction", fails?: string[]) {
   const ok = rows.filter((r) => r.itemId)
-  for (let k = 0; k < ok.length; k += 200) {
-    const part = ok.slice(k, k + 200)
+  const push = async (part: typeof ok) => {
     const res = await gql(ctx, `mutation($input: InventorySetQuantitiesInput!) {
         inventorySetQuantities(input: $input) @idempotent(key: "${crypto.randomUUID()}") { userErrors { field message } }
       }`, { input: { name: "available", reason, referenceDocumentUri: "bbops://stock-sync", quantities: part.map((r) => ({ inventoryItemId: r.itemId, locationId: r.shopLoc, quantity: r.qty, changeFromQuantity: null })) } })
     const errs = res.inventorySetQuantities.userErrors
     if (errs?.length) throw new Error(errs.map((e: any) => e.message).join("; ").slice(0, 300))
+  }
+  for (let k = 0; k < ok.length; k += 200) {
+    const part = ok.slice(k, k + 200)
+    try { await push(part) } catch (e: any) {
+      // One bad item (e.g. a size deleted in Shopify) must not block every other size: push them one by one and report only the bad ones.
+      if (!fails || part.length === 1) { if (!fails) throw e }
+      for (const r of part) {
+        try { await push([r]) } catch (e2: any) { fails?.push(`${r.sku ?? r.itemId}: ${String(e2?.message ?? e2).slice(0, 80)}`) }
+      }
+    }
   }
   return ok.length
 }
@@ -419,7 +428,9 @@ export const flush = internalAction({
         const rows = await ctx.runQuery(internal.shopifyStock.targets, { variantIds: ids })
         await itemIds(ctx, rows)
         const notes = await ensureProducts(ctx, rows) // new products go to Shopify by themselves
-        await setQuantities(ctx, rows)
+        const fails: string[] = []
+        await setQuantities(ctx, rows, "correction", fails)
+        if (fails.length) notes.push(`Not updated in Shopify (item missing there): ${fails.join(", ")}`)
         await ctx.runMutation(internal.shopifyStock.putToken, { error: notes.length ? `${new Date().toISOString()} ${notes.join(" | ")}`.slice(0, 900) : null })
         await ctx.runMutation(internal.shopifyStock.putLast, { at: Date.now(), count: rows.length })
       } catch (e: any) {
