@@ -254,6 +254,19 @@ export const create = mutation({
 })
 
 // ---------- lists ----------
+/** Just the Pending number for the sidebar badge — every signed-in person watches it all day, so it must stay tiny (no exchange scan). */
+export const pendingBadge = query({
+  args: {},
+  handler: async (ctx) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const rows = await ctx.db.query("counters").collect()
+    const get = (st: string) => rows.find((r) => r.name === `st:${st}`)?.value ?? 0
+    const tab = STATUS_TABS.find((t) => t.key === "pending")
+    return { pending: tab ? tab.statuses.reduce((sum, st) => sum + get(st), 0) : get("pending") }
+  },
+})
+
 export const counts = query({
   args: {},
   handler: async (ctx) => {

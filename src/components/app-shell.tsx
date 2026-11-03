@@ -1,7 +1,7 @@
 import { cloneElement, createContext, useContext, useEffect, useRef, useState } from "react"
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router"
 import { useAuthActions } from "@convex-dev/auth/react"
-import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, useQuery } from "convex/react"
+import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvex, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -169,7 +169,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const search = useRouterState({ select: (s) => s.location.search }) as Record<string, unknown>
   const inWebsite = path === "/website" || path.startsWith("/website-")
   const cartBadge = useQuery(api.checkouts.badge)
-  const orderCounts = useQuery(api.orders.counts)
+  const orderCounts = useQuery(api.orders.pendingBadge)
   const flagCounts = useQuery(api.accountability.openCounts)
   const reqCounts = useQuery(api.teamRequests.myCounts)
   const badge = (to: string) => (to === "/abandoned" && cartBadge ? cartBadge : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : to === "/accountability" && flagCounts ? flagCounts.total : to === "/requests" && reqCounts ? reqCounts.total : 0)
@@ -379,7 +379,16 @@ function QuickSearch({ q, setQ }: { q: string; setQ: (v: string) => void }) {
   const [term, setTerm] = useState("")
   const [open, setOpen] = useState(false)
   useEffect(() => { const t = setTimeout(() => setTerm(q.trim()), 250); return () => clearTimeout(t) }, [q])
-  const results = useQuery(api.orders.search, term.length >= 3 ? { term } : "skip")
+  // One look per typed term (not a live subscription): a name search reads thousands of orders, and a live one would re-read them on every new order.
+  const convex = useConvex()
+  const [results, setResults] = useState<any[] | undefined>(undefined)
+  useEffect(() => {
+    if (term.length < 3) { setResults(undefined); return }
+    let live = true
+    setResults(undefined)
+    convex.query(api.orders.search, { term }).then((r) => { if (live) setResults(r as any[]) }).catch(() => { if (live) setResults([]) })
+    return () => { live = false }
+  }, [convex, term])
   const show = open && term.length >= 3
   const go = (id: string) => { setOpen(false); setQ(""); navigate({ to: "/order", search: { id } }) }
   return (

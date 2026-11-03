@@ -26,7 +26,7 @@ import {
 const DAY = 86400000
 const WINDOW_DAYS = 60 // how far back "what sells" is measured
 // Near-real-time: sales and stock are re-read at most once a minute (shared by everyone looking), ad spend every 5.
-const CACHE_MS = 60000
+const CACHE_MS = 5 * 60_000 // each refresh reads the whole month of orders — keep it rare
 const SPEND_MS = 5 * 60000
 const DELIVERED = new Set(["delivered_due", "delivered_paid"])
 // Marketing's own KPI, separate from the delivered-revenue target above: the full order total counts the moment

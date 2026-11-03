@@ -115,9 +115,22 @@ export const orders = httpAction(async (ctx, req) => {
   return json({ orders: data, next: data.length ? data[data.length - 1].updatedAt : since, more: data.length >= Math.min(limit, MAX_PAGE) })
 })
 
+/** Stock list for Marketing OS, worked out at most once every 5 minutes (it reads every size and warehouse row, and Marketing OS asks often). */
+const STOCK_CACHE_MS = 5 * 60_000
+async function cachedStock(ctx: any, product?: string) {
+  const key = `feed-stock:${product ?? "*"}`
+  try {
+    const hit = await ctx.runQuery(internal.dashboard.readCacheSystem, { key })
+    if (hit && Date.now() - hit.at < STOCK_CACHE_MS) return hit.value
+  } catch { /* fall through and work it out */ }
+  const value = await ctx.runQuery(internal.marketingFeed.stockBySku, product === undefined ? {} : { product })
+  try { await ctx.runMutation(internal.dashboard.writeCache, { key, value }) } catch { /* too big to cache: just serve it */ }
+  return value
+}
+
 export const stock = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
-  return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, {}) })
+  return json({ stock: await cachedStock(ctx) })
 })
 
 /** Marketing OS → a product-scoped percent code for a clearance ad (POST, feed key). */
@@ -140,7 +153,7 @@ export const product = httpAction(async (ctx, req) => {
   if (!authorized(req)) return json({ error: "Invalid feed key" }, 401)
   const name = new URL(req.url).searchParams.get("name")?.trim()
   if (!name) return json({ error: "name is required" }, 400)
-  return json({ stock: await ctx.runQuery(internal.marketingFeed.stockBySku, { product: name }), at: Date.now() })
+  return json({ stock: await cachedStock(ctx, name), at: Date.now() })
 })
 
 /** Today's revenue target, the daily ad budget and how many pairs each product should sell — for the Marketing OS AI Brain.
