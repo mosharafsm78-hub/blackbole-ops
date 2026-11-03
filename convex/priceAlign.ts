@@ -7,6 +7,8 @@ import { shopifyGql } from "./shopifyStock"
 import { normSku } from "./website"
 import { isPreOrderSku } from "./rules"
 import { bumpStock } from "./lib"
+import { internalMutation as liveMutation } from "./functions"
+import { applyTestStock } from "./stockCheck"
 
 export type PriceDiff = { sku: string; product: string; ops: number; shopify: number }
 export type Missing = { sku: string; product: string; title: string; price: number; status: string; type: string; image: string; qty: number; loc: string }
@@ -131,5 +133,46 @@ export const addMissing = action({
       for (let i = 0; i < rows.length; i += 100) created += await ctx.runMutation(internal.priceAlign.addVariants, { rows: rows.slice(i, i + 100).map(({ status, ...r }) => r) })
       return { created }
     } catch (e: any) { throw new ConvexError(String(e?.message ?? e)) }
+  },
+})
+
+// ONE-TIME: link the Shopify "Brinkley Breeze Sandal for Men" (Tk 1,580, brown photo) to the Ops "Mocha Brown" product,
+// give it the same fake stock Shopify shows, and switch off the duplicate sizes (BB-SAN-BBS-KHK-*) added by mistake.
+const MB_QTY: Record<number, number> = { 39: 8, 40: 10, 41: 8, 42: 6, 43: 9, 44: 9 }
+export const linkMocha = liveMutation({
+  args: {},
+  handler: async (ctx) => {
+    const prod = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", "Brinkley Breeze Sandal for Men Mocha Brown")).take(10))
+      .find((p) => p.name === "Brinkley Breeze Sandal for Men - Mocha Brown" && !p.deletedAt)
+    if (!prod) throw new ConvexError("Mocha Brown product not found in Ops")
+    const items: { variantId: any; qty: number }[] = []
+    for (const [sz, qty] of Object.entries(MB_QTY)) {
+      const sku = `BB-SN-BBSFN-MB-${sz}`
+      let vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (!vr) {
+        const id = await ctx.db.insert("variants", { productId: prod._id, sku, title: sz, weightKg: 0.2, price: 1580, purchasePrice: 0, active: true, createdAt: Date.now() })
+        vr = (await ctx.db.get(id))!
+      } else await ctx.db.patch(vr._id, { active: true, price: 1580 })
+      items.push({ variantId: vr._id, qty })
+    }
+    await ctx.db.patch(prod._id, { active: true })
+    // switch off the duplicates added by mistake: zero their stock, mark inactive (nothing is deleted)
+    for (const sz of Object.keys(MB_QTY)) {
+      const d = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `BB-SAN-BBS-KHK-${sz}`)).first()
+      if (!d) continue
+      for (const r of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", d._id)).collect()) {
+        if (r.available !== 0) await bumpStock(ctx, { variantId: d._id, locationId: r.locationId, bucket: "available", change: -r.available, reason: "Duplicate removed", byName: "Claude" })
+      }
+      await ctx.db.patch(d._id, { active: false })
+    }
+    await applyTestStock(ctx, items, "Claude")
+    return items.length
+  },
+})
+export const linkMochaNow = action({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    if (!(await ctx.runQuery(internal.shopifyStock.isAdmin, {}))) throw new ConvexError("Not allowed")
+    return await ctx.runMutation(internal.priceAlign.linkMocha, {})
   },
 })

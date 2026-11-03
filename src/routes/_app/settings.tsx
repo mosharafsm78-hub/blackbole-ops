@@ -157,6 +157,7 @@ function ShopifyStockSync() {
   const comparePrices = useAction(api.priceAlign.compare)
   const applyPrices = useAction(api.priceAlign.applyShopifyPrices)
   const addMissing = useAction(api.priceAlign.addMissing)
+  const linkMocha = useAction(api.priceAlign.linkMochaNow)
   const [pp, setPp] = useState<null | { diffs: { sku: string; product: string; ops: number; shopify: number }[]; checked: number; notInShopify: number; missing: { sku: string; product: string; title: string; price: number; status: string }[] }>(null)
   const [pv, setPv] = useState<null | { total: number; same: number; notInShopify: number; changes: { sku: string; shopify: number; ops: number }[] }>(null)
   useEffect(() => {
@@ -242,6 +243,10 @@ function ShopifyStockSync() {
             setBusy(true)
             try { setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Check price differences</Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { const n = await linkMocha(); toast.success(`Mocha Brown linked, ${n} sizes with fake stock`) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>One-time: link Mocha Brown</Button>
           {pp && pp.diffs.length > 0 && <Button size="sm" disabled={busy} onClick={async () => {
             setBusy(true)
             try { const r = await applyPrices(); toast.success(`Ops prices updated for ${r.updated} sizes`); setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
