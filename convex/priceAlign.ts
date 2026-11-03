@@ -6,9 +6,10 @@ import { internal } from "./_generated/api"
 import { shopifyGql } from "./shopifyStock"
 import { normSku } from "./website"
 import { isPreOrderSku } from "./rules"
+import { bumpStock } from "./lib"
 
 export type PriceDiff = { sku: string; product: string; ops: number; shopify: number }
-export type Missing = { sku: string; product: string; title: string; price: number; status: string; type: string; image: string }
+export type Missing = { sku: string; product: string; title: string; price: number; status: string; type: string; image: string; qty: number; loc: string }
 
 export const opsVariants = internalQuery({
   args: {},
@@ -26,9 +27,10 @@ export const opsVariants = internalQuery({
 })
 
 export const addVariants = internalMutation({
-  args: { rows: v.array(v.object({ sku: v.string(), product: v.string(), title: v.string(), price: v.number(), type: v.string(), image: v.string() })) },
+  args: { rows: v.array(v.object({ sku: v.string(), product: v.string(), title: v.string(), price: v.number(), type: v.string(), image: v.string(), qty: v.number(), loc: v.string() })) },
   handler: async (ctx, { rows }) => {
     let created = 0
+    const locs = (await ctx.db.query("locations").collect()).filter((l: any) => l.active && l.shopifyLocationId && !l.noCourier)
     const PO_PRICE = 500 // Ops convention for pre-order sizes (booking price); Shopify holds the 200 deposit price
     const pids = new Map<string, any>()
     for (const r of rows) {
@@ -41,7 +43,10 @@ export const addVariants = internalMutation({
         pid = found?._id ?? (await ctx.db.insert("products", { name: r.product, category: r.type || undefined, imageUrl: r.image || undefined, active: true, createdAt: Date.now(), ...(po ? { preOrder: true, preOrderFrom: "china" as const } : {}) }))
         pids.set(r.product, pid)
       }
-      await ctx.db.insert("variants", { productId: pid, sku, title: r.title || "Default", weightKg: 0.5, price: isPreOrderSku(sku) ? PO_PRICE : r.price, purchasePrice: 0, active: true, createdAt: Date.now() })
+      const variantId = await ctx.db.insert("variants", { productId: pid, sku, title: r.title || "Default", weightKg: 0.5, price: isPreOrderSku(sku) ? PO_PRICE : r.price, purchasePrice: 0, active: true, createdAt: Date.now() })
+      // regular sizes: start Ops with the stock Shopify already shows, so the live stock sync keeps the same number
+      const loc = locs.find((l: any) => l.shopifyLocationId === r.loc)
+      if (!isPreOrderSku(sku) && loc && r.qty > 0) await bumpStock(ctx, { variantId, locationId: loc._id, bucket: "available", change: r.qty, reason: "Opening stock (from Shopify)", byName: "Shopify import" })
       created++
     }
     return created
@@ -67,10 +72,10 @@ async function diffs(ctx: any): Promise<{ diffs: (PriceDiff & { id: string })[];
   const info = new Map<string, Missing>()
   let after: string | null = null
   for (let page = 0; page < 60; page++) {
-    const d: any = await shopifyGql(ctx, `query($after:String){ productVariants(first:200, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ sku price title product{ title status productType featuredImage{ url } } } } }`, { after })
+    const d: any = await shopifyGql(ctx, `query($after:String){ productVariants(first:200, after:$after){ pageInfo{ hasNextPage endCursor } nodes{ sku price title inventoryItem{ inventoryLevels(first:1){ nodes{ location{ id } quantities(names:["available"]){ quantity } } } } product{ title status productType featuredImage{ url } } } } }`, { after })
     for (const n of d.productVariants.nodes) if (normSku(n.sku)) {
       shop.set(normSku(n.sku), Math.round(Number(n.price)))
-      info.set(normSku(n.sku), { sku: normSku(n.sku), product: n.product?.title ?? "", title: n.title ?? "", price: Math.round(Number(n.price)), status: n.product?.status ?? "", type: n.product?.productType ?? "", image: n.product?.featuredImage?.url ?? "" })
+      info.set(normSku(n.sku), { sku: normSku(n.sku), product: n.product?.title ?? "", title: n.title ?? "", price: Math.round(Number(n.price)), status: n.product?.status ?? "", type: n.product?.productType ?? "", image: n.product?.featuredImage?.url ?? "", qty: Math.max(0, n.inventoryItem?.inventoryLevels?.nodes?.[0]?.quantities?.[0]?.quantity ?? 0), loc: n.inventoryItem?.inventoryLevels?.nodes?.[0]?.location?.id ?? "" })
     }
     if (!d.productVariants.pageInfo.hasNextPage) break
     after = d.productVariants.pageInfo.endCursor
