@@ -58,6 +58,39 @@ ${picksBlock(a.picks ?? [], "NEW COLLECTION")}
   return { subject, html, text }
 }
 
+
+/** Shopify free-delivery code given to customers whose parcel came back (once per customer). */
+export const COMEBACK_FREE = "COMEBACKFREE"
+
+/** After a returned parcel: sorry note, one more chance with free delivery, and a few pairs to try (photos in a row, names under them). */
+export function returnComebackEmailContent(a: { name: string; invoice: string; hotline?: string; picks?: Pick[] }) {
+  const hello = a.name && a.name.trim() && a.name.trim() !== "-" ? a.name.trim().split(/\s+/)[0] : "there"
+  const subject = "Your return is received. Free delivery on your next pair 💙"
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#f4f1ec;font-family:Arial,Helvetica,sans-serif;color:#1c1915">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0">We would love one more chance. Your next delivery is free.</div>
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f1ec;padding:24px 10px"><tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:18px;overflow:hidden">
+<tr><td style="background:#1c1915;color:#ffffff;padding:20px 28px;font-size:22px;letter-spacing:6px;font-weight:bold">BLACKBOLE</td></tr>
+<tr><td style="padding:30px 28px 14px"><div style="font-size:26px;line-height:1.25;font-weight:bold">Hi ${esc(hello)}, your return is received</div>
+<div style="font-size:15px;line-height:1.6;color:#4a453d;margin-top:10px">We have received your returned parcel (order <b>${esc(a.invoice)}</b>). We are sorry the pair was not right for you. Please give us one more chance to get it right. Your next delivery is on us.</div></td></tr>
+<tr><td style="padding:0 28px 8px"><table width="100%" cellpadding="0" cellspacing="0" style="background:#eefaf1;border:2px dashed #1f8a4c;border-radius:14px"><tr><td align="center" style="padding:20px 16px">
+<div style="font-size:12px;letter-spacing:3px;color:#1f6b3b;font-weight:bold">ONE MORE CHANCE</div>
+<div style="font-size:32px;font-weight:bold;color:#1c1915;margin:6px 0">FREE DELIVERY</div>
+<div style="font-size:13px;color:#1f6b3b">Your code</div>
+<div style="display:inline-block;margin-top:6px;padding:8px 18px;background:#1c1915;color:#ffffff;font-size:18px;letter-spacing:3px;font-weight:bold;border-radius:8px">${COMEBACK_FREE}</div>
+<div style="font-size:12px;color:#1f6b3b;margin-top:10px">Enter it at checkout on your next order. One use per customer.</div>
+</td></tr></table></td></tr>
+<tr><td align="center" style="padding:22px 28px 10px"><a href="${SITE}" style="display:block;background:#1c1915;color:#ffffff;text-decoration:none;font-size:17px;font-weight:bold;padding:17px 20px;border-radius:12px">Choose another pair →</a>
+<div style="font-size:12px;color:#7a746b;margin-top:10px">Free size exchange if the size is wrong. Cash on delivery available.</div></td></tr>
+${picksBlock(a.picks ?? [], "PAIRS YOU MAY LIKE")}
+<tr><td style="padding:18px 28px 26px;font-size:13px;line-height:1.6;color:#4a453d">Not sure about the size? Just reply to this email${a.hotline ? ` or call us on <b>${esc(a.hotline)}</b>` : ""}. We will help you pick the right pair.</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #eee;font-size:11px;line-height:1.5;color:#9a948a">You are receiving this because of your recent BlackBole order. BlackBole</td></tr>
+</table></td></tr></table></body></html>`
+  const text = `Hi ${hello}, your return of ${a.invoice} is received. We are sorry it was not right. Give us one more chance: use code ${COMEBACK_FREE} for free delivery on your next order. Shop: ${SITE}`
+  return { subject, html, text }
+}
+
 export function abandonedEmailContent(a: { customerName: string; items: Item[]; subtotal: number; url?: string; hotline?: string; step?: number; picks?: Pick[]; kind?: EmailKind }) {
   const step = a.step ?? 1
   const gift0 = parseGift(a.customerName)

@@ -61,6 +61,16 @@ export const claim = internalMutation({
   },
 })
 
+/** True the first time a key is seen, false afterwards (one-time sends). */
+export const claimOnce = internalMutation({
+  args: { key: v.string(), orderId: v.id("orders") },
+  handler: async (ctx, { key, orderId }) => {
+    if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", key)).first()) return false
+    await ctx.db.insert("waVerifyEvents", { wamid: key, waId: "", orderId, result: "once", at: Date.now() })
+    return true
+  },
+})
+
 export const finish = internalMutation({
   args: { wamid: v.string(), orderId: v.id("orders"), result: v.string(), note: v.optional(v.string()), kind: v.string() },
   handler: async (ctx, { wamid, orderId, result, note, kind }) => {

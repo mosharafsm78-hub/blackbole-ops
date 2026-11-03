@@ -7,7 +7,7 @@ import { action, internalAction } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { invoiceLabel } from "./lib"
 import { orderMessage } from "./outbound"
-import { SITE, abandonedEmailContent, winbackEmailContent } from "./emailTemplates"
+import { SITE, abandonedEmailContent, winbackEmailContent, returnComebackEmailContent } from "./emailTemplates"
 
 const SUBJECT: Record<string, string> = {
   pending: "Your BlackBole order {invoice} is received 🎉",
@@ -58,6 +58,23 @@ export const sendOrderEmail = internalAction({
     const subject = (SUBJECT[status] ?? "Your BlackBole order {invoice}").replace("{invoice}", invoiceLabel(order))
     const error = await send(email, order.email, subject, text, contact?.hotline)
     await ctx.runMutation(internal.outbound.logSms, { phone: order.email, text: `${subject} — ${text}`, orderId, status: error ? "failed" : "sent", error: error ?? undefined, channel: "email" })
+  },
+})
+
+
+/** One comeback email when a parcel is returned: sorry note, free-delivery code, a few pairs to try. Once per order, only when the
+ *  customer gave an email, the mailbox is set up and email is switched on in Settings. */
+export const sendReturnComeback = internalAction({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => {
+    const { order, email, contact } = await ctx.runQuery(internal.outbound.context, { orderId })
+    if (!order || order.deletedAt || order.isExchange || !email?.enabled || !order.email || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(order.email)) return
+    if (!(await ctx.runMutation(internal.waNotify.claimOnce, { key: `rc-email-${orderId}`, orderId }))) return
+    const exclude = (order.items ?? []).map((i: any) => i.name).filter(Boolean)
+    const picks = await ctx.runQuery(internal.abandonedEmail.picks, { exclude, kind: "regular", step: new Date().getUTCDate() })
+    const m = returnComebackEmailContent({ name: order.customerName, invoice: invoiceLabel(order), hotline: contact?.hotline, picks })
+    const error = await send(email, order.email, m.subject, m.text, contact?.hotline, m.html)
+    await ctx.runMutation(internal.outbound.logSms, { phone: order.email, text: `${m.subject} — ${m.text}`, orderId, status: error ? "failed" : "sent", error: error ?? undefined, channel: "email" })
   },
 })
 
