@@ -32,7 +32,7 @@ crons.interval("win-back sweep", { hours: 1 }, internal.winback.run, {})
 // win-back email, tier 1: same idea, same cadence, by email instead — fully automatic like SMS (no WhatsApp-style ban risk)
 crons.interval("win-back email sweep", { hours: 1 }, internal.winback.runEmail, {})
 // WhatsApp send queue, tier 1: drafts a win-back message for a human to tap-send (never sends anything itself)
-crons.interval("whatsapp queue fill", { hours: 1 }, internal.waQueue.run, {})
+crons.interval("whatsapp queue fill", { minutes: 5 }, internal.waQueue.run, {}) // every 5 min: also clears old win-back drafts quickly (switched off 3 Nov)
 // Tier 2 — repeat buyers (2+ orders) who've gone quiet: same three channels, slower cadence
 // (winback.TIER2_FIRST_DAYS then winback.TIER2_REPEAT_DAYS), same monthly discount code.
 crons.interval("win-back sweep (repeat buyers)", { hours: 1 }, internal.winback.run2, {})
