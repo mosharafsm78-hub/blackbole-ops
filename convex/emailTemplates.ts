@@ -81,13 +81,13 @@ export function returnComebackEmailContent(a: { name: string; invoice: string; h
 <div style="display:inline-block;margin-top:6px;padding:8px 18px;background:#1c1915;color:#ffffff;font-size:18px;letter-spacing:3px;font-weight:bold;border-radius:8px">${COMEBACK_FREE}</div>
 <div style="font-size:12px;color:#1f6b3b;margin-top:10px">Enter it at checkout on your next order. One use per customer.</div>
 </td></tr></table></td></tr>
-<tr><td align="center" style="padding:22px 28px 10px"><a href="${SITE}" style="display:block;background:#1c1915;color:#ffffff;text-decoration:none;font-size:17px;font-weight:bold;padding:17px 20px;border-radius:12px">Choose another pair →</a>
+<tr><td align="center" style="padding:22px 28px 10px"><a href="${SITE}/discount/${COMEBACK_FREE}?redirect=%2Fcollections%2Fall" style="display:block;background:#1f8a4c;color:#ffffff;text-decoration:none;font-size:17px;font-weight:bold;padding:17px 20px;border-radius:12px">Yes, give it another try →</a>
 <div style="font-size:12px;color:#7a746b;margin-top:10px">Free size exchange if the size is wrong. Cash on delivery available.</div></td></tr>
 ${picksBlock(a.picks ?? [], "PAIRS YOU MAY LIKE")}
 <tr><td style="padding:18px 28px 26px;font-size:13px;line-height:1.6;color:#4a453d">Not sure about the size? Just reply to this email${a.hotline ? ` or call us on <b>${esc(a.hotline)}</b>` : ""}. We will help you pick the right pair.</td></tr>
 <tr><td style="padding:16px 28px;border-top:1px solid #eee;font-size:11px;line-height:1.5;color:#9a948a">You are receiving this because of your recent BlackBole order. BlackBole</td></tr>
 </table></td></tr></table></body></html>`
-  const text = `Hi ${hello}, your return of ${a.invoice} is received. We are sorry it was not right. Give us one more chance: use code ${COMEBACK_FREE} for free delivery on your next order. Shop: ${SITE}`
+  const text = `Hi ${hello}, your return of ${a.invoice} is received. We are sorry it was not right. Give us one more chance, order another pair with free delivery: use code ${COMEBACK_FREE} for free delivery on your next order. Shop: ${SITE}`
   return { subject, html, text }
 }
 

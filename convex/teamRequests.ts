@@ -4,7 +4,17 @@ import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
 import { mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
+import { internal } from "./_generated/api"
 import { currentStaff, invoiceLabel, logOrder } from "./lib"
+
+const OPS_URL = "https://blackbole-ops.vercel.app/requests"
+const okEmail = (e?: string) => !!e && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e)
+/** Email the colleague a request or answer concerns, so they see it even when Ops is not open. Best-effort; never blocks the request. */
+async function mailPerson(ctx: any, to: Doc<"staff">, subject: string, lines: string[]) {
+  if (!okEmail(to.email)) return
+  const first = (to.name || "").trim().split(/\s+/)[0] || "there"
+  await ctx.scheduler.runAfter(0, internal.emailNode.sendAccountabilityEmail, { to: to.email, subject, text: `Hi ${first},\n\n${lines.join("\n")}\n\nOpen it in Ops: ${OPS_URL}` })
+}
 
 export const KINDS = ["live_picture", "exchange", "question", "other"] as const
 const MAX_PHOTOS = 6
@@ -79,6 +89,9 @@ export const create = mutation({
       photoIds: a.photoIds ?? [], status: "open", replies: [], createdAt: now, updatedAt: now,
     })
     if (order) await logOrder(ctx, order._id, `${from.name} asked ${to.name}: ${KIND_LABEL[a.kind]} — ${message.slice(0, 160)}`, from.name)
+    const kindLabel = KIND_LABEL[a.kind] ?? a.kind
+    const inv = order ? ` (order ${invoiceLabel(order)})` : ""
+    await mailPerson(ctx, to, `${from.name} asked you: ${kindLabel}${inv}`, [`${from.name} sent you a request: ${kindLabel}${inv}.`, "", message, ...((a.photoIds ?? []).length ? ["", `(${(a.photoIds ?? []).length} photo attached in Ops)`] : [])])
     return id
   },
 })
@@ -99,6 +112,10 @@ export const reply = mutation({
     // Answer from the person asked → waits for the asker. Message from the asker → back to the person asked.
     const status = who._id === r.toStaffId ? "answered" : "open"
     await ctx.db.patch(r._id, { replies: [...r.replies, { byStaffId: who._id, byName: who.name, text, photoIds, at: now }], status, updatedAt: now })
+    const other = who._id === r.toStaffId ? r.fromStaffId : r.toStaffId
+    const otherStaff = await ctx.db.get(other)
+    const kl = KIND_LABEL[r.kind] ?? r.kind
+    if (otherStaff) await mailPerson(ctx, otherStaff, `${who.name} ${status === "answered" ? "answered" : "replied to"} your ${kl} request`, [`${who.name} ${status === "answered" ? "answered" : "replied on"} the ${kl} request.`, "", text || "(photo only)", ...(photoIds.length ? ["", `(${photoIds.length} photo attached in Ops)`] : [])])
     if (r.orderId && status === "answered") {
       const o = await ctx.db.get(r.orderId)
       if (o) await logOrder(ctx, o._id, `${who.name} answered ${r.fromName}'s ${KIND_LABEL[r.kind]} request${photoIds.length ? " (with photo)" : ""}`, who.name)
