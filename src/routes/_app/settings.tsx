@@ -154,6 +154,9 @@ function ShopifyStockSync() {
   const [loaded, setLoaded] = useState(false)
   const preview = useAction(api.shopifyStock.preview)
   const pushAll = useAction(api.shopifyStock.pushAll)
+  const comparePrices = useAction(api.priceAlign.compare)
+  const applyPrices = useAction(api.priceAlign.applyShopifyPrices)
+  const [pp, setPp] = useState<null | { diffs: { sku: string; product: string; ops: number; shopify: number }[]; checked: number; notInShopify: number }>(null)
   const [pv, setPv] = useState<null | { total: number; same: number; notInShopify: number; changes: { sku: string; shopify: number; ops: number }[] }>(null)
   useEffect(() => {
     if (!st || loaded) return
@@ -224,6 +227,33 @@ function ShopifyStockSync() {
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-muted"><tr><th className="p-1.5 text-left">SKU</th><th className="p-1.5 text-right">Website now</th><th className="p-1.5 text-right">Will become (Ops)</th></tr></thead>
                   <tbody>{pv.changes.slice(0, 300).map((c) => <tr key={c.sku} className="border-t"><td className="p-1.5 font-mono">{c.sku}</td><td className="p-1.5 text-right">{c.shopify}</td><td className={cn("p-1.5 text-right font-semibold", c.ops < c.shopify ? "text-tone-red" : "text-tone-green")}>{c.ops}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="mt-4 rounded-md border p-3">
+        <div className="mb-1 text-sm font-medium">Prices: make Ops match Shopify</div>
+        <p className="mb-2 text-xs text-muted-foreground">Shopify&apos;s price is the true one. “Check” lists every size where Ops differs. “Update Ops” copies the Shopify price into Ops. Shopify is never changed.</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Check price differences</Button>
+          {pp && pp.diffs.length > 0 && <Button size="sm" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { const r = await applyPrices(); toast.success(`Ops prices updated for ${r.updated} sizes`); setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Update Ops to Shopify prices ({pp.diffs.length})</Button>}
+        </div>
+        {pp && (
+          <div className="mt-3 text-sm">
+            <div>{pp.checked} sizes checked · <b className="text-tone-red">{pp.diffs.length} different</b> · {pp.notInShopify} not in Shopify</div>
+            {pp.diffs.length > 0 && (
+              <div className="mt-2 max-h-72 overflow-auto rounded border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-muted"><tr><th className="p-1.5 text-left">Product</th><th className="p-1.5 text-left">SKU</th><th className="p-1.5 text-right">Ops now</th><th className="p-1.5 text-right">Shopify</th></tr></thead>
+                  <tbody>{pp.diffs.slice(0, 500).map((c) => <tr key={c.sku} className="border-t"><td className="p-1.5">{c.product}</td><td className="p-1.5 font-mono">{c.sku}</td><td className="p-1.5 text-right">{c.ops}</td><td className="p-1.5 text-right font-medium">{c.shopify}</td></tr>)}</tbody>
                 </table>
               </div>
             )}
