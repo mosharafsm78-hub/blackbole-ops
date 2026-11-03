@@ -63,11 +63,26 @@ export const enqueueOne = internalMutation({
   },
 })
 
+/** The win-back WhatsApp queue is switched off (Emon, 3 Nov 2026: no "we miss you" messages here). Set to true to bring it back. */
+const WA_QUEUE_WINBACK = false
+
+/** Marks every waiting win-back message as skipped (nothing is deleted), up to 600 at a time, until none are left. Return, birthday and other messages stay. */
+export const clearWinback = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("waQueue").withIndex("by_status", (q) => q.eq("status", "pending")).take(600)
+    const old = rows.filter((r) => r.source === "winback" || r.source === "winback2")
+    for (const r of old) await ctx.db.patch(r._id, { status: "skipped" })
+    if (old.length > 0 && rows.length === 600) await ctx.scheduler.runAfter(0, internal.waQueue.clearWinback, {})
+  },
+})
+
 /** Runs hourly: pulls fresh tier-1 win-back candidates and queues a personalized WhatsApp message for each, using
  *  the same monthly code/message set in Settings → Win-back. Does nothing while win-back is switched off. */
 export const run = internalAction({
   args: {},
   handler: async (ctx) => {
+    if (!WA_QUEUE_WINBACK) { await ctx.runMutation(internal.waQueue.clearWinback, {}); return }
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
     const now = Date.now()
@@ -87,6 +102,7 @@ export const run = internalAction({
 export const run2 = internalAction({
   args: {},
   handler: async (ctx) => {
+    if (!WA_QUEUE_WINBACK) return
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
     const now = Date.now()
