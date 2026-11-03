@@ -11,7 +11,7 @@ import { internalAction, internalQuery, query } from "./_generated/server"
 
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
-import { invoiceLabel, requirePerm } from "./lib"
+import { getSetting, invoiceLabel, requirePerm, setSetting } from "./lib"
 import { fill, firstName, pickTemplate, codeForMonth, REPEAT1_DAYS, TIER2_FIRST_DAYS, TIER2_REPEAT_DAYS } from "./winback"
 
 const DAY = 86400000
@@ -82,6 +82,7 @@ export const clearWinback = internalMutation({
 export const run = internalAction({
   args: {},
   handler: async (ctx) => {
+    await ctx.runMutation(internal.waQueue.backfillReturns, {}) // one time: last 30 days of returned parcels
     if (!WA_QUEUE_WINBACK) { await ctx.runMutation(internal.waQueue.clearWinback, {}); return }
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
@@ -120,19 +121,40 @@ export const run2 = internalAction({
 
 /** A parcel came back: put a ready-to-send "we are sorry, give us another chance, free delivery" message in the shared WhatsApp
  *  queue. The team sends it by hand (a person-sent message is not a paid template). Once per order; never for exchange parcels. */
+async function queueReturnRow(ctx: any, o: any, orderId: any) {
+  if (!o || o.deletedAt || o.isExchange) return false
+  const phone = (o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")
+  if (!/^01[3-9]\d{8}$/.test(phone)) return false
+  const key = `rc-wa-${orderId}`
+  if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q: any) => q.eq("wamid", key)).first()) return false
+  await ctx.db.insert("waVerifyEvents", { wamid: key, waId: "", orderId, result: "once", at: Date.now() })
+  const first = (o.customerName || "").trim().split(/\s+/)[0] || "there"
+  const text = `Hi ${first}, we are sorry about your return of order ${invoiceLabel(o)}. Please give us another chance: order any other pair and get free delivery with code COMEBACKFREE. Reply here and we will help you choose a pair. https://blackbole.top`
+  await ctx.db.insert("waQueue", { customerId: o.customerId, phone, name: o.customerName, text, source: "return", status: "pending", createdAt: Date.now() })
+  return true
+}
+
 export const enqueueReturn = internalMutation({
   args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }) => {
-    const o = await ctx.db.get(orderId)
-    if (!o || o.deletedAt || o.isExchange) return
-    const phone = (o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")
-    if (!/^01[3-9]\d{8}$/.test(phone)) return
-    const key = `rc-wa-${orderId}`
-    if (await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", key)).first()) return
-    await ctx.db.insert("waVerifyEvents", { wamid: key, waId: "", orderId, result: "once", at: Date.now() })
-    const first = (o.customerName || "").trim().split(/\s+/)[0] || "there"
-    const text = `Hi ${first}, we are sorry about your return of order ${invoiceLabel(o)}. Please give us another chance: order any other pair and get free delivery with code COMEBACKFREE. Reply here and we will help you choose a pair. https://blackbole.top`
-    await ctx.db.insert("waQueue", { customerId: o.customerId, phone, name: o.customerName, text, source: "return", status: "pending", createdAt: Date.now() })
+  handler: async (ctx, { orderId }) => { await queueReturnRow(ctx, await ctx.db.get(orderId), orderId) },
+})
+
+/** One time (3 Nov 2026): put everyone whose parcel was returned in the last 30 days into the queue, one message per phone number. */
+export const backfillReturns = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (await getSetting(ctx, "waReturnBackfill")) return
+    await setSetting(ctx, "waReturnBackfill", Date.now())
+    const since = Date.now() - 30 * 86400_000
+    const seen = new Set<string>()
+    for (const status of ["pending_returned", "returned"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", status).gte("statusChangedAt", since)).order("desc").take(1500)
+      for (const o of rows) {
+        const ph = (o.phone ?? "").replace(/\D/g, "").replace(/^88/, "")
+        if (seen.has(ph)) continue
+        if (await queueReturnRow(ctx, o, o._id)) seen.add(ph)
+      }
+    }
   },
 })
 
