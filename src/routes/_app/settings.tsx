@@ -156,7 +156,8 @@ function ShopifyStockSync() {
   const pushAll = useAction(api.shopifyStock.pushAll)
   const comparePrices = useAction(api.priceAlign.compare)
   const applyPrices = useAction(api.priceAlign.applyShopifyPrices)
-  const [pp, setPp] = useState<null | { diffs: { sku: string; product: string; ops: number; shopify: number }[]; checked: number; notInShopify: number }>(null)
+  const addMissing = useAction(api.priceAlign.addMissing)
+  const [pp, setPp] = useState<null | { diffs: { sku: string; product: string; ops: number; shopify: number }[]; checked: number; notInShopify: number; missing: { sku: string; product: string; title: string; price: number; status: string }[] }>(null)
   const [pv, setPv] = useState<null | { total: number; same: number; notInShopify: number; changes: { sku: string; shopify: number; ops: number }[] }>(null)
   useEffect(() => {
     if (!st || loaded) return
@@ -245,10 +246,25 @@ function ShopifyStockSync() {
             setBusy(true)
             try { const r = await applyPrices(); toast.success(`Ops prices updated for ${r.updated} sizes`); setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
           }}>Update Ops to Shopify prices ({pp.diffs.length})</Button>}
+          {pp && pp.missing.some((m) => m.status === "ACTIVE") && <Button size="sm" variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true)
+            try { const r = await addMissing(); toast.success(`Added ${r.created} missing sizes to Ops`); setPp(await comparePrices()) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Add missing Shopify products to Ops ({pp.missing.filter((m) => m.status === "ACTIVE").length})</Button>}
         </div>
         {pp && (
           <div className="mt-3 text-sm">
             <div>{pp.checked} sizes checked · <b className="text-tone-red">{pp.diffs.length} different</b> · {pp.notInShopify} not in Shopify</div>
+            {pp.missing.length > 0 && (
+              <div className="mt-2">
+                <div className="text-xs font-medium">In Shopify but missing in Ops ({pp.missing.length})</div>
+                <div className="mt-1 max-h-72 overflow-auto rounded border">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted"><tr><th className="p-1.5 text-left">Product</th><th className="p-1.5 text-left">Size</th><th className="p-1.5 text-left">SKU</th><th className="p-1.5 text-right">Price</th><th className="p-1.5 text-left">Shopify status</th></tr></thead>
+                    <tbody>{pp.missing.slice(0, 500).map((m) => <tr key={m.sku} className="border-t"><td className="p-1.5">{m.product}</td><td className="p-1.5">{m.title}</td><td className="p-1.5 font-mono">{m.sku}</td><td className="p-1.5 text-right">{m.price}</td><td className="p-1.5">{m.status}</td></tr>)}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
             {pp.diffs.length > 0 && (
               <div className="mt-2 max-h-72 overflow-auto rounded border">
                 <table className="w-full text-xs">
