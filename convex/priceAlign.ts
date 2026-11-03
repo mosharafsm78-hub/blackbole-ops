@@ -5,6 +5,7 @@ import { action, internalQuery, internalMutation } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { shopifyGql } from "./shopifyStock"
 import { normSku } from "./website"
+import { isPreOrderSku } from "./rules"
 
 export type PriceDiff = { sku: string; product: string; ops: number; shopify: number }
 
@@ -52,6 +53,7 @@ async function diffs(ctx: any): Promise<{ diffs: (PriceDiff & { id: string })[];
   for (const o of ops) {
     const s = shop.get(normSku(o.sku))
     if (s === undefined) { notIn++; continue }
+    if (isPreOrderSku(o.sku)) continue // pre-order SKUs (PO-…) carry their own booking price in Shopify; never touched here
     if (s > 0 && Math.round(o.price) !== s) out.push({ id: o.id, sku: o.sku, product: o.product, ops: o.price, shopify: s })
   }
   return { diffs: out.sort((a, b) => a.product.localeCompare(b.product) || a.sku.localeCompare(b.sku)), checked: ops.length - notIn, notInShopify: notIn }
