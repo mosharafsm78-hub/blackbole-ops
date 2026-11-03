@@ -72,14 +72,22 @@ export const finish = internalMutation({
 })
 
 export const send = internalAction({
-  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()), hold: v.optional(v.boolean()) },
-  handler: async (ctx, { orderId, kind, reason, rider, riderPhone, hold }) => {
+  args: { orderId: v.id("orders"), kind: v.string(), reason: v.optional(v.string()), rider: v.optional(v.string()), riderPhone: v.optional(v.string()), hold: v.optional(v.boolean()), attempt: v.optional(v.number()) },
+  handler: async (ctx, { orderId, kind, reason, rider, riderPhone, hold, attempt }) => {
     // The Pathao status feed rarely carries the rider or the reason; the tracking log does.
     if ((kind === "out_for_delivery" && !(rider && riderPhone)) || (kind === "failed" && (!reason || hold))) {
       const live = await ctx.runAction(internal.pathao.liveDetails, { orderId })
       // Pathao also puts parcels "on hold" at pickup or for other reasons: only a hold AT DELIVERY is a failed attempt
       if (kind === "failed" && hold && !live.heldAtDelivery) return
-      if (kind === "out_for_delivery") { rider = rider || live.rider; riderPhone = riderPhone || live.riderPhone }
+      if (kind === "out_for_delivery") {
+        rider = rider || live.rider; riderPhone = riderPhone || live.riderPhone
+        // Pathao flips the status a moment BEFORE it writes "Assigned to <rider> (phone) for delivery" in the tracking log. Sending now would
+        // go out without the rider (the plain version). Wait and look again (up to 3 times, ~90 s apart); only then send the plain version.
+        if (!(rider && riderPhone) && (attempt ?? 0) < 3) {
+          await ctx.scheduler.runAfter(90_000, internal.waNotify.send, { orderId, kind, hold, attempt: (attempt ?? 0) + 1 })
+          return
+        }
+      }
       else reason = reason || live.reason
     }
     const m = await ctx.runMutation(internal.waNotify.claim, { orderId, kind, reason, rider, riderPhone })
