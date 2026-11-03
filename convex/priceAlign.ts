@@ -29,6 +29,7 @@ export const addVariants = internalMutation({
   args: { rows: v.array(v.object({ sku: v.string(), product: v.string(), title: v.string(), price: v.number(), type: v.string(), image: v.string() })) },
   handler: async (ctx, { rows }) => {
     let created = 0
+    const PO_PRICE = 500 // Ops convention for pre-order sizes (booking price); Shopify holds the 200 deposit price
     const pids = new Map<string, any>()
     for (const r of rows) {
       const sku = normSku(r.sku)
@@ -36,10 +37,11 @@ export const addVariants = internalMutation({
       let pid = pids.get(r.product)
       if (!pid) {
         const found = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", r.product)).take(5)).find((p) => p.name === r.product && !p.deletedAt)
-        pid = found?._id ?? (await ctx.db.insert("products", { name: r.product, category: r.type || undefined, imageUrl: r.image || undefined, active: true, createdAt: Date.now() }))
+        const po = isPreOrderSku(sku)
+        pid = found?._id ?? (await ctx.db.insert("products", { name: r.product, category: r.type || undefined, imageUrl: r.image || undefined, active: true, createdAt: Date.now(), ...(po ? { preOrder: true, preOrderFrom: "china" as const } : {}) }))
         pids.set(r.product, pid)
       }
-      await ctx.db.insert("variants", { productId: pid, sku, title: r.title || "Default", weightKg: 0.5, price: r.price, purchasePrice: 0, active: true, createdAt: Date.now() })
+      await ctx.db.insert("variants", { productId: pid, sku, title: r.title || "Default", weightKg: 0.5, price: isPreOrderSku(sku) ? PO_PRICE : r.price, purchasePrice: 0, active: true, createdAt: Date.now() })
       created++
     }
     return created
@@ -119,7 +121,7 @@ export const addMissing = action({
     if (!(await ctx.runQuery(internal.shopifyStock.isAdmin, {}))) throw new ConvexError("Not allowed")
     try {
       const d = await diffs(ctx)
-      const rows = d.missing.filter((m) => m.status === "ACTIVE" && !isPreOrderSku(m.sku))
+      const rows = d.missing.filter((m) => m.status === "ACTIVE")
       let created = 0
       for (let i = 0; i < rows.length; i += 100) created += await ctx.runMutation(internal.priceAlign.addVariants, { rows: rows.slice(i, i + 100).map(({ status, ...r }) => r) })
       return { created }
