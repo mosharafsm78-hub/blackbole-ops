@@ -92,6 +92,7 @@ export default defineSchema({
     active: v.boolean(),
     preOrder: v.optional(v.boolean()), // takes long to arrive; orders with it go to the Pre-Order tab
     preOrderFrom: v.optional(v.union(v.literal("china"), v.literal("bangladesh"))), // where it comes from (default China)
+    waVideoUrl: v.optional(v.string()), // short video sent on WhatsApp right after the customer confirms an order with this product
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
     stockCheckSkip: v.optional(v.boolean()), // Stock check: "not needed for now" — hidden from the count lists (still under All products)

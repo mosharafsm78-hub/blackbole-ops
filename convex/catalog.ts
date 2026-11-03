@@ -68,6 +68,7 @@ export const saveProduct = mutation({
     active: v.boolean(),
     preOrder: v.optional(v.boolean()),
     preOrderFrom: v.optional(v.union(v.literal("china"), v.literal("bangladesh"))),
+    waVideoUrl: v.optional(v.string()),
     variants: v.array(variantInput),
   },
   handler: async (ctx, a) => {
@@ -81,7 +82,8 @@ export const saveProduct = mutation({
       const clash = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", vr.sku.trim().toUpperCase())).first()
       if (clash && clash._id !== vr.id) throw new ConvexError(`SKU ${vr.sku} is already used by another product`)
     }
-    const data = { name: a.name.trim(), category: a.category, description: a.description, imageUrl: a.imageUrl, active: a.active, preOrder: a.preOrder || undefined, preOrderFrom: a.preOrderFrom }
+    const data = { name: a.name.trim(), category: a.category, description: a.description, imageUrl: a.imageUrl, active: a.active, preOrder: a.preOrder || undefined, preOrderFrom: a.preOrderFrom,
+      ...(a.waVideoUrl !== undefined ? { waVideoUrl: a.waVideoUrl.trim() || undefined } : {}) } // only when the form sent it (other callers must not clear it)
     let productId = a.id
     if (productId) await ctx.db.patch(productId, data)
     else productId = await ctx.db.insert("products", { ...data, createdAt: Date.now() })

@@ -55,10 +55,26 @@ export function summaryText(o: Doc<"orders">): string {
 export const confirmedText = (o: Doc<"orders">, preOrder: boolean, preOrderDays = "15–20") => preOrder
   ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: about ${preOrderDays} days, because your pair is made for you\n• We will message you as soon as it is ready to ship\n• Please keep your phone on and pick up the call from our courier\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay the remaining amount only when you receive your order\n\nThank you for waiting for something special.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
   : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
+/** Short product video(s) for the items in this order (set on the product), sent right after the confirmation text. At most 3. */
+async function confirmVideos(ctx: any, o: Doc<"orders">): Promise<Out[]> {
+  const out: Out[] = []
+  const seen = new Set<string>()
+  for (const i of o.items as any[]) {
+    if (!i.variantId) continue
+    const vr = await ctx.db.get(i.variantId)
+    const pr: any = vr ? await ctx.db.get(vr.productId) : null
+    const url = String(pr?.waVideoUrl ?? "").trim()
+    if (!url || !/^https:\/\//.test(url) || seen.has(url)) continue
+    seen.add(url)
+    out.push({ kind: "video", link: url, body: `${pr.name}${vr?.title ? ` · size ${vr.title}` : ""}`.slice(0, 900) })
+    if (out.length >= 3) break
+  }
+  return out
+}
 const isPre = (o: Doc<"orders">) => !!o.preOrder || o.status.startsWith("pre_order")
 const preDays = async (ctx: any) => String(((await getSetting<any>(ctx, "websiteSettings"))?.preOrderDays ?? "15–20")).trim() || "15–20"
 
-type Out = { kind: "text"; body: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] } | { kind: "list"; body: string; button: string; rows: { id: string; title: string }[] }
+type Out = { kind: "text"; body: string } | { kind: "video"; body: string; link: string } | { kind: "buttons"; body: string; buttons: { id: string; title: string }[] } | { kind: "list"; body: string; button: string; rows: { id: string; title: string }[] }
 const txt = (body: string): Out => ({ kind: "text", body })
 
 /** Remember the customer's answer on the order (badge in Orders) and tell the team. Confirm does NOT approve: the team decides. */
@@ -179,7 +195,7 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
         if (o.status === "pending") {
           try { await applyStatus(ctx, o, "approved", BY, "Customer confirmed on WhatsApp") } catch (e) { await logOrder(ctx, o._id, "Customer confirmed on WhatsApp but auto-approve failed — please approve manually", BY) }
         }
-        return record("confirmed", [txt(confirmedText(o, isPre(o), await preDays(ctx)))], o._id)
+        return record("confirmed", [txt(confirmedText(o, isPre(o), await preDays(ctx))), ...(await confirmVideos(ctx, o))], o._id)
       }
       if (o.status === "cancelled") return record("already", [txt(`Order ${invoiceLabel(o)} was cancelled. If this is a mistake, please contact BlackBole and we will help.`)], o._id)
       if (o.waVerify?.result === "cancel_requested" && o.status === "approved") {
@@ -245,6 +261,8 @@ export const deliver = internalAction({
     for (const m of out as Out[]) {
       const payload = m.kind === "text"
         ? { messaging_product: "whatsapp", to, type: "text", text: { body: m.body } }
+        : m.kind === "video"
+          ? { messaging_product: "whatsapp", to, type: "video", video: { link: m.link, caption: m.body } }
         : m.kind === "list"
           ? { messaging_product: "whatsapp", to, type: "interactive", interactive: { type: "list", body: { text: m.body }, action: { button: m.button, sections: [{ title: "Rating", rows: m.rows }] } } }
           : { messaging_product: "whatsapp", to, type: "interactive", interactive: { type: "button", body: { text: m.body }, action: { buttons: m.buttons.map((b) => ({ type: "reply", reply: { id: b.id, title: b.title } })) } } }

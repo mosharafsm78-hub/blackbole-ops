@@ -91,6 +91,29 @@ describe("WhatsApp order verification", () => {
     expect(await status(id)).toBe("approved")
   })
 
+  it("Confirm also sends the product's short video when the product has one (https only), nothing extra otherwise", async () => {
+    const { t, as, order } = await setup()
+    const o1 = await order("01711000011")
+    const none = await as.mutation(api.whatsappVerify.simulate, { invoice: o1.invoice, step: "start" })
+    expect(none.result).toBe("asked")
+    const noVid = await as.mutation(api.whatsappVerify.simulate, { invoice: o1.invoice, step: "confirm" })
+    expect(noVid.replies).toHaveLength(1) // no video saved: only the confirmation text
+    const p = (await t.run((ctx) => ctx.db.query("products").first()))!
+    await as.mutation(api.catalog.saveProduct, { id: p._id, name: p.name, active: true, waVideoUrl: "https://example.com/harbor.mp4",
+      variants: (await t.run((ctx) => ctx.db.query("variants").collect())).map((v: any) => ({ id: v._id, sku: v.sku, title: v.title, weightKg: v.weightKg, price: v.price, purchasePrice: v.purchasePrice, active: v.active })) })
+    const o2 = await order("01711000012")
+    await as.mutation(api.whatsappVerify.simulate, { invoice: o2.invoice, step: "start" })
+    const withVid = await as.mutation(api.whatsappVerify.simulate, { invoice: o2.invoice, step: "confirm" })
+    expect(withVid.replies).toHaveLength(2)
+    expect(withVid.replies[1]).toContain("Harbor Shore Sandal")
+    expect(withVid.replies[1]).toContain("size 41")
+    // a non-https link is never sent
+    await t.run((ctx) => ctx.db.patch(p._id, { waVideoUrl: "http://example.com/x.mp4" }))
+    const o3 = await order("01711000013")
+    await as.mutation(api.whatsappVerify.simulate, { invoice: o3.invoice, step: "start" })
+    expect((await as.mutation(api.whatsappVerify.simulate, { invoice: o3.invoice, step: "confirm" })).replies).toHaveLength(1)
+  })
+
   it("pre-order confirmation shows the pre-order days, never 2–3 days", () => {
     const o = { customerName: "Rahim Uddin", invoiceNo: 20001 } as any
     const pre = confirmedText(o, true, "15–20")
