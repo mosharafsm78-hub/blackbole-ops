@@ -24,6 +24,8 @@ const BATCH = 60
 // they place a 2nd order (at which point orderCount flips to 2 and they fall out of this tier automatically).
 // At the user's explicit request: "the message will send until they purchase."
 export const REPEAT1_DAYS = 30
+/** Win-back EMAILS repeat every week (Emon, 3 Nov 2026) so customers are reminded of BlackBole; SMS keeps its own slower cadence. */
+export const EMAIL_REPEAT_DAYS = 7
 // Tier 2 (repeat buyer gone quiet): once someone has 2+ orders and stops ordering, wait TIER2_FIRST_DAYS since
 // their last order for the first nudge, then re-nudge every TIER2_REPEAT_DAYS after that — same discount
 // mechanism, same monthly-rotating code, just a slower cadence befitting an already-proven customer.
@@ -267,7 +269,7 @@ export const runEmail = internalAction({
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
-    const list = await ctx.runQuery(internal.winback.emailCandidates, { minDays: c.minDays, repeatDays: REPEAT1_DAYS })
+    const list = await ctx.runQuery(internal.winback.emailCandidates, { minDays: c.minDays, repeatDays: EMAIL_REPEAT_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
       const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
@@ -321,7 +323,7 @@ export const runEmail2 = internalAction({
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
-    const list = await ctx.runQuery(internal.winback.email2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: TIER2_REPEAT_DAYS })
+    const list = await ctx.runQuery(internal.winback.email2Candidates, { firstDays: TIER2_FIRST_DAYS, repeatDays: EMAIL_REPEAT_DAYS })
     let idx = c.emailSendIndex ?? 0
     for (const cust of list) {
       const text = fill(pickTemplate(c.templates, idx), { name: firstName(cust.name) || "there", code })
