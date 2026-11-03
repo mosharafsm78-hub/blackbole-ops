@@ -297,7 +297,28 @@ export const finishAuto = internalMutation({
   handler: async (ctx, { orderId, result, note }) => {
     const ev = await ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${orderId}`)).first()
     if (ev) await ctx.db.patch(ev._id, { result, ...(note ? { out: [...(ev.out ?? []), note] } : {}) })
-    if (result === "auto_sent") await logOrder(ctx, orderId, "WhatsApp confirmation message sent to the customer", "WhatsApp verify")
+    if (result === "auto_sent") {
+      await logOrder(ctx, orderId, "WhatsApp confirmation message sent to the customer", "WhatsApp verify")
+      // Orders list badge "WhatsApp message sent" (replaced by Confirmed / Cancelled when the customer taps a button). Never overwrites an answer.
+      const o = await ctx.db.get(orderId)
+      if (o && !o.waVerify) await ctx.db.patch(orderId, { waVerify: { result: "sent", at: Date.now(), by: "WhatsApp verify" } })
+    }
+  },
+})
+/** One-time: give the "message sent" badge to orders (last 3 days) whose confirmation went out before the badge existed. */
+export const backfillSentBadge = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const since = Date.now() - 3 * 24 * 3600_000
+    let n = 0
+    for (const ev of await ctx.db.query("waVerifyEvents").withIndex("by_at", (q) => q.gt("at", since)).take(3000)) {
+      if (ev.result !== "auto_sent" || !ev.orderId) continue
+      const o = await ctx.db.get(ev.orderId)
+      if (!o || o.deletedAt || o.waVerify || (o.status !== "pending" && o.status !== "on_hold")) continue
+      await ctx.db.patch(o._id, { waVerify: { result: "sent", at: ev.at, by: "WhatsApp verify" } })
+      n++
+    }
+    return n
   },
 })
 export const sendConfirmation = internalAction({

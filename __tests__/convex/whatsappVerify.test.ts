@@ -56,6 +56,19 @@ describe("WhatsApp automatic confirmation", () => {
     expect(calls[0].body.template.components[2].parameters[0].payload).toBe(`wv:x:${a.id}`)
     const e = await t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${a.id}`)).first())
     expect(e?.result).toBe("auto_sent")
+    // the Orders list badge: "sent" until the customer answers, then Confirmed replaces it
+    expect(((await t.run((ctx) => ctx.db.get(a.id))) as any).waVerify?.result).toBe("sent")
+    await as.mutation(api.whatsappVerify.simulate, { invoice: a.invoice, step: "start" })
+    await as.mutation(api.whatsappVerify.simulate, { invoice: a.invoice, step: "confirm" })
+    expect(((await t.run((ctx) => ctx.db.get(a.id))) as any).waVerify?.result).toBe("confirmed")
+  })
+  it("one-time backfill gives the sent badge to pending orders whose message went out before the badge existed", async () => {
+    const { t, order } = await setup()
+    const a = await order("01711000099")
+    await t.run(async (ctx) => { await ctx.db.insert("waVerifyEvents", { wamid: `auto-${a.id}`, waId: "8801711000099", orderId: a.id, result: "auto_sent", out: [], at: Date.now() - 60_000 }) })
+    expect(await t.mutation(internal.whatsappVerify.backfillSentBadge, {})).toBe(1)
+    expect(((await t.run((ctx) => ctx.db.get(a.id))) as any).waVerify?.result).toBe("sent")
+    expect(await t.mutation(internal.whatsappVerify.backfillSentBadge, {})).toBe(0) // runs once, never overwrites
   })
 })
 
