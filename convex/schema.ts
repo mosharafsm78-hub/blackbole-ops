@@ -532,6 +532,29 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_value", ["kind", "value"]),
 
+  // Requests between logged-in team members ("Ijaab asks Rafi for an exchange", "Nuha asks Rumon for a live picture").
+  // The person asked answers inside the request (text + photos); the asker is told when the answer is in.
+  teamRequests: defineTable({
+    kind: v.string(), // live_picture | exchange | question | other
+    fromStaffId: v.id("staff"),
+    fromName: v.string(),
+    toStaffId: v.id("staff"),
+    toName: v.string(),
+    orderId: v.optional(v.id("orders")),
+    message: v.string(),
+    photoIds: v.array(v.id("_storage")),
+    status: v.string(), // open (waiting for the person asked) | answered (waiting for the asker) | done
+    replies: v.array(v.object({ byStaffId: v.id("staff"), byName: v.string(), text: v.string(), photoIds: v.array(v.id("_storage")), at: v.number() })),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    doneAt: v.optional(v.number()),
+    doneByName: v.optional(v.string()),
+  })
+    .index("by_to_status", ["toStaffId", "status"])
+    .index("by_from_status", ["fromStaffId", "status"])
+    .index("by_order", ["orderId"])
+    .index("by_status", ["status", "updatedAt"]),
+
   notifications: defineTable({
     kind: v.string(), // info | action
     title: v.string(),

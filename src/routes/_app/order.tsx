@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { STATUS_TONE, TONE_CLASS, dateTime, errMsg, invoice, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { whTone } from "@/lib/warehouse"
+import { NewRequestDialog, RequestCard } from "@/components/team-requests"
 
 export const Route = createFileRoute("/_app/order")({
   validateSearch: (s: Record<string, unknown>) => ({ id: String(s.id ?? "") }),
@@ -29,6 +30,20 @@ export const Route = createFileRoute("/_app/order")({
     </Guard>
   ),
 })
+
+function OrderRequests({ orderId, invoice: inv }: { orderId: Id<"orders">; invoice: string }) {
+  const rows = useQuery(api.teamRequests.forOrder, { orderId })
+  const me = useQuery(api.team.me)
+  const [open, setOpen] = useState(false)
+  const meId = me && me.kind === "ok" ? (me.staff._id as string) : null
+  return (
+    <Card title={`Team requests${rows?.length ? ` · ${rows.length}` : ""}`} action={<Button size="xs" variant="outline" onClick={() => setOpen(true)}>New request</Button>}>
+      {!rows?.length ? <div className="text-sm text-muted-foreground">No requests on this order. Ask a colleague for an exchange or a live picture.</div>
+        : <div className="space-y-3">{rows.map((r) => <RequestCard key={r._id} r={r} meId={meId} showOrder={false} />)}</div>}
+      <NewRequestDialog open={open} onOpenChange={setOpen} orderId={orderId} invoice={inv} />
+    </Card>
+  )
+}
 
 function Card({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -440,6 +455,8 @@ function OrderPage() {
           {o.consignmentId && o.courier === "pathao" && <PathaoTracking orderId={o._id} consignmentId={o.consignmentId} />}
           {shippedNoParcel && <FindParcel orderId={o._id} phone={o.phone} />}
           {o.courier === "pathao" && (o.consignmentId || o.isExchange || o.exchangeOfId) && <ParcelGroup orderId={o._id} auto={!!(o.isExchange || o.exchangeOfId)} />}
+
+          <OrderRequests orderId={o._id} invoice={o.invoiceCode ?? invoice(o.invoiceNo)} />
 
           <Card title="Timeline">
             <form

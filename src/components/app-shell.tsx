@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useMutation, us
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy, Flag, ClipboardCheck, Star,
+  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy, Flag, ClipboardCheck, Star, Inbox,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -33,6 +33,7 @@ export function useCan() {
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, perm: "dashboard.view", color: "bg-tone-blue-bg text-tone-blue", group: "" },
   { to: "/action-center", label: "Action Center", icon: Target, perm: "dashboard.view", color: "bg-tone-violet-bg text-tone-violet", group: "" },
+  { to: "/requests", label: "Team requests", icon: Inbox, perm: "orders.view", color: "bg-tone-green-bg text-tone-green", group: "" },
   { to: "/accountability", label: "Accountability", icon: ShieldAlert, perm: "orders.view", color: "bg-tone-red-bg text-tone-red", group: "" },
   // No perm here on purpose — every signed-in staff member can see Pulse, whatever role they hold.
   { to: "/pulse", label: "Pulse", icon: Trophy, perm: null, color: "bg-tone-amber-bg text-tone-amber", group: "" },
@@ -170,7 +171,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const cartBadge = useQuery(api.checkouts.badge)
   const orderCounts = useQuery(api.orders.counts)
   const flagCounts = useQuery(api.accountability.openCounts)
-  const badge = (to: string) => (to === "/abandoned" && cartBadge ? cartBadge : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : to === "/accountability" && flagCounts ? flagCounts.total : 0)
+  const reqCounts = useQuery(api.teamRequests.myCounts)
+  const badge = (to: string) => (to === "/abandoned" && cartBadge ? cartBadge : to === "/orders" && orderCounts ? orderCounts.pending ?? 0 : to === "/accountability" && flagCounts ? flagCounts.total : to === "/requests" && reqCounts ? reqCounts.total : 0)
   return (
     <nav className="space-y-0.5">
       {NAV.map((n, i) => {
