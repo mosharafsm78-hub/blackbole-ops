@@ -681,3 +681,19 @@ export const cloneColour = internalMutation({
     return { productId, sizes: items.length }
   },
 })
+
+/** One-time: send the stock of every size whose SKU contains `skuPart` to Shopify (stock written by a one-time job doesn't mark itself for the sync). */
+export const syncStockToShopify = internalMutation({
+  args: { skuPart: v.string() },
+  handler: async (ctx, { skuPart }) => {
+    const part = skuPart.toUpperCase()
+    let n = 0
+    for (const vr of await ctx.db.query("variants").collect()) {
+      if (vr.deletedAt as any || !vr.sku.toUpperCase().includes(part)) continue
+      if (!(await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).first())) await ctx.db.insert("shopifyDirty", { variantId: vr._id, at: Date.now() })
+      n++
+    }
+    if (n) await ctx.scheduler.runAfter(3000, internal.shopifyStock.flush, {})
+    return { queued: n }
+  },
+})

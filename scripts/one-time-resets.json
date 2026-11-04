@@ -133,5 +133,12 @@
       "seoTitle": "BlackBole Calder Slide Mule - Maroon | Men's Backless Loafer with Doctor Insole",
       "seoDescription": "Men's backless moc-toe mule in maroon with a soft doctor insole, rust contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
     }
+  },
+  {
+    "id": "2026-11-04-calder-maroon-stock",
+    "fn": "catalog:syncStockToShopify",
+    "args": {
+      "skuPart": "BCSM-MRN"
+    }
   }
 ]
