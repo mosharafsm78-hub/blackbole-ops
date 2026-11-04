@@ -181,4 +181,23 @@ describe("fake (test) pairs and the real purchase", () => {
     expect(((await t.run((ctx) => ctx.db.get(v41))) as any).purchasePrice).toBe(450)
     await expect(as.mutation(api.purchasing.correctPrices, { id, lines: [{ variantId: v41, unitCost: -1 }], discount: 0, shippingCost: 0, otherCost: 0, updateProductCost: false })).rejects.toThrow()
   })
+
+  it("edits and deletes a supplier payment entered by mistake: the purchase and the due follow, old copy archived", async () => {
+    const { t, as, locationId, supplierId, v41 } = await setup()
+    const id = await as.mutation(api.purchasing.savePO, {
+      supplierId, locationId, lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }],
+      discount: 0, shippingCost: 0, otherCost: 0, status: "ordered", supplierRef: "PI-7", invoiceFile: await fakeFile(t),
+    })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 3000, method: "Bank transfer", slipId: (await fakeFile(t)).storageId })
+    const payId = (await t.run((ctx) => ctx.db.query("supplierPayments").first()))!._id as any
+    await as.mutation(api.purchasing.editSupplierPayment, { id: payId, amount: 2000, method: "bKash", reference: "TX1" })
+    let po: any = (await t.run((ctx) => ctx.db.get(id)))!
+    expect([po.paid, po.due]).toEqual([2000, 3000])
+    expect((await t.run((ctx) => ctx.db.get(payId)))!).toMatchObject({ amount: 2000, method: "bKash", reference: "TX1", editedBy: "Emon" })
+    await as.mutation(api.purchasing.deleteSupplierPayment, { id: payId, reason: "we never paid" })
+    po = (await t.run((ctx) => ctx.db.get(id)))!
+    expect([po.paid, po.due]).toEqual([0, 5000])
+    expect(await t.run((ctx) => ctx.db.get(payId))).toBeNull()
+    expect((await t.run((ctx) => ctx.db.query("archive").collect())).filter((r) => r.table === "supplierPayments").length).toBe(2)
+  })
 })

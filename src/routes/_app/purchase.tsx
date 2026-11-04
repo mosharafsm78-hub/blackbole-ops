@@ -8,7 +8,7 @@ import type { Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader } from "@/components/bits"
-import { POStatus, ProductBuilder, SlipLink, SlipPicker, SupplierDialog, UploadList, poCode, type POLine, type Slip } from "@/components/purchase-parts"
+import { POStatus, PaymentEditDialog, ProductBuilder, SlipLink, SlipPicker, SupplierDialog, UploadList, poCode, type POLine, type Slip } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NewProduct } from "./website-new"
@@ -645,6 +645,7 @@ function Files({ po }: { po: Data["po"] }) {
 }
 
 function History({ data }: { data: Data }) {
+  const [editPay, setEditPay] = useState<Data["payments"][number] | null>(null)
   return (
     <section className="grid gap-4 md:grid-cols-2">
       <div className="rounded-lg border bg-card p-4 text-sm">
@@ -668,12 +669,13 @@ function History({ data }: { data: Data }) {
             {data.payments.map((p) => (
               <li key={p._id} className="flex items-center justify-between gap-2 py-2">
                 <div><div className="font-medium">{taka(p.amount)} · {p.method}</div><div className="text-xs text-muted-foreground">{dateTime(p.at)} · {p.byName}{p.reference ? ` · ${p.reference}` : ""}</div></div>
-                <SlipLink paymentId={p._id} url={p.slipUrl} />
+                <div className="flex items-center gap-2"><SlipLink paymentId={p._id} url={p.slipUrl} /><Perm perm="purchases.pay"><Button size="xs" variant="outline" onClick={() => setEditPay(p)}><Pencil className="size-3" /> Edit</Button></Perm></div>
               </li>
             ))}
           </ul>
         )}
       </div>
+      <PaymentEditDialog payment={editPay} open={!!editPay} onOpenChange={(o) => !o && setEditPay(null)} />
     </section>
   )
 }

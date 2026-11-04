@@ -51,12 +51,12 @@ export const supplierStatement = query({
     if (!sp) return null
     const a = await supplierAccount(ctx, sp)
     const poCode = (n: number) => `PO-${String(n).padStart(4, "0")}`
-    const entries: { at: number; kind: "opening" | "purchase" | "payment"; text: string; debit: number; credit: number; poId?: Id<"purchaseOrders">; paymentId?: Id<"supplierPayments">; slipUrl?: string | null }[] = []
+    const entries: { at: number; kind: "opening" | "purchase" | "payment"; text: string; debit: number; credit: number; poId?: Id<"purchaseOrders">; paymentId?: Id<"supplierPayments">; slipUrl?: string | null; pay?: { amount: number; method: string; reference?: string; note?: string } }[] = []
     if (a.opening) entries.push({ at: sp.createdAt, kind: "opening", text: "Previous due (before BlackBole Ops)", debit: a.opening, credit: 0 })
     for (const p of a.pos) entries.push({ at: p.orderedAt ?? p.createdAt, kind: "purchase", text: `${poCode(p.code)}${p.supplierRef ? ` · Inv ${p.supplierRef}` : ""} · ${p.items.reduce((t, i) => t + i.orderedQty, 0)} pcs`, debit: p.total, credit: 0, poId: p._id })
     for (const pay of a.payments) {
       const po = pay.poId ? a.pos.find((p) => p._id === pay.poId) : undefined
-      entries.push({ at: pay.at, kind: "payment", text: `Paid · ${pay.method}${pay.reference ? ` · ${pay.reference}` : ""}${po ? ` · for ${poCode(po.code)}` : pay.poId ? "" : " · on account"}`, debit: 0, credit: pay.amount, poId: pay.poId, paymentId: pay._id, slipUrl: pay.slipId ? await ctx.storage.getUrl(pay.slipId) : null })
+      entries.push({ at: pay.at, kind: "payment", text: `Paid · ${pay.method}${pay.reference ? ` · ${pay.reference}` : ""}${po ? ` · for ${poCode(po.code)}` : pay.poId ? "" : " · on account"}`, debit: 0, credit: pay.amount, poId: pay.poId, paymentId: pay._id, slipUrl: pay.slipId ? await ctx.storage.getUrl(pay.slipId) : null, pay: { amount: pay.amount, method: pay.method, reference: pay.reference, note: pay.note } })
     }
     entries.sort((x, y) => x.at - y.at || (x.kind === "payment" ? 1 : -1))
     let bal = 0
@@ -542,6 +542,47 @@ export const addSupplierPayment = mutation({
     await ctx.db.insert("supplierPayments", { poId: a.id, supplierId: po.supplierId, amount: a.amount, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: Date.now() })
     const paid = po.paid + a.amount
     await ctx.db.patch(a.id, { paid, due: Math.max(0, po.total - paid), updatedAt: Date.now() })
+  },
+})
+
+/** Fix a supplier payment that was entered wrongly (wrong amount, method, reference, slip). The purchase it was for is re-balanced
+ *  and the old version is kept in the archive. */
+export const editSupplierPayment = mutation({
+  args: { id: v.id("supplierPayments"), amount: v.number(), method: v.string(), reference: v.optional(v.string()), note: v.optional(v.string()), slipId: v.optional(v.id("_storage")), slipName: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "purchases.pay")
+    const pay = await ctx.db.get(a.id)
+    if (!pay) throw new ConvexError("Payment not found")
+    if (!(a.amount > 0)) throw new ConvexError("Amount must be more than 0")
+    const now = Date.now()
+    await ctx.db.insert("archive", { table: "supplierPayments", data: pay, reason: "edited", byName: me.staff.name, at: now })
+    if (pay.poId && a.amount !== pay.amount) {
+      const po = await ctx.db.get(pay.poId)
+      if (po) { const paid = Math.max(0, po.paid + a.amount - pay.amount); await ctx.db.patch(po._id, { paid, due: Math.max(0, po.total - paid), updatedAt: now }) }
+    }
+    await ctx.db.patch(a.id, {
+      amount: a.amount, method: a.method, reference: a.reference?.trim() || undefined, note: a.note?.trim() || undefined,
+      ...(a.slipId ? { slipId: a.slipId, slipName: a.slipName } : {}),
+      editedBy: me.staff.name, editedAt: now,
+    })
+  },
+})
+
+/** Remove a supplier payment that should never have been entered (we never actually paid). Gives the amount back to what we owe;
+ *  a copy is kept in the archive. */
+export const deleteSupplierPayment = mutation({
+  args: { id: v.id("supplierPayments"), reason: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "purchases.pay")
+    const pay = await ctx.db.get(a.id)
+    if (!pay) throw new ConvexError("Payment not found")
+    const now = Date.now()
+    await ctx.db.insert("archive", { table: "supplierPayments", data: pay, reason: a.reason?.trim() ? `deleted: ${a.reason.trim()}` : "deleted", byName: me.staff.name, at: now })
+    if (pay.poId) {
+      const po = await ctx.db.get(pay.poId)
+      if (po) { const paid = Math.max(0, po.paid - pay.amount); await ctx.db.patch(po._id, { paid, due: Math.max(0, po.total - paid), updatedAt: now }) }
+    }
+    await ctx.db.delete(a.id)
   },
 })
 

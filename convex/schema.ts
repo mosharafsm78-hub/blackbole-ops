@@ -222,6 +222,8 @@ export default defineSchema({
     slipName: v.optional(v.string()),
     byName: v.string(),
     at: v.number(),
+    editedBy: v.optional(v.string()), // last correction (the old version is in the archive)
+    editedAt: v.optional(v.number()),
   })
     .index("by_po", ["poId"])
     .index("by_supplier", ["supplierId"]),

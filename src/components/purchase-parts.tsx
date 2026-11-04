@@ -510,6 +510,51 @@ export function SupplierPayDialog({ supplierId, open, onOpenChange }: { supplier
   )
 }
 
+/** Correct or remove a supplier payment that was entered by mistake. */
+export function PaymentEditDialog({ payment, open, onOpenChange }: { payment: { _id: Id<"supplierPayments">; amount: number; method: string; reference?: string; note?: string } | null; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const edit = useMutation(api.purchasing.editSupplierPayment)
+  const del = useMutation(api.purchasing.deleteSupplierPayment)
+  const [amount, setAmount] = useState(0)
+  const [method, setMethod] = useState("Bank transfer")
+  const [ref, setRef] = useState("")
+  const [note, setNote] = useState("")
+  const [slip, setSlip] = useState<Slip>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (open && payment) { setAmount(payment.amount); setMethod(payment.method); setRef(payment.reference ?? ""); setNote(payment.note ?? ""); setSlip(null) } }, [open, payment])
+  if (!payment) return null
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit supplier payment</DialogTitle>
+          <DialogDescription>Fix the amount, method or reference. The purchase and the supplier account are re-balanced. If you never actually paid, use "Delete payment" and the amount goes back to what we owe. The old version is kept in the archive.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label>Amount</Label><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value) || 0)} /></div>
+          <div className="space-y-1.5"><Label>Paid by</Label>
+            <Select value={method} onValueChange={setMethod}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{[...new Set([method, ...SUPPLIER_PAY_METHODS])].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <div className="space-y-1.5"><Label>Reference / TT / cheque no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>
+          <div className="sm:col-span-2"><SlipPicker value={slip} onChange={setSlip} label="Replace the slip (optional)" /></div>
+        </div>
+        <DialogFooter className="sm:justify-between">
+          <Button variant="ghost" className="text-destructive" disabled={busy} onClick={async () => {
+            const why = window.prompt("Delete this payment? Write the reason (for example: we never paid)", "We never paid")
+            if (why === null) return
+            setBusy(true)
+            try { await del({ id: payment._id, reason: why }); toast.success("Payment deleted. The amount is due again."); onOpenChange(false) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}><Trash2 className="size-4" /> Delete payment</Button>
+          <Button disabled={busy || amount <= 0} onClick={async () => {
+            setBusy(true)
+            try { await edit({ id: payment._id, amount, method, reference: ref || undefined, note: note || undefined, ...(slip ?? {}) }); toast.success("Payment corrected"); onOpenChange(false) } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save changes</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export const srCode = (n: number) => `SR-${String(n).padStart(4, "0")}`
 const SR_REASONS = ["Arrived damaged / not in good condition", "Wrong product sent", "Wrong size/variant sent", "Expired", "Short-shipped", "Other"]
 export const SR_STATUS_TONE: Record<string, string> = { pending: "amber", sent: "blue", resolved: "green" }

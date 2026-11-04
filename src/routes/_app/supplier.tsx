@@ -8,7 +8,7 @@ import type { Doc, Id } from "@/convex/_generated/dataModel"
 import { PO_STATUS_LABEL, SUPPLIER_PAY_METHODS } from "@/convex/rules"
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { Loading, PageHeader, Pill, Stat } from "@/components/bits"
-import { POStatus, ResolveReturnDialog, SR_STATUS_TONE, SlipLink, SupplierDialog, SupplierPayDialog, SupplierReturnDialog, poCode, srCode } from "@/components/purchase-parts"
+import { POStatus, PaymentEditDialog, ResolveReturnDialog, SR_STATUS_TONE, SlipLink, SupplierDialog, SupplierPayDialog, SupplierReturnDialog, poCode, srCode } from "@/components/purchase-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -35,6 +35,7 @@ function SupplierPage() {
   const [pay, setPay] = useState(false)
   const [edit, setEdit] = useState(false)
   const [returning, setReturning] = useState(false)
+  const [editPay, setEditPay] = useState<{ _id: Id<"supplierPayments">; amount: number; method: string; reference?: string; note?: string } | null>(null)
   const [resolving, setResolving] = useState<Doc<"supplierReturns"> | null>(null)
   const markSent = useMutation(api.supplierReturns.markSent)
   if (st === undefined) return <Loading />
@@ -92,7 +93,7 @@ function SupplierPage() {
               {st.rows.map((r, i) => (
                 <tr key={i} className={cn(r.poId && "cursor-pointer hover:bg-muted/30")} onClick={() => r.poId && navigate({ to: "/purchase", search: { id: r.poId } })}>
                   <td className="p-3 text-xs whitespace-nowrap">{dateOnly(r.at)}</td>
-                  <td className="p-3">{r.text}{r.paymentId && <span className="no-print ml-2"><SlipLink paymentId={r.paymentId} url={r.slipUrl} /></span>}</td>
+                  <td className="p-3">{r.text}{r.paymentId && <span className="no-print ml-2"><SlipLink paymentId={r.paymentId} url={r.slipUrl} /></span>}{r.paymentId && r.pay && <Perm perm="purchases.pay"><Button size="xs" variant="outline" className="no-print ml-2" onClick={(e) => { e.stopPropagation(); setEditPay({ _id: r.paymentId!, ...r.pay! }) }}><Pencil className="size-3" /> Edit</Button></Perm>}</td>
                   <td className="p-3 text-right tabular-nums">{r.debit ? taka(r.debit) : ""}</td>
                   <td className="p-3 text-right tabular-nums text-tone-green">{r.credit ? taka(r.credit) : ""}</td>
                   <td className={cn("p-3 text-right font-medium tabular-nums", r.balance > 0 ? "text-tone-red" : r.balance < 0 ? "text-tone-blue" : "")}>{r.balance < 0 ? `${taka(-r.balance)} advance` : taka(r.balance)}</td>
@@ -126,6 +127,7 @@ function SupplierPage() {
       )}
 
       <SupplierPayDialog supplierId={sp._id} open={pay} onOpenChange={setPay} />
+      <PaymentEditDialog payment={editPay} open={!!editPay} onOpenChange={(o) => !o && setEditPay(null)} />
       <SupplierDialog supplier={sp} open={edit} onOpenChange={setEdit} />
       <SupplierReturnDialog supplierId={sp._id} open={returning} onOpenChange={setReturning} />
       <ResolveReturnDialog ret={resolving} open={!!resolving} onOpenChange={(o) => !o && setResolving(null)} />
