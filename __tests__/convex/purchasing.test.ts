@@ -176,7 +176,7 @@ describe("fake (test) pairs and the real purchase", () => {
     if (po.missing) throw new Error("missing")
     expect(po.po.total).toBe(4500)
     expect(po.po.due).toBe(2500)
-    expect(po.po.note).toContain("Prices corrected")
+    expect(po.po.history?.some((h) => h.text.startsWith("Prices corrected"))).toBe(true)
     expect(po.receipts[0].items[0].unitCost).toBe(450)
     expect(((await t.run((ctx) => ctx.db.get(v41))) as any).purchasePrice).toBe(450)
     await expect(as.mutation(api.purchasing.correctPrices, { id, lines: [{ variantId: v41, unitCost: -1 }], discount: 0, shippingCost: 0, otherCost: 0, updateProductCost: false })).rejects.toThrow()
@@ -199,5 +199,28 @@ describe("fake (test) pairs and the real purchase", () => {
     expect([po.paid, po.due]).toEqual([0, 5000])
     expect(await t.run((ctx) => ctx.db.get(payId))).toBeNull()
     expect((await t.run((ctx) => ctx.db.query("archive").collect())).filter((r) => r.table === "supplierPayments").length).toBe(2)
+  })
+
+  it("modifies a received purchase (note, invoice no., extra quantity) and keeps a history of every change", async () => {
+    const { t, as, locationId, supplierId, v41 } = await setup()
+    const base = { supplierId, locationId, discount: 0, shippingCost: 0, otherCost: 0 }
+    const id = await as.mutation(api.purchasing.savePO, { ...base, lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }], status: "ordered", supplierRef: "PI-1", invoiceFile: await fakeFile(t) })
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "average", lines: [{ variantId: v41, qty: 10, damaged: 0 }] })
+    let po: any = await t.run((ctx) => ctx.db.get(id))
+    expect(po.status).toBe("received")
+    // fix the invoice number and the note on a received purchase
+    await as.mutation(api.purchasing.savePO, { ...base, id, supplierRef: "PI-1A", note: "typo fixed", lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }] })
+    // the supplier shipped 5 more: ordering more re-opens it as partly received
+    await as.mutation(api.purchasing.savePO, { ...base, id, supplierRef: "PI-1A", note: "typo fixed", lines: [{ variantId: v41, orderedQty: 15, unitCost: 500 }] })
+    po = await t.run((ctx) => ctx.db.get(id))
+    expect(po.status).toBe("partial")
+    // can't order less than what already came in
+    await expect(as.mutation(api.purchasing.savePO, { ...base, id, supplierRef: "PI-1A", lines: [{ variantId: v41, orderedQty: 4, unitCost: 500 }] })).rejects.toThrow()
+    const texts: string[] = po.history.map((h: any) => h.text)
+    expect(texts[0]).toContain("Created")
+    expect(texts.some((x) => x.includes("Invoice / PI no.: PI-1 → PI-1A"))).toBe(true)
+    expect(texts.some((x) => x.includes("quantity 10 → 15"))).toBe(true)
+    expect(texts.some((x) => x.startsWith("Received GRN-"))).toBe(true)
+    expect(po.history.every((h: any) => h.by === "Emon")).toBe(true)
   })
 })

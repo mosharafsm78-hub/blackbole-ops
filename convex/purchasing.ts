@@ -91,6 +91,7 @@ export async function creditSupplierAccount(
     await ctx.db.patch(po._id, { paid: po.paid + x, due: Math.max(0, po.due - x), updatedAt: now })
     left -= x
     applied.push(`PO-${String(po.code).padStart(4, "0")} ${x}`)
+    await logPO(ctx, po._id, base.byName, `Payment added · ${x} · ${base.method}${base.reference ? ` · ${base.reference}` : ""}`)
   }
 
   if (acc.openingLeft > 0) {
@@ -182,12 +183,20 @@ export const deleteSupplier = mutation({
 })
 
 // ---------------- Purchase orders ----------------
+const PO_STATUS_TEXT: Record<string, string> = { draft: "Draft", ordered: "Ordered", shipped: "On the way", partial: "Partly received", received: "Received", cancelled: "Cancelled" }
 const lineInput = v.object({ variantId: v.id("variants"), orderedQty: v.number(), unitCost: v.number() })
 
 function totals(items: { orderedQty: number; unitCost: number }[], discount: number, shippingCost: number, otherCost: number, paid: number) {
   const subtotal = items.reduce((s, i) => s + i.orderedQty * i.unitCost, 0)
   const total = Math.max(0, subtotal - discount + shippingCost + otherCost)
   return { subtotal, total, due: Math.max(0, total - paid) }
+}
+
+/** Add one line to a purchase's history (who changed what, when). Nothing is ever lost: edits are listed here. */
+async function logPO(ctx: MutationCtx, poId: Id<"purchaseOrders">, by: string, text: string) {
+  const po = await ctx.db.get(poId)
+  if (!po) return
+  await ctx.db.patch(poId, { history: [...(po.history ?? []), { at: Date.now(), by, text }].slice(-300) })
 }
 
 export const listPOs = query({
@@ -328,7 +337,9 @@ export const savePO = mutation({
     if (!supplierName) throw new ConvexError("Choose a supplier")
     const t = totals(items, a.discount, a.shippingCost, a.otherCost, old?.paid ?? 0)
     const now = Date.now()
-    const status = old && !["draft", "ordered"].includes(old.status) ? old.status : (a.status ?? old?.status ?? "draft")
+    let status = old && !["draft", "ordered"].includes(old.status) ? old.status : (a.status ?? old?.status ?? "draft")
+    // a purchase that already has goods in: lowering or raising the quantities can finish it or re-open it
+    if (old && ["partial", "received"].includes(old.status)) status = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty) ? "received" : "partial"
     const files = [...(old?.files ?? []), ...(a.invoiceFile ? [{ ...a.invoiceFile, at: now }] : [])]
     if (status === "ordered" && old?.status !== "ordered") placeRules(a.supplierRef, files)
     const data = {
@@ -338,11 +349,33 @@ export const savePO = mutation({
       ...(status === "ordered" && !old?.orderedAt ? { orderedAt: now } : {}),
     }
     if (old) {
-      await ctx.db.patch(old._id, data)
+      const ch: string[] = []
+      const bit = (label: string, x: unknown, y: unknown) => { if ((x ?? "") !== (y ?? "")) ch.push(`${label}: ${x === undefined || x === "" ? "—" : x} → ${y === undefined || y === "" ? "—" : y}`) }
+      bit("Supplier", old.supplierName, supplierName)
+      bit("Invoice / PI no.", old.supplierRef, a.supplierRef?.trim() || undefined)
+      bit("Tracking", old.tracking, a.tracking?.trim() || undefined)
+      bit("Expected", old.expectedAt ? new Date(old.expectedAt + 6 * 3600000).toISOString().slice(0, 10) : undefined, a.expectedAt ? new Date(a.expectedAt + 6 * 3600000).toISOString().slice(0, 10) : undefined)
+      bit("Note", old.note, a.note)
+      if (old.locationId !== a.locationId) ch.push("Warehouse changed")
+      for (const it of items) {
+        const was = old.items.find((x) => x.variantId === it.variantId)
+        if (!was) ch.push(`Added ${it.sku} × ${it.orderedQty} @ ${it.unitCost}`)
+        else {
+          if (was.orderedQty !== it.orderedQty) ch.push(`${it.sku} quantity ${was.orderedQty} → ${it.orderedQty}`)
+          if (was.unitCost !== it.unitCost) ch.push(`${it.sku} price ${was.unitCost} → ${it.unitCost}`)
+        }
+      }
+      for (const was of old.items) if (!items.some((x) => x.variantId === was.variantId)) ch.push(`Removed ${was.sku}`)
+      bit("Discount", old.discount, a.discount); bit("Shipping", old.shippingCost, a.shippingCost); bit("Other cost", old.otherCost, a.otherCost)
+      if (old.status !== status) ch.push(`Status: ${PO_STATUS_TEXT[old.status] ?? old.status} → ${PO_STATUS_TEXT[status] ?? status}`)
+      if (a.invoiceFile) ch.push(`Attached ${a.invoiceFile.name}`)
+      if (t.total !== old.total) ch.push(`Total ${old.total} → ${t.total}`)
+      const history = ch.length ? [...(old.history ?? []), { at: now, by: me.staff.name, text: `Edited · ${ch.join(" · ")}` }].slice(-300) : old.history
+      await ctx.db.patch(old._id, { ...data, history })
       return old._id
     }
     const code = await nextCounter(ctx, "po", 1)
-    return await ctx.db.insert("purchaseOrders", { ...data, code, paid: 0, createdBy: me.staff.name, createdAt: now })
+    return await ctx.db.insert("purchaseOrders", { ...data, code, paid: 0, createdBy: me.staff.name, createdAt: now, history: [{ at: now, by: me.staff.name, text: `Created (${PO_STATUS_TEXT[status] ?? status})` }] })
   },
 })
 
@@ -386,13 +419,12 @@ export const correctPrices = mutation({
     if (a.shippingCost !== po.shippingCost) changes.push(`shipping ${po.shippingCost}→${a.shippingCost}`)
     if (a.otherCost !== po.otherCost) changes.push(`other ${po.otherCost}→${a.otherCost}`)
     if (changes.length === 0 && (a.supplierRef ?? po.supplierRef) === po.supplierRef) return { changed: 0 }
-    const stamp = new Date(Date.now() + 6 * 3600000).toISOString().slice(0, 10)
-    const log = changes.length ? `[${stamp}] Prices corrected by ${me.staff.name}: ${changes.join(", ")} (total ${po.total}→${t.total})` : ""
+    const log = changes.length ? `Prices corrected · ${changes.join(" · ")} · Total ${po.total} → ${t.total}${a.updateProductCost ? " · product cost updated" : ""}` : ""
     await ctx.db.patch(po._id, {
       items, discount: a.discount, shippingCost: a.shippingCost, otherCost: a.otherCost,
       subtotal: t.subtotal, total: t.total, due: t.due, updatedAt: Date.now(),
       supplierRef: a.supplierRef?.trim() || po.supplierRef,
-      note: log ? [po.note, log].filter(Boolean).join("\n") : po.note,
+      history: log ? [...(po.history ?? []), { at: Date.now(), by: me.staff.name, text: log }].slice(-300) : po.history,
     })
 
     // goods receipts of this purchase carry the landed unit cost: re-price them
@@ -431,7 +463,7 @@ export const correctPrices = mutation({
 export const setPOStatus = mutation({
   args: { id: v.id("purchaseOrders"), status: v.string(), tracking: v.optional(v.string()) },
   handler: async (ctx, { id, status, tracking }) => {
-    await requirePerm(ctx, "purchases.manage")
+    const me = await requirePerm(ctx, "purchases.manage")
     const po = await ctx.db.get(id)
     if (!po) throw new ConvexError("Purchase not found")
     const received = po.items.some((i) => i.receivedQty + i.damagedQty > 0)
@@ -440,6 +472,7 @@ export const setPOStatus = mutation({
     if (status === "received" && !received) throw new ConvexError("Nothing received yet")
     if (status === "ordered" && po.status === "draft") placeRules(po.supplierRef, po.files)
     const now = Date.now()
+    await logPO(ctx, id, me.staff.name, `Status: ${PO_STATUS_TEXT[po.status] ?? po.status} → ${PO_STATUS_TEXT[status] ?? status}${tracking ? ` · tracking ${tracking}` : ""}`)
     await ctx.db.patch(id, {
       status, updatedAt: now,
       ...(status === "ordered" && !po.orderedAt ? { orderedAt: now } : {}),
@@ -510,6 +543,7 @@ export const receivePO = mutation({
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
     await ctx.db.patch(po._id, { items, status: done ? "received" : "partial", updatedAt: Date.now(), ...(done ? { receivedAt: Date.now() } : {}) })
+    await logPO(ctx, po._id, me.staff.name, `Received GRN-${code} · ${grnItems.reduce((t, g) => t + g.qty, 0)} pcs${grnItems.some((g) => g.damaged) ? ` (${grnItems.reduce((t, g) => t + (g.damaged ?? 0), 0)} damaged)` : ""}`)
     // No orderId to dedupe on, but none is needed — each receivePO call is its own unique GRN event, never
     // replayed for the same receipt.
     if (grnItems.some((g) => g.qty > 0) && grnItems.every((g) => !g.damaged)) {
@@ -542,6 +576,7 @@ export const addSupplierPayment = mutation({
     await ctx.db.insert("supplierPayments", { poId: a.id, supplierId: po.supplierId, amount: a.amount, method: a.method, reference: a.reference, note: a.note, slipId: a.slipId, slipName: a.slipName, byName: me.staff.name, at: Date.now() })
     const paid = po.paid + a.amount
     await ctx.db.patch(a.id, { paid, due: Math.max(0, po.total - paid), updatedAt: Date.now() })
+    await logPO(ctx, a.id, me.staff.name, `Payment added · ${a.amount} · ${a.method}${a.reference ? ` · ${a.reference}` : ""}`)
   },
 })
 
@@ -560,6 +595,7 @@ export const editSupplierPayment = mutation({
       const po = await ctx.db.get(pay.poId)
       if (po) { const paid = Math.max(0, po.paid + a.amount - pay.amount); await ctx.db.patch(po._id, { paid, due: Math.max(0, po.total - paid), updatedAt: now }) }
     }
+    if (pay.poId) await logPO(ctx, pay.poId, me.staff.name, `Payment edited · ${pay.amount} ${pay.method} → ${a.amount} ${a.method}${a.reference ? ` · ${a.reference}` : ""}`)
     await ctx.db.patch(a.id, {
       amount: a.amount, method: a.method, reference: a.reference?.trim() || undefined, note: a.note?.trim() || undefined,
       ...(a.slipId ? { slipId: a.slipId, slipName: a.slipName } : {}),
@@ -582,6 +618,7 @@ export const deleteSupplierPayment = mutation({
       const po = await ctx.db.get(pay.poId)
       if (po) { const paid = Math.max(0, po.paid - pay.amount); await ctx.db.patch(po._id, { paid, due: Math.max(0, po.total - paid), updatedAt: now }) }
     }
+    if (pay.poId) await logPO(ctx, pay.poId, me.staff.name, `Payment deleted · ${pay.amount} ${pay.method}${a.reason?.trim() ? ` · ${a.reason.trim()}` : ""}`)
     await ctx.db.delete(a.id)
   },
 })
@@ -620,20 +657,22 @@ export const uploadUrl = mutation({
 export const attachFile = mutation({
   args: { id: v.id("purchaseOrders"), storageId: v.id("_storage"), name: v.string(), type: v.string() },
   handler: async (ctx, a) => {
-    await requirePerm(ctx, "purchases.manage")
+    const me = await requirePerm(ctx, "purchases.manage")
     const po = await ctx.db.get(a.id)
     if (!po) throw new ConvexError("Purchase not found")
     await ctx.db.patch(a.id, { files: [...po.files, { storageId: a.storageId, name: a.name, type: a.type, at: Date.now() }] })
+    await logPO(ctx, a.id, me.staff.name, `File attached · ${a.name}`)
   },
 })
 
 export const removeFile = mutation({
   args: { id: v.id("purchaseOrders"), storageId: v.id("_storage") },
   handler: async (ctx, a) => {
-    await requirePerm(ctx, "purchases.manage")
+    const me = await requirePerm(ctx, "purchases.manage")
     const po = await ctx.db.get(a.id)
     if (!po) return
     await ctx.db.patch(a.id, { files: po.files.filter((f) => f.storageId !== a.storageId) })
+    await logPO(ctx, a.id, me.staff.name, `File removed · ${po.files.find((f) => f.storageId === a.storageId)?.name ?? ""}`)
     await ctx.storage.delete(a.storageId)
   },
 })

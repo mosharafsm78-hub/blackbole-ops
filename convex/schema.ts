@@ -207,6 +207,8 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     receivedAt: v.optional(v.number()),
+    // Every change made to this purchase: who, when, what (newest last)
+    history: v.optional(v.array(v.object({ at: v.number(), by: v.string(), text: v.string() }))),
   })
     .index("by_created", ["createdAt"])
     .index("by_supplier", ["supplierId", "createdAt"]),

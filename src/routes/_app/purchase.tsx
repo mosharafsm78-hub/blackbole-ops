@@ -79,7 +79,8 @@ function Editor({ data }: { data: Data | null }) {
   useEffect(() => { if (!locationId && locations.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id) }, [locations, locationId])
 
   const status = po?.status ?? "draft"
-  const locked = status === "cancelled" || status === "received"
+  const locked = status === "cancelled"
+  const costLocked = status === "received" // prices of goods already in go through "Correct prices" so receipts and product cost follow
   const editable = can("purchases.manage") && !locked
   const touch = () => setDirty(true)
   const [newOpen, setNewOpen] = useState(false)
@@ -239,7 +240,7 @@ function Editor({ data }: { data: Data | null }) {
                           <td className="p-2.5"><div className="font-medium">{l.name} · {l.title}</div><div className="font-mono text-xs text-muted-foreground">{l.sku}</div></td>
                           <td className="p-2.5 text-right">{editable ? <Input type="number" className="ml-auto h-8 w-20 text-right" value={l.orderedQty} onChange={(e) => setLine(i, { orderedQty: Math.max(0, Number(e.target.value) || 0) })} /> : l.orderedQty}</td>
                           {po && <><td className="p-2.5 text-right tabular-nums text-tone-green">{l.receivedQty ?? 0}</td><td className="p-2.5 text-right tabular-nums text-tone-red">{l.damagedQty || ""}</td><td className="p-2.5 text-right tabular-nums">{Math.max(0, l.orderedQty - got)}</td></>}
-                          <td className="p-2.5 text-right">{editable ? <Input type="number" className="ml-auto h-8 w-24 text-right" value={l.unitCost} onChange={(e) => setLine(i, { unitCost: Number(e.target.value) || 0 })} /> : taka(l.unitCost)}</td>
+                          <td className="p-2.5 text-right">{editable ? <Input type="number" className="ml-auto h-8 w-24 text-right" disabled={costLocked} value={l.unitCost} onChange={(e) => setLine(i, { unitCost: Number(e.target.value) || 0 })} /> : taka(l.unitCost)}</td>
                           <td className="p-2.5 text-right text-xs text-muted-foreground tabular-nums">{taka(Math.round(l.unitCost * landed))}</td>
                           <td className="p-2.5 text-right tabular-nums">{taka(l.orderedQty * l.unitCost)}</td>
                           <td className="p-2.5 text-right">{editable && got === 0 && <Button size="icon" variant="ghost" onClick={() => { setLines(lines.filter((_, j) => j !== i)); touch() }} aria-label="Remove"><Trash2 className="size-4" /></Button>}</td>
@@ -260,9 +261,9 @@ function Editor({ data }: { data: Data | null }) {
           <section className="space-y-2 rounded-lg border bg-card p-4 text-sm">
             <h2 className="font-semibold">Cost</h2>
             <div className="flex justify-between"><span>Products</span><span className="tabular-nums">{taka(subtotal)}</span></div>
-            <label className="flex items-center justify-between gap-2"><span>Supplier discount</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable} value={discount} onChange={(e) => { setDiscount(Number(e.target.value) || 0); touch() }} /></label>
-            <label className="flex items-center justify-between gap-2"><span>Shipping / freight</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable} value={shipping} onChange={(e) => { setShipping(Number(e.target.value) || 0); touch() }} /></label>
-            <label className="flex items-center justify-between gap-2"><span>Customs / other</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable} value={other} onChange={(e) => { setOther(Number(e.target.value) || 0); touch() }} /></label>
+            <label className="flex items-center justify-between gap-2"><span>Supplier discount</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable || costLocked} value={discount} onChange={(e) => { setDiscount(Number(e.target.value) || 0); touch() }} /></label>
+            <label className="flex items-center justify-between gap-2"><span>Shipping / freight</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable || costLocked} value={shipping} onChange={(e) => { setShipping(Number(e.target.value) || 0); touch() }} /></label>
+            <label className="flex items-center justify-between gap-2"><span>Customs / other</span><Input type="number" className="h-8 w-28 text-right" disabled={!editable || costLocked} value={other} onChange={(e) => { setOther(Number(e.target.value) || 0); touch() }} /></label>
             <div className="flex justify-between border-t pt-2 text-base font-semibold"><span>Total</span><span className="tabular-nums">{taka(total)}</span></div>
             <div className="flex justify-between text-tone-green"><span>Paid</span><span className="tabular-nums">{taka(paid)}</span></div>
             <div className="flex justify-between font-semibold"><span>Due to supplier</span><span className={cn("tabular-nums", total - paid - payAmt > 0 && "text-tone-red")}>{taka(Math.max(0, total - paid - payAmt))}</span></div>
@@ -291,6 +292,18 @@ function Editor({ data }: { data: Data | null }) {
             <p className="pt-1 text-xs text-muted-foreground">Shipping, customs and discount are spread over the products by value ("landed cost"). When goods are received, each product's purchase price is updated to the average cost.</p>
           </section>
           {po && <Files po={po} />}
+          {po && (
+            <section className="rounded-lg border bg-card p-4 text-sm" data-testid="po-history">
+              <h2 className="mb-2 font-semibold">History of changes</h2>
+              {(po.history ?? []).length === 0 ? <p className="text-xs text-muted-foreground">Every change to this purchase will be listed here: who, when and what.</p> : (
+                <ul className="space-y-2">
+                  {[...(po.history ?? [])].reverse().map((h, i) => (
+                    <li key={i} className="border-l-2 border-muted pl-2.5"><div className="text-xs text-muted-foreground">{dateTime(h.at)} · {h.by}</div><div>{h.text}</div></li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
         </div>
       </div>
 
