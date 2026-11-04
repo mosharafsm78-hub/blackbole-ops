@@ -346,6 +346,88 @@ export const savePO = mutation({
   },
 })
 
+/**
+ * Fix a mistake in the supplier's prices on a purchase — works at any stage (even after the goods came in).
+ * Changes the unit prices, discount, shipping and other cost, recalculates the total and what is due to the supplier,
+ * re-prices the goods receipts (GRNs) of this purchase, and (if asked) corrects each product's purchase price by the same difference.
+ */
+export const correctPrices = mutation({
+  args: {
+    id: v.id("purchaseOrders"),
+    lines: v.array(v.object({ variantId: v.id("variants"), unitCost: v.number() })),
+    discount: v.number(),
+    shippingCost: v.number(),
+    otherCost: v.number(),
+    supplierRef: v.optional(v.string()),
+    updateProductCost: v.boolean(),
+  },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "purchases.manage")
+    const po = await ctx.db.get(a.id)
+    if (!po) throw new ConvexError("Purchase not found")
+    if (po.status === "cancelled") throw new ConvexError("This purchase is cancelled")
+    if ([a.discount, a.shippingCost, a.otherCost, ...a.lines.map((l) => l.unitCost)].some((n) => !Number.isFinite(n) || n < 0)) throw new ConvexError("Prices can't be negative")
+    const factorOf = (subtotal: number, discount: number, ship: number, other: number) => (subtotal > 0 ? 1 + (ship + other - discount) / subtotal : 1)
+    const oldFactor = factorOf(po.subtotal, po.discount, po.shippingCost, po.otherCost)
+    const items = po.items.map((i) => {
+      const nl = a.lines.find((l) => l.variantId === i.variantId)
+      return { ...i, unitCost: nl ? nl.unitCost : i.unitCost }
+    })
+    const t = totals(items, a.discount, a.shippingCost, a.otherCost, po.paid)
+    const newFactor = factorOf(t.subtotal, a.discount, a.shippingCost, a.otherCost)
+    const landed = (cost: number, f: number) => Math.round(cost * f * 100) / 100
+
+    const changes: string[] = []
+    for (const i of items) {
+      const was = po.items.find((x) => x.variantId === i.variantId)
+      if (was && was.unitCost !== i.unitCost) changes.push(`${i.sku} ${was.unitCost}→${i.unitCost}`)
+    }
+    if (a.discount !== po.discount) changes.push(`discount ${po.discount}→${a.discount}`)
+    if (a.shippingCost !== po.shippingCost) changes.push(`shipping ${po.shippingCost}→${a.shippingCost}`)
+    if (a.otherCost !== po.otherCost) changes.push(`other ${po.otherCost}→${a.otherCost}`)
+    if (changes.length === 0 && (a.supplierRef ?? po.supplierRef) === po.supplierRef) return { changed: 0 }
+    const stamp = new Date(Date.now() + 6 * 3600000).toISOString().slice(0, 10)
+    const log = changes.length ? `[${stamp}] Prices corrected by ${me.staff.name}: ${changes.join(", ")} (total ${po.total}→${t.total})` : ""
+    await ctx.db.patch(po._id, {
+      items, discount: a.discount, shippingCost: a.shippingCost, otherCost: a.otherCost,
+      subtotal: t.subtotal, total: t.total, due: t.due, updatedAt: Date.now(),
+      supplierRef: a.supplierRef?.trim() || po.supplierRef,
+      note: log ? [po.note, log].filter(Boolean).join("\n") : po.note,
+    })
+
+    // goods receipts of this purchase carry the landed unit cost: re-price them
+    const receipts = (await ctx.db.query("receipts").collect()).filter((r) => r.poId === po._id)
+    for (const r of receipts) {
+      const next = r.items.map((g) => {
+        const it = items.find((x) => x.variantId === g.variantId)
+        return it ? { ...g, unitCost: landed(it.unitCost, newFactor) } : g
+      })
+      await ctx.db.patch(r._id, { items: next, totalCost: next.reduce((s, g) => s + (g.qty + (g.damaged ?? 0)) * g.unitCost, 0) })
+    }
+
+    // product purchase price: move it by the same difference, weighted by how much of today's stock came in on this purchase
+    let productsFixed = 0
+    if (a.updateProductCost) {
+      for (const i of items) {
+        if (i.receivedQty <= 0) continue
+        const was = po.items.find((x) => x.variantId === i.variantId)!
+        const diff = landed(i.unitCost, newFactor) - landed(was.unitCost, oldFactor)
+        if (Math.abs(diff) < 0.005) continue
+        const vr = await ctx.db.get(i.variantId)
+        if (!vr) continue
+        const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", i.variantId)).collect()
+        const onHand = rows.reduce((s, r) => s + Math.max(0, r.available) + r.processing + r.inTransit, 0)
+        const share = onHand > 0 ? Math.min(1, i.receivedQty / onHand) : 1
+        const price = vr.purchasePrice > 0 ? Math.max(0, vr.purchasePrice + diff * share) : landed(i.unitCost, newFactor)
+        await ctx.db.patch(i.variantId, { purchasePrice: Math.round(price * 100) / 100 })
+        await marketingChanged(ctx, { variantId: i.variantId })
+        productsFixed++
+      }
+    }
+    return { changed: changes.length, productsFixed }
+  },
+})
+
 export const setPOStatus = mutation({
   args: { id: v.id("purchaseOrders"), status: v.string(), tracking: v.optional(v.string()) },
   handler: async (ctx, { id, status, tracking }) => {

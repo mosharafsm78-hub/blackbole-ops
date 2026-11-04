@@ -159,5 +159,26 @@ describe("fake (test) pairs and the real purchase", () => {
     })
     expect(more.variants).toHaveLength(1)
   })
-})
 
+  it("corrects a wrong supplier price after the goods came in: total, due, GRN and product cost follow", async () => {
+    const { t, as, locationId, supplierId, v41 } = await setup()
+    const id = await as.mutation(api.purchasing.savePO, {
+      supplierId, locationId, lines: [{ variantId: v41, orderedQty: 10, unitCost: 500 }],
+      discount: 0, shippingCost: 0, otherCost: 0, status: "ordered", supplierRef: "PI-9", invoiceFile: await fakeFile(t),
+    })
+    await as.mutation(api.purchasing.receivePO, { id, costMode: "average", lines: [{ variantId: v41, qty: 10, damaged: 0 }] })
+    await as.mutation(api.purchasing.addSupplierPayment, { id, amount: 2000, method: "Bank transfer", slipId: (await fakeFile(t)).storageId })
+    expect(((await t.run((ctx) => ctx.db.get(v41))) as any).purchasePrice).toBe(500)
+
+    const r = await as.mutation(api.purchasing.correctPrices, { id, lines: [{ variantId: v41, unitCost: 450 }], discount: 0, shippingCost: 0, otherCost: 0, updateProductCost: true })
+    expect(r.changed).toBe(1)
+    const po = (await as.query(api.purchasing.getPO, { id }))!
+    if (po.missing) throw new Error("missing")
+    expect(po.po.total).toBe(4500)
+    expect(po.po.due).toBe(2500)
+    expect(po.po.note).toContain("Prices corrected")
+    expect(po.receipts[0].items[0].unitCost).toBe(450)
+    expect(((await t.run((ctx) => ctx.db.get(v41))) as any).purchasePrice).toBe(450)
+    await expect(as.mutation(api.purchasing.correctPrices, { id, lines: [{ variantId: v41, unitCost: -1 }], discount: 0, shippingCost: 0, otherCost: 0, updateProductCost: false })).rejects.toThrow()
+  })
+})

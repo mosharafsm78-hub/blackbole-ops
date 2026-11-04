@@ -73,7 +73,7 @@ function Editor({ data }: { data: Data | null }) {
   const [other, setOther] = useState(po?.otherCost ?? 0)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship">(null)
+  const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship" | "correct">(null)
   const [preset, setPreset] = useState<Parameters<typeof ProductBuilder>[0]["preset"]>()
 
   useEffect(() => { if (!locationId && locations.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id) }, [locations, locationId])
@@ -166,6 +166,7 @@ function Editor({ data }: { data: Data | null }) {
         {editable && status === "draft" && <Button size="sm" disabled={busy} onClick={() => (po ? (dirty ? doSave("ordered") : changeStatus("ordered")) : doSave("ordered"))}>Place order</Button>}
         {po && status === "ordered" && <Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setDlg("ship")}><Truck className="size-4" /> Mark on the way</Button></Perm>}
         {po && ["ordered", "shipped", "partial"].includes(status) && <Perm perm="inventory.receive"><Button size="sm" onClick={() => setDlg("receive")}><PackageCheck className="size-4" /> Receive goods</Button></Perm>}
+        {po && status !== "draft" && status !== "cancelled" && <Perm perm="purchases.manage"><Button size="sm" variant="outline" onClick={() => setDlg("correct")}><Pencil className="size-4" /> Correct prices</Button></Perm>}
         {po && status !== "draft" && status !== "cancelled" && <Perm perm="purchases.pay"><Button size="sm" variant="outline" onClick={() => setDlg("pay")}><Wallet className="size-4" /> Pay supplier</Button></Perm>}
         {po && anyReceived && <Button size="sm" variant="outline" asChild><a href={`/labels?po=${po._id}`} target="_blank" rel="noreferrer"><Printer className="size-4" /> Labels</a></Button>}
         {po && status === "partial" && <Perm perm="purchases.manage"><Button size="sm" variant="ghost" onClick={() => { if (confirm("Close this purchase? The rest won't be received.")) changeStatus("received") }}>Close</Button></Perm>}
@@ -329,8 +330,81 @@ function Editor({ data }: { data: Data | null }) {
         onSaved={() => {}} onDeleted={(to) => { setSupplierId(to ?? ""); touch() }} />
       {po && <ShipDialog open={dlg === "ship"} onOpenChange={(o) => setDlg(o ? "ship" : null)} tracking={tracking} onConfirm={(t) => { setTracking(t); changeStatus("shipped", { tracking: t }) }} />}
       {po && <ReceiveDialog po={po} open={dlg === "receive"} onOpenChange={(o) => setDlg(o ? "receive" : null)} />}
+      {po && <CorrectDialog po={po} open={dlg === "correct"} onOpenChange={(o) => setDlg(o ? "correct" : null)} />}
       {po && <PayDialog poId={po._id} due={Math.max(0, po.total - po.paid)} open={dlg === "pay"} onOpenChange={(o) => setDlg(o ? "pay" : null)} />}
     </div>
+  )
+}
+
+/** Fix a mistake in the supplier's prices, at any stage of the purchase. */
+function CorrectDialog({ po, open, onOpenChange }: { po: Data["po"]; open: boolean; onOpenChange: (o: boolean) => void }) {
+  const fix = useMutation(api.purchasing.correctPrices)
+  const [costs, setCosts] = useState<Record<string, number>>({})
+  const [discount, setDiscount] = useState(po.discount)
+  const [shipping, setShipping] = useState(po.shippingCost)
+  const [other, setOther] = useState(po.otherCost)
+  const [ref, setRef] = useState(po.supplierRef ?? "")
+  const [updateCost, setUpdateCost] = useState(true)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    setCosts(Object.fromEntries(po.items.map((i) => [i.variantId, i.unitCost])))
+    setDiscount(po.discount); setShipping(po.shippingCost); setOther(po.otherCost); setRef(po.supplierRef ?? ""); setUpdateCost(true)
+  }, [open, po])
+  const subtotal = po.items.reduce((t, i) => t + i.orderedQty * (costs[i.variantId] ?? i.unitCost), 0)
+  const total = Math.max(0, subtotal - discount + shipping + other)
+  const anyReceived = po.items.some((i) => i.receivedQty > 0)
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Correct prices · {poCode(po.code)}</DialogTitle>
+          <DialogDescription>Fix a wrong supplier price, discount or freight. The total and the amount due to the supplier are recalculated. Payments already made stay as they are.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <div className="space-y-1.5"><Label>Supplier invoice / PI no.</Label><Input value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <div className="overflow-hidden rounded-md border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-xs text-muted-foreground"><tr><th className="p-2 text-left">Product</th><th className="p-2 text-right">Qty</th><th className="p-2 text-right">Unit price</th><th className="p-2 text-right">Line</th></tr></thead>
+              <tbody>
+                {po.items.map((i) => (
+                  <tr key={i.variantId} className="border-t">
+                    <td className="p-2"><div className="font-medium">{i.name}</div><div className="text-xs text-muted-foreground">{i.sku} · {i.title}</div></td>
+                    <td className="p-2 text-right tabular-nums">{i.orderedQty}</td>
+                    <td className="p-2 text-right"><Input type="number" className="ml-auto h-8 w-24 text-right" value={costs[i.variantId] ?? i.unitCost} onChange={(e) => setCosts({ ...costs, [i.variantId]: Math.max(0, Number(e.target.value) || 0) })} /></td>
+                    <td className="p-2 text-right tabular-nums">{taka(i.orderedQty * (costs[i.variantId] ?? i.unitCost))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="space-y-1"><span className="text-xs text-muted-foreground">Supplier discount</span><Input type="number" className="text-right" value={discount} onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))} /></label>
+            <label className="space-y-1"><span className="text-xs text-muted-foreground">Shipping / freight</span><Input type="number" className="text-right" value={shipping} onChange={(e) => setShipping(Math.max(0, Number(e.target.value) || 0))} /></label>
+            <label className="space-y-1"><span className="text-xs text-muted-foreground">Customs / other</span><Input type="number" className="text-right" value={other} onChange={(e) => setOther(Math.max(0, Number(e.target.value) || 0))} /></label>
+          </div>
+          <div className="flex justify-between border-t pt-2 font-semibold"><span>New total</span><span className="tabular-nums">{taka(total)}{total !== po.total && <span className="ml-2 text-xs font-normal text-muted-foreground">was {taka(po.total)}</span>}</span></div>
+          <div className="flex justify-between"><span>Due to supplier after fixing</span><span className="tabular-nums">{taka(Math.max(0, total - po.paid))}</span></div>
+          {anyReceived && (
+            <label className="flex items-start gap-2 rounded-md bg-muted/50 p-2.5 text-xs">
+              <input type="checkbox" className="mt-0.5" checked={updateCost} onChange={(e) => setUpdateCost(e.target.checked)} />
+              <span>Goods from this purchase are already in stock. Also correct each product's purchase price by the same difference (so profit reports are right).</span>
+            </label>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button disabled={busy} onClick={async () => {
+            setBusy(true)
+            try {
+              const r = await fix({ id: po._id, lines: po.items.map((i) => ({ variantId: i.variantId, unitCost: costs[i.variantId] ?? i.unitCost })), discount, shippingCost: shipping, otherCost: other, supplierRef: ref || undefined, updateProductCost: anyReceived && updateCost })
+              toast.success(r.changed ? "Prices corrected" : "Nothing changed")
+              onOpenChange(false)
+            } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Save corrections</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
