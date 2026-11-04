@@ -111,5 +111,27 @@
       "from": "Khaki Green",
       "to": "Beige"
     }
+  },
+  {
+    "id": "2026-11-04-calder-maroon",
+    "fn": "catalog:cloneColour",
+    "args": {
+      "productMatch": "Calder Slide Mule",
+      "from": "Beige",
+      "to": "Maroon",
+      "fromCode": "BCSM-BRN",
+      "toCode": "BCSM-MRN",
+      "handle": "blackbole-calder-slide-mule-maroon",
+      "html": "<h3>Key features</h3>\n<ul>\n<li>\n<strong>Doctor insole.</strong> A soft, cushioned footbed that supports the arch and eases pressure on the heel, so it stays comfortable through long hours on your feet.</li>\n<li>\n<strong>Backless slip-on.</strong> On and off in a second, with no heel to press down.</li>\n<li>\n<strong>Rich maroon, suede-feel upper.</strong> A deep wine-red finish that looks smart with everyday colours.</li>\n<li>\n<strong>Hand-stitched moc toe</strong> with rust contrast stitching for a classic loafer look.</li>\n<li>\n<strong>Twin elastic side gores</strong> for a snug fit across the instep.</li>\n<li>\n<strong>Durable rubber outsole</strong> in brown, with grip pattern and stitched welt detail.</li>\n<li>\n<strong>Lightweight</strong> for daily wear, office, travel and jummah.</li>\n</ul>\n<h3>Description</h3>\n<p>The BlackBole Calder Slide Mule in Maroon brings loafer polish to the ease of a slipper, built on a soft <strong>doctor insole</strong> that cushions every step. The insole supports your arch and eases pressure on the heel, so your feet stay comfortable from morning to night.</p>\n<p>A hand-stitched moc toe with rust contrast stitching gives it a smart, put-together look on a deep maroon, suede-feel upper, while the open back lets you slip in and out in seconds. Twin elastic side panels hold your foot snugly, and the brown rubber outsole adds grip and durability for everyday streets.</p>\n<p>Wear it with chinos, jeans or a panjabi. It’s equally at home at the office, at Friday prayers, on errands or on a weekend out. Available in sizes 39 to 44.</p>",
+      "imageUrls": [
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-1.jpg?v=1793804826",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-2.jpg?v=1793804826",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-3.jpg?v=1793804826",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-4.jpg?v=1793804826"
+      ],
+      "fakeQty": 10,
+      "seoTitle": "BlackBole Calder Slide Mule - Maroon | Men's Backless Loafer with Doctor Insole",
+      "seoDescription": "Men's backless moc-toe mule in maroon with a soft doctor insole, rust contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
+    }
   }
 ]
