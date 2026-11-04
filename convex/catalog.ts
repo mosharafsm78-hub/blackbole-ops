@@ -689,7 +689,7 @@ export const syncStockToShopify = internalMutation({
     const part = skuPart.toUpperCase()
     let n = 0
     for (const vr of await ctx.db.query("variants").collect()) {
-      if (vr.deletedAt as any || !vr.sku.toUpperCase().includes(part)) continue
+      if (!vr.sku.toUpperCase().includes(part)) continue
       if (!(await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).first())) await ctx.db.insert("shopifyDirty", { variantId: vr._id, at: Date.now() })
       n++
     }
