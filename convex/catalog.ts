@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values"
-import { query } from "./_generated/server"
+import { internalMutation, query } from "./_generated/server"
 import { mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -624,5 +624,26 @@ export const recentOrdersForVariant = query({
       if (out.length >= 20) break
     }
     return out
+  },
+})
+
+/** One-time: a product's colour was named wrongly. Swaps the colour word in the product name and its variants' title / attrs. */
+export const renameColour = internalMutation({
+  args: { productMatch: v.string(), from: v.string(), to: v.string() },
+  handler: async (ctx, a) => {
+    const swap = (t?: string) => (t && t.includes(a.from) ? t.split(a.from).join(a.to) : t)
+    const want = a.productMatch.trim().toLowerCase()
+    let products = 0, variants = 0
+    for (const p of await ctx.db.query("products").collect()) {
+      if (p.deletedAt || !p.name.toLowerCase().includes(want)) continue
+      const name = swap(p.name)!
+      if (name !== p.name) { await ctx.db.patch(p._id, { name }); products++ }
+      for (const vr of await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()) {
+        const title = swap(vr.title)!, attrs = swap(vr.attrs)
+        if (title !== vr.title || attrs !== vr.attrs) { await ctx.db.patch(vr._id, { title, attrs }); variants++ }
+      }
+      await marketingChanged(ctx, { productId: p._id })
+    }
+    return { products, variants }
   },
 })
