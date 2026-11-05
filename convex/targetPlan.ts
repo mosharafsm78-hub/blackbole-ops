@@ -327,13 +327,22 @@ export function marketingPlan(args: {
   trailingSpend: number
   dayOfMonth: number
   days: number
+  /** A fixed monthly ad budget set by the owner. When set, it replaces the worked-out budget and nothing above it is ever asked for. */
+  budgetCap?: number | null
+  /** Ad spend so far today (inside spentMtd) — the cap's daily share is worked out from what was spent BEFORE today. */
+  spentToday?: number
 }): MarketingPlan {
   const { target, deliveredMtd, spentMtd, trailingRevenue, trailingSpend, dayOfMonth, days } = args
+  const cap = args.budgetCap && args.budgetCap > 0 ? Math.round(args.budgetCap) : null
+  const capLeft = cap === null ? null : Math.max(0, cap - Math.round(spentMtd - (args.spentToday ?? 0)))
   const mer = trailingSpend > 0 && trailingRevenue > 0 ? trailingRevenue / trailingSpend : null
   const merMtd = spentMtd > 0 ? deliveredMtd / spentMtd : null
-  if (mer === null) return { mer: null, budget: null, spentMtd: Math.round(spentMtd), remaining: null, expectedToDate: null, merMtd, neededForRest: null, status: "no_history" }
+  if (mer === null) {
+    if (cap === null) return { mer: null, budget: null, spentMtd: Math.round(spentMtd), remaining: null, expectedToDate: null, merMtd, neededForRest: null, status: "no_history" }
+    return { mer: null, budget: cap, spentMtd: Math.round(spentMtd), remaining: cap - Math.round(spentMtd), expectedToDate: dayOfMonth > 0 ? Math.round((cap * dayOfMonth) / days) : 0, merMtd, neededForRest: capLeft, status: "on_track" }
+  }
 
-  const budget = Math.ceil(target / mer)
+  const budget = cap ?? Math.ceil(target / mer)
   const expectedToDate = dayOfMonth > 0 ? Math.round((budget * dayOfMonth) / days) : 0
   const paceRevenue = (target * dayOfMonth) / days
   // Orders reach "delivered" days after the ad that brought them, so the first days of a month say nothing
@@ -350,7 +359,7 @@ export function marketingPlan(args: {
     remaining: budget - Math.round(spentMtd),
     expectedToDate,
     merMtd: merMtd === null ? null : Math.round(merMtd * 100) / 100,
-    neededForRest: Math.max(0, Math.ceil((target - deliveredMtd) / mer)),
+    neededForRest: capLeft === null ? Math.max(0, Math.ceil((target - deliveredMtd) / mer)) : Math.min(capLeft, Math.max(0, Math.ceil((target - deliveredMtd) / mer))),
     status,
   }
 }

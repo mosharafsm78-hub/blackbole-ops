@@ -31,6 +31,7 @@ export function RevenueTargetSettings() {
         <TargetRow month={nextMonth(thisMonth)} />
       </div>
       <GrossTargetForm />
+      <MarketingBudgetForm />
       <CostsForm />
     </section>
   )
@@ -71,6 +72,39 @@ function GrossTargetForm() {
           type="number" inputMode="numeric" min={0} step={1000} placeholder="e.g. 1800000" value={draft}
           onChange={(e) => setDraft(e.target.value)} className="w-40 text-right tabular-nums" disabled={busy} aria-label="Gross-sale target"
         />
+        <Button size="sm" disabled={busy || invalid || unchanged} onClick={() => void commit()}>Save</Button>
+      </div>
+    </div>
+  )
+}
+
+/** The owner's fixed monthly ad budget. With one set, the Target page and the Marketing OS never plan to spend more than what is left of it. */
+function MarketingBudgetForm() {
+  const current = useQuery(api.targets.getMarketingBudget)
+  const save = useMutation(api.targets.setMarketingBudget)
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { if (current !== undefined) setDraft(current ? String(current) : "") }, [current])
+  if (current === undefined) return <Loading />
+  const amount = draft.trim() === "" ? 0 : Number(draft)
+  const invalid = !Number.isFinite(amount) || amount < 0
+  const unchanged = Math.round(amount) === (current ?? 0)
+  const commit = async () => {
+    setBusy(true)
+    try { await save({ amount }); toast.success(amount > 0 ? `Monthly ad budget fixed at ${taka(amount)}` : "Fixed ad budget removed") } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-5 border-t pt-4" data-testid="marketing-budget-settings">
+      <h3 className="text-sm font-semibold">Monthly ad budget (fixed)</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        The most the company spends on ads in a month. The Target page and the Marketing OS plan each day from what is left of it
+        divided by the days left, and never ask for more — even when sales are behind. Leave empty (or 0) for no fixed budget: then the
+        budget is worked out from the target.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground">৳</span>
+        <Input type="number" inputMode="numeric" min={0} step={1000} placeholder="e.g. 300000" value={draft}
+          onChange={(e) => setDraft(e.target.value)} className="w-40 text-right tabular-nums" disabled={busy} aria-label="Monthly ad budget" />
         <Button size="sm" disabled={busy || invalid || unchanged} onClick={() => void commit()}>Save</Button>
       </div>
     </div>

@@ -458,3 +458,19 @@ describe("restockSuggestions — what to buy, and in which sizes, before it's to
     expect(b.returned).toBe(0)
   })
 })
+
+describe("marketingPlan with a fixed monthly ad budget", () => {
+  const args = { target: 1800000, deliveredMtd: 100000, spentMtd: 40000, trailingRevenue: 650000, trailingSpend: 100000, dayOfMonth: 5, days: 30 }
+  it("never asks for more than what is left of the budget, even when sales are far behind", () => {
+    const free = marketingPlan(args)
+    expect(free.neededForRest).toBeGreaterThan(200000) // uncapped: grows with the gap
+    const m = marketingPlan({ ...args, budgetCap: 150000, spentToday: 10000 })
+    expect(m.budget).toBe(150000)
+    expect(m.neededForRest).toBe(120000) // 150k − (40k spent − 10k of it today) = 120k for the rest, today included
+    expect(m.remaining).toBe(110000)
+  })
+  it("is 0 once the budget is used up, and an empty cap changes nothing", () => {
+    expect(marketingPlan({ ...args, budgetCap: 30000 }).neededForRest).toBe(0)
+    expect(marketingPlan({ ...args, budgetCap: null })).toEqual(marketingPlan(args))
+  })
+})

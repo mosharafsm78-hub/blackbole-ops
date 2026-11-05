@@ -92,6 +92,29 @@ export const setGrossTarget = mutation({
   },
 })
 
+/** Fixed monthly ad budget set by the owner (Settings → KPI). Null = none set, the budget is worked out from the target. */
+export const getMarketingBudget = query({
+  args: {},
+  handler: async (ctx): Promise<number | null> => {
+    if (!(await currentStaff(ctx))) return null
+    return (await getSetting<number>(ctx, "marketingMonthlyBudget")) ?? null
+  },
+})
+
+export const setMarketingBudget = mutation({
+  args: { amount: v.number() },
+  handler: async (ctx, { amount }) => {
+    await requirePerm(ctx, "team.manage")
+    if (!Number.isFinite(amount) || amount < 0) throw new ConvexError("The budget must be zero or more.")
+    await setSetting(ctx, "marketingMonthlyBudget", amount > 0 ? Math.round(amount) : null)
+  },
+})
+
+export const marketingBudgetForProgress = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<number | null> => (await getSetting<number>(ctx, "marketingMonthlyBudget")) ?? null,
+})
+
 export const grossTargetForProgress = internalQuery({
   args: {},
   handler: async (ctx): Promise<number> => (await getSetting<number>(ctx, "grossSaleTarget")) ?? DEFAULT_GROSS_TARGET,
@@ -1055,6 +1078,8 @@ async function computeMarketing(ctx: ActionCtx, system: boolean): Promise<Market
             trailingSpend: sumDays(data.spend.byDay, from30, today),
             dayOfMonth: monthPlan.started ? (monthPlan.finished ? days : dayNo(first, today)) : 0,
             days,
+            budgetCap: await ctx.runQuery(internal.targets.marketingBudgetForProgress, {}),
+            spentToday: Math.round(data.spend.byDay[today] ?? 0),
           }),
         }
       }
