@@ -140,5 +140,12 @@
     "args": {
       "skuPart": "BCSM-MRN"
     }
+  },
+  {
+    "id": "2026-11-05-ad-budget-15pct",
+    "fn": "targets:setMarketingBudgetInternal",
+    "args": {
+      "pct": 15
+    }
   }
 ]

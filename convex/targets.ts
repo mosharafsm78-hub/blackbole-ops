@@ -92,27 +92,41 @@ export const setGrossTarget = mutation({
   },
 })
 
-/** Fixed monthly ad budget set by the owner (Settings → KPI). Null = none set, the budget is worked out from the target. */
+/** The owner's fixed monthly ad budget, as a share of the gross-sale target (Settings → KPI). Null = none set, the budget is worked out from the target. */
 export const getMarketingBudget = query({
   args: {},
-  handler: async (ctx): Promise<number | null> => {
+  handler: async (ctx): Promise<{ pct: number; amount: number } | null> => {
     if (!(await currentStaff(ctx))) return null
-    return (await getSetting<number>(ctx, "marketingMonthlyBudget")) ?? null
+    const pct = await getSetting<number>(ctx, "marketingBudgetPct")
+    if (!pct || pct <= 0) return null
+    const target = (await getSetting<number>(ctx, "grossSaleTarget")) ?? DEFAULT_GROSS_TARGET
+    return { pct, amount: Math.round((target * pct) / 100) }
   },
 })
 
 export const setMarketingBudget = mutation({
-  args: { amount: v.number() },
-  handler: async (ctx, { amount }) => {
+  args: { pct: v.number() },
+  handler: async (ctx, { pct }) => {
     await requirePerm(ctx, "team.manage")
-    if (!Number.isFinite(amount) || amount < 0) throw new ConvexError("The budget must be zero or more.")
-    await setSetting(ctx, "marketingMonthlyBudget", amount > 0 ? Math.round(amount) : null)
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) throw new ConvexError("The share must be between 0 and 100.")
+    await setSetting(ctx, "marketingBudgetPct", pct > 0 ? pct : null)
   },
+})
+
+/** One-time job entry point (no signed-in person). */
+export const setMarketingBudgetInternal = internalMutation({
+  args: { pct: v.number() },
+  handler: async (ctx, { pct }) => { await setSetting(ctx, "marketingBudgetPct", pct > 0 ? pct : null) },
 })
 
 export const marketingBudgetForProgress = internalQuery({
   args: {},
-  handler: async (ctx): Promise<number | null> => (await getSetting<number>(ctx, "marketingMonthlyBudget")) ?? null,
+  handler: async (ctx): Promise<number | null> => {
+    const pct = await getSetting<number>(ctx, "marketingBudgetPct")
+    if (!pct || pct <= 0) return null
+    const target = (await getSetting<number>(ctx, "grossSaleTarget")) ?? DEFAULT_GROSS_TARGET
+    return Math.round((target * pct) / 100)
+  },
 })
 
 export const grossTargetForProgress = internalQuery({
