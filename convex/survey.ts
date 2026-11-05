@@ -17,6 +17,7 @@ const DAY = 86400000
 const AGAIN_DAYS = 60 // one survey per phone number in this time
 const MIN_ORDER = 1500 // discount codes work on orders from this amount (a Tk 200 pre-order booking must never become free)
 const CODE_DAYS = 30
+const MAX_TRIES = 6 // code creation attempts (the first one right away, then every 10 minutes)
 
 export const discountFor = (rating: number) => (rating <= 5 ? 100 : rating <= 8 ? 200 : 300)
 const LABEL: Record<number, string> = { 1: "1 - Very bad", 2: "2 - Bad", 3: "3 - Poor", 4: "4 - Below average", 5: "5 - Average", 6: "6 - Okay", 7: "7 - Good", 8: "8 - Very good", 9: "9 - Great", 10: "10 - Excellent" }
@@ -134,15 +135,17 @@ export const saveCode = internalMutation({
   handler: async (ctx, { id, code, note }) => {
     const s = await ctx.db.get(id)
     if (!s) return
-    await ctx.db.patch(id, { ...(code ? { code } : {}), ...(note ? { note } : {}) })
-    if (!code) await notify(ctx, "Survey discount code needs a hand", `${s.customerName} · ${s.waId} rated ${s.rating}/10 — create a Tk ${s.discount} code and send it`, s.orderId, "action")
+    const tries = (s.codeTries ?? 0) + (code ? 0 : 1)
+    await ctx.db.patch(id, { ...(code ? { code } : {}), ...(note ? { note } : {}), codeTries: tries })
+    // the retry job keeps trying for a while; only ask a human once it has given up, and say why
+    if (!code && tries === MAX_TRIES) await notify(ctx, "Survey discount code needs a hand", `${s.customerName} · ${s.waId} rated ${s.rating}/10 — create a Tk ${s.discount} code and send it. Reason: ${note ?? "unknown"}`, s.orderId, "action")
   },
 })
 
 /** Make the one-time Shopify code and send the thank-you. Test mode sends nothing and makes no real code. */
 export const issueCode = internalAction({
-  args: { surveyId: v.id("surveys") },
-  handler: async (ctx, { surveyId }) => {
+  args: { surveyId: v.id("surveys"), retry: v.optional(v.boolean()) },
+  handler: async (ctx, { surveyId, retry }) => {
     const s = await ctx.runQuery(internal.survey.surveyById, { id: surveyId })
     if (!s || s.rating == null || s.code) return
     const amount = s.discount ?? discountFor(s.rating)
@@ -170,7 +173,29 @@ export const issueCode = internalAction({
       }
     }
     if (code) await ctx.runMutation(internal.survey.saveCode, { id: surveyId, code })
-    await ctx.runAction(internal.whatsappVerify.deliver, { to: s.waId, out: [{ kind: "text", body: thanks(s.customerName, s.rating, amount, code) }] })
+    // first try: the full thank-you (with the code, or "our team will send it" if Shopify failed). Retry that worked: just the code.
+    if (retry && !code) return
+    const body = retry ? codeOnly(s.customerName, amount, code!) : thanks(s.customerName, s.rating, amount, code)
+    await ctx.runAction(internal.whatsappVerify.deliver, { to: s.waId, out: [{ kind: "text", body }] })
+  },
+})
+
+const codeOnly = (name: string, amount: number, code: string) =>
+  `Hi ${first(name)}! 💛 Here is your Tk ${amount} thank-you discount code for your next order:\n\n*${code}*\n\nValid for ${CODE_DAYS} days on orders of Tk ${MIN_ORDER.toLocaleString("en-IN")} or more at blackbole.top. — BlackBole`
+
+export const needCode = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("surveys").withIndex("by_rated", (q) => q.gte("ratedAt", Date.now() - 3 * DAY)).order("asc").take(200)
+    return rows.filter((r) => r.result === "rated" && !r.code && (r.codeTries ?? 0) < MAX_TRIES && (r.ratedAt ?? 0) < Date.now() - 120_000).map((r) => r._id)
+  },
+})
+
+/** Every 10 minutes: a customer who rated but did not get a code (Shopify hiccup) gets it as soon as it works. */
+export const retryCodes = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    for (const surveyId of await ctx.runQuery(internal.survey.needCode, {})) await ctx.runAction(internal.survey.issueCode, { surveyId, retry: true })
   },
 })
 

@@ -679,6 +679,7 @@ export default defineSchema({
     ratedAt: v.optional(v.number()),
     code: v.optional(v.string()),
     discount: v.optional(v.number()),
+    codeTries: v.optional(v.number()), // how many times we tried to make the Shopify code
   }).index("by_order", ["orderId"]).index("by_phone", ["waId"]).index("by_asked", ["askedAt"]).index("by_rated", ["ratedAt"]),
   // deleted records kept here (nothing is lost; can be restored by hand)
   archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
