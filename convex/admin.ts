@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values"
-import { action, query } from "./_generated/server"
+import { action, internalAction, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { DEFAULT_SMS, sendSms } from "./outbound"
 import { internalMutation, mutation } from "./functions"
@@ -260,5 +260,21 @@ export const testSms = action({
     const error = await sendSms(sms, p, msg)
     await ctx.runMutation(internal.outbound.logSms, { phone: p, text: msg, status: error ? "failed" : "sent", error: error ?? undefined })
     return error ? { ok: false, error } : { ok: true }
+  },
+})
+
+/** One-time (deploy job): send one real SMS through the saved REVE settings, to check keys, sender ID and balance. Fails loudly so the job is retried. */
+export const sendCheckSms = internalAction({
+  args: { phone: v.string() },
+  handler: async (ctx, { phone }) => {
+    const p = normalizePhone(phone)
+    if (!/^01\d{9}$/.test(p)) throw new Error("Phone number looks wrong")
+    const sms = await ctx.runQuery(internal.outbound.smsSettingsRaw, {})
+    const contact = await ctx.runQuery(internal.outbound.contactRaw, {})
+    const text = `BlackBole SMS check: your order BB-TEST is out for delivery today. Please keep 2000 Tk ready and your phone on. Hotline ${contact?.hotline ?? ""}`.trim()
+    const error = await sendSms(sms, p, text)
+    await ctx.runMutation(internal.outbound.logSms, { phone: p, text, status: error ? "failed" : "sent", error: error ?? undefined })
+    if (error) throw new Error(`SMS check failed: ${error}`)
+    return "sent"
   },
 })

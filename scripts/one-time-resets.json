@@ -152,5 +152,12 @@
     "id": "2026-11-05-sms-parcel-updates",
     "fn": "admin:smsParcelUpdatesOn",
     "args": {}
+  },
+  {
+    "id": "2026-11-05-sms-check-emon",
+    "fn": "admin:sendCheckSms",
+    "args": {
+      "phone": "01632721383"
+    }
   }
 ]
