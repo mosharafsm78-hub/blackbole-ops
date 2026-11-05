@@ -627,8 +627,9 @@ export default defineSchema({
     status: v.string(),
     error: v.optional(v.string()),
     channel: v.optional(v.string()), // "email" for emails; SMS when empty
+    kind: v.optional(v.string()), // which customer moment this SMS was for (pending, in_transit, out_for_delivery, …): one SMS per moment per order
     at: v.number(),
-  }).index("by_at", ["at"]),
+  }).index("by_at", ["at"]).index("by_order", ["orderId", "at"]),
 
   webhookLogs: defineTable({
     event: v.string(),

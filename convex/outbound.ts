@@ -3,7 +3,7 @@ import { internalAction, internalQuery } from "./_generated/server"
 import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { getSetting, invoiceLabel } from "./lib"
-import { STATUS_LABEL, type OrderStatus } from "./rules"
+import { SMS_STATUSES, STATUS_LABEL, type OrderStatus } from "./rules"
 
 export const context = internalQuery({
   args: { orderId: v.id("orders") },
@@ -92,6 +92,10 @@ export const DEFAULT_SMS: Record<string, string> = {
   ready_to_ship: "Your BlackBole order {invoice} is packed and ready to ship.",
   in_transit: "Your BlackBole order {invoice} is on the way with {courier}. Tracking: {tracking}. Please keep {amount} Tk ready.",
   delivered_paid: "Thank you {name}! Your BlackBole order {invoice} was delivered. Enjoy your purchase.",
+  out_for_delivery_paid: "Your BlackBole order {invoice} is out for delivery today. Please keep your phone on. Hotline {hotline}",
+  out_for_delivery: "Your BlackBole order {invoice} is out for delivery today. Please keep {amount} Tk ready and your phone on. Hotline {hotline}",
+  failed_delivery: "Dear {name}, our courier could not deliver your BlackBole order {invoice}. Please keep your phone on, we will try again. Hotline {hotline}",
+  pending_returned: "Dear {name}, your BlackBole order {invoice} is being returned to us. For any help call {hotline}.",
   cancelled: "Your BlackBole order {invoice} was cancelled. For help call {hotline}.",
 }
 
@@ -138,21 +142,61 @@ export function orderMessage(order: any, status: string, sms: any, contact: any)
   })
 }
 
+/** Out for delivery / failed delivery may repeat (another attempt) but never twice within this time; every other moment is sent once per order. */
+const REPEAT_MS: Record<string, number> = { out_for_delivery: 12 * 3600_000, failed_delivery: 12 * 3600_000 }
+/** Only plain English letters keep an SMS at 160 characters; one Bangla letter makes it Unicode (70 per part = costs more). */
+const plain = (s: string | undefined | null, fallback: string) => (s && /^[\x20-\x7E]+$/.test(s.trim()) ? s.trim() : fallback)
+
+/** One SMS per moment per order: reserves the send (so two triggers at once can't both go out), or returns null if it was already sent. */
+export const claimSms = internalMutation({
+  args: { orderId: v.id("orders"), kind: v.string() },
+  handler: async (ctx, { orderId, kind }) => {
+    const now = Date.now()
+    const logs = await ctx.db.query("smsLogs").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect()
+    const win = REPEAT_MS[kind]
+    if (logs.some((l) => l.kind === kind && (l.status === "sent" || (l.status === "sending" && now - l.at < 5 * 60_000)) && (win === undefined || now - l.at < win))) return null
+    return await ctx.db.insert("smsLogs", { phone: "", text: "", orderId, kind, status: "sending", at: now })
+  },
+})
+
+export const finishSms = internalMutation({
+  args: { logId: v.id("smsLogs"), phone: v.string(), text: v.string(), status: v.string(), error: v.optional(v.string()) },
+  handler: async (ctx, { logId, phone, text, status, error }) => {
+    const row = await ctx.db.get(logId)
+    if (!row) return
+    await ctx.db.patch(logId, { phone, text, status, error })
+    const order = row.orderId ? await ctx.db.get(row.orderId) : null
+    if (order && status === "sent") {
+      const c = await ctx.db.get(order.customerId)
+      if (c) await ctx.db.patch(c._id, { smsCount: (c.smsCount ?? 0) + 1 })
+    }
+  },
+})
+
 export const sendOrderSms = internalAction({
   args: { orderId: v.id("orders"), status: v.string() },
   handler: async (ctx, { orderId, status }) => {
     const { order, sms, contact } = await ctx.runQuery(internal.outbound.context, { orderId })
-    if (!order || !sms?.enabled) return
-    const tpl = sms.templates?.[status] || DEFAULT_SMS[status]
-    if (!tpl) return
+    if (!order || order.deletedAt || !sms?.enabled) return
+    if (!(sms.statuses ?? SMS_STATUSES).includes(status)) return // switched off in Settings → SMS & Email
+    if (Date.now() - order.createdAt > 60 * 86400_000) return // never message about old parcels
+    if (!/^01\d{9}$/.test(order.phone ?? "")) return
+    if ((status === "out_for_delivery" || status === "failed_delivery" || status === "pending_returned") && order.isExchange) return
+    if ((status === "out_for_delivery" || status === "failed_delivery") && order.status !== "in_transit") return // only while the parcel is with the courier
     const amount = sms.valuePreference === "due" ? order.due : order.total
+    // Nothing to collect (already paid): the "keep Tk … ready" version would be wrong.
+    const key = status === "out_for_delivery" && !(order.due > 0) && !sms.templates?.[status] ? "out_for_delivery_paid" : status
+    const tpl = sms.templates?.[status] || DEFAULT_SMS[key]
+    if (!tpl) return
+    const logId = await ctx.runMutation(internal.outbound.claimSms, { orderId, kind: status })
+    if (!logId) return // already sent for this order
     const text = fill(tpl, {
-      name: order.customerName.split(" ")[0], invoice: invoiceLabel(order), amount: String(Math.round(amount)),
-      status: STATUS_LABEL[status as OrderStatus] ?? status, courier: order.deliveryPartnerName ?? "courier",
+      name: plain(order.customerName.trim().split(/\s+/)[0], "Customer"), invoice: invoiceLabel(order), amount: String(Math.round(amount)),
+      status: STATUS_LABEL[status as OrderStatus] ?? status, courier: plain(order.deliveryPartnerName, "courier"),
       tracking: order.consignmentId ?? "", hotline: contact?.hotline ?? "", whatsapp: contact?.whatsapp ?? "",
     })
     const error = await sendSms(sms, order.phone, text)
-    await ctx.runMutation(internal.outbound.logSms, { phone: order.phone, text, orderId, status: error ? "failed" : "sent", error: error ?? undefined })
+    await ctx.runMutation(internal.outbound.finishSms, { logId, phone: order.phone, text, status: error ? "failed" : "sent", error: error ?? undefined })
   },
 })
 

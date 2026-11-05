@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server"
 import type { Doc, Id } from "./_generated/dataModel"
 import { internal } from "./_generated/api"
 import type { CapiEvent } from "./metaCapi"
-import { STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type PreOrderFrom, type Bucket, type OrderStatus } from "./rules"
+import { SMS_KEY_OF, STATUS_BUCKET, STATUS_EVENT, STATUS_LABEL, hasPerm, isPreOrderSku, type PreOrderFrom, type Bucket, type OrderStatus } from "./rules"
 import { marketingChanged } from "./marketingPush"
 
 export type StaffCtx = { staff: Doc<"staff">; perms: string[] }
@@ -203,8 +203,9 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
     await ctx.scheduler.runAfter(0, internal.outbound.sendOrderWebhook, { orderId, event: STATUS_EVENT[status] })
   }
   const sms = await getSetting<any>(ctx, "sms")
-  if (sms?.enabled && (sms.statuses ?? []).includes(status)) {
-    await ctx.scheduler.runAfter(0, internal.outbound.sendOrderSms, { orderId, status })
+  const smsKey = SMS_KEY_OF[status] ?? status
+  if (sms?.enabled && ((sms.statuses ?? []).includes(smsKey) || (smsKey !== status && (sms.statuses ?? []).includes(status)))) {
+    await ctx.scheduler.runAfter(0, internal.outbound.sendOrderSms, { orderId, status: (sms.statuses ?? []).includes(smsKey) ? smsKey : status })
   }
   // Automatic confirmation call for a new Pending order (checks its own on/off switch)
   if (status === "pending") await ctx.scheduler.runAfter(0, internal.autoCalls.queue, { orderId })

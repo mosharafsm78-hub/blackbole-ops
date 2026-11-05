@@ -417,7 +417,9 @@ function PathaoTab() {
 // ---------------- SMS (REVE) ----------------
 const SMS_WHEN: Record<string, string> = {
   pending: "Order placed", approved: "Order confirmed", ready_to_ship: "Packed", in_transit: "Sent with courier",
-  delivered_paid: "Delivered", cancelled: "Cancelled",
+  out_for_delivery: "Out for delivery today (asks the customer to keep the money ready and the phone on)",
+  failed_delivery: "Delivery failed (courier could not reach the customer)", delivered_paid: "Delivered (sent once, the moment it is delivered)",
+  pending_returned: "Returned (sent once)", cancelled: "Cancelled",
 }
 function SmsTab() {
   const info = useQuery(api.admin.commSettings)
@@ -503,6 +505,10 @@ function SmsTab() {
               </div>
             )
           })}
+          <label className="flex items-center gap-2 text-sm" data-testid="sms-winback">
+            <Switch checked={!!f.winbackSms} onCheckedChange={(v) => set({ winbackSms: v })} />
+            Win-back marketing SMS (sent to many past customers at once — costs a lot; keep off, switch on only for a planned campaign)
+          </label>
           <div className="flex items-center gap-2 text-sm">
             <span>{"{amount}"} means</span>
             <Select value={f.valuePreference} onValueChange={(v) => set({ valuePreference: v })}>

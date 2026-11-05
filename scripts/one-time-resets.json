@@ -147,5 +147,10 @@
     "args": {
       "pct": 15
     }
+  },
+  {
+    "id": "2026-11-05-sms-parcel-updates",
+    "fn": "admin:smsParcelUpdatesOn",
+    "args": {}
   }
 ]

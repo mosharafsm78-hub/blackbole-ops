@@ -235,7 +235,7 @@ export const run = internalAction({
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
     const sms = await ctx.runQuery(internal.winback.smsSettingsRaw, {})
-    if (!sms?.enabled) return
+    if (!sms?.enabled || !sms.winbackSms) return // win-back SMS goes to hundreds of customers at once: only when switched on in Settings → SMS & Email
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })
@@ -292,7 +292,7 @@ export const run2 = internalAction({
     const c = await ctx.runQuery(internal.winback.getConf, {})
     if (!c.enabled) return
     const sms = await ctx.runQuery(internal.winback.smsSettingsRaw, {})
-    if (!sms?.enabled) return
+    if (!sms?.enabled || !sms.winbackSms) return // win-back SMS goes to hundreds of customers at once: only when switched on in Settings → SMS & Email
     const code = codeForMonth(c.code, now)
     await ctx.runMutation(internal.winback.ensureDiscount, { code })
     await ctx.runAction(internal.winback.ensureShopifyDiscount, { code })

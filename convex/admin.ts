@@ -2,7 +2,7 @@ import { v, ConvexError } from "convex/values"
 import { action, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { DEFAULT_SMS, sendSms } from "./outbound"
-import { mutation } from "./functions"
+import { internalMutation, mutation } from "./functions"
 import { currentStaff, getSetting, requirePerm, setSetting } from "./lib"
 import { normalizePhone, ORDER_SOURCES, PAYMENT_METHODS, SMS_STATUSES } from "./rules"
 
@@ -97,6 +97,19 @@ export const saveOrderSettings = mutation({
 })
 
 // ---------------- Customer communication ----------------
+/** One-time (deploy job): turn on the parcel messages that cut returns, and switch the win-back bulk SMS off. Keeps every tick already set. */
+export const smsParcelUpdatesOn = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const sms = await getSetting<any>(ctx, "sms")
+    if (!sms) return { skipped: "SMS never set up" }
+    const base: string[] = sms.statuses ?? ["pending", "approved", "ready_to_ship", "in_transit", "delivered_paid", "cancelled"]
+    const statuses = [...new Set([...base, "pending", "in_transit", "out_for_delivery", "failed_delivery", "delivered_paid", "pending_returned"])]
+    await setSetting(ctx, "sms", { ...sms, statuses, winbackSms: false })
+    return { statuses }
+  },
+})
+
 export const commSettings = query({
   args: {},
   handler: async (ctx) => {
@@ -113,7 +126,7 @@ export const commSettings = query({
       sms: {
         enabled: !!sms.enabled, statuses: sms.statuses ?? SMS_STATUSES, templates: sms.templates ?? {},
         urlTemplate: sms.urlTemplate ?? "", method: sms.method ?? "GET", valuePreference: sms.valuePreference ?? "total",
-        lowBalanceAlert: !!sms.lowBalanceAlert,
+        lowBalanceAlert: !!sms.lowBalanceAlert, winbackSms: !!sms.winbackSms,
         provider: sms.provider ?? "reve", senderId: sms.senderId ?? "BLACKBOLE", hasKeys: !!(sms.apiKey && sms.secretKey), // keys never leave the server
       },
       defaults: DEFAULT_SMS,
@@ -127,7 +140,7 @@ export const saveCommSettings = mutation({
   args: {
     sms: v.object({
       enabled: v.boolean(), statuses: v.array(v.string()), templates: v.any(), urlTemplate: v.string(),
-      method: v.string(), valuePreference: v.string(), lowBalanceAlert: v.boolean(),
+      method: v.string(), valuePreference: v.string(), lowBalanceAlert: v.boolean(), winbackSms: v.optional(v.boolean()),
       provider: v.optional(v.string()), senderId: v.optional(v.string()),
       apiKey: v.optional(v.string()), secretKey: v.optional(v.string()), // blank = keep the saved one
     }),
@@ -145,7 +158,7 @@ export const saveCommSettings = mutation({
     const secretKey = a.sms.secretKey?.trim() || old.secretKey
     if (a.sms.enabled && provider === "reve" && (!apiKey || !secretKey)) throw new ConvexError("Add the REVE API key and secret key first")
     if (a.sms.enabled && provider !== "reve" && !a.sms.urlTemplate.includes("{message}")) throw new ConvexError("The SMS gateway URL must contain {message} and {phone}")
-    await setSetting(ctx, "sms", { ...a.sms, provider, senderId: a.sms.senderId?.trim() || "BLACKBOLE", apiKey, secretKey })
+    await setSetting(ctx, "sms", { ...a.sms, winbackSms: a.sms.winbackSms ?? old.winbackSms ?? false, provider, senderId: a.sms.senderId?.trim() || "BLACKBOLE", apiKey, secretKey })
     await setSetting(ctx, "contactPoints", a.contact)
     if (a.email) {
       const oldE = (await getSetting<any>(ctx, "email")) ?? {}

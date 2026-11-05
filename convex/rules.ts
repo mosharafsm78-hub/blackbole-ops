@@ -218,7 +218,11 @@ export const PAYMENT_METHODS = [
   "Cash On Delivery", "Cash", "Cheque", "Card", "Net Banking", "bKash", "Rocket", "Nagad", "Upay", "Tap", "SSLCommerz",
 ]
 
-export const SMS_STATUSES: OrderStatus[] = ["pending", "approved", "ready_to_ship", "in_transit", "delivered_paid", "cancelled"]
+/** The moments a customer can get an SMS (Settings → SMS & Email). Most are order statuses; out_for_delivery and failed_delivery come from the courier's own updates.
+ *  "delivered_paid" means Delivered (sent as soon as the parcel is delivered, once) and "pending_returned" means Returned (once). */
+export const SMS_STATUSES: string[] = ["pending", "approved", "ready_to_ship", "in_transit", "out_for_delivery", "failed_delivery", "delivered_paid", "pending_returned", "cancelled"]
+/** Order status → the SMS moment it belongs to, when they differ. */
+export const SMS_KEY_OF: Partial<Record<OrderStatus, string>> = { delivered_due: "delivered_paid", returned: "pending_returned" }
 
 // Outgoing webhook events (same set as Nuport)
 export const WEBHOOK_EVENTS: { key: string; label: string; group: string }[] = [
