@@ -159,5 +159,26 @@
     "args": {
       "phone": "01632721383"
     }
+  },
+  {
+    "id": "2026-11-06-brinkley-bronze-sku-stock",
+    "fn": "catalog:skuAndFakeStock",
+    "args": {
+      "handle": "brinkley-breeze-sandal-for-men-bronze",
+      "title": "Brinkley Breeze Sandal for Men Bronze",
+      "skuPrefix": "BB-SN-BBSFN-BRZ",
+      "sizes": [
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44"
+      ],
+      "weightKg": 0.2,
+      "fakeQty": 10,
+      "price": 1980,
+      "costFrom": "Brinkley Breeze Sandal for Men - Khaki Green"
+    }
   }
 ]
