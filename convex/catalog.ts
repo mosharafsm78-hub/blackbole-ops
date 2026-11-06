@@ -652,16 +652,16 @@ export const renameColour = internalMutation({
 /** One-time: a new colour of an existing product. Copies the sibling's sizes, prices, cost, weight and website fields, swaps the colour
  *  word and SKU code, and adds fake (not-in-hand) pairs in every size. Safe to re-run: does nothing if the new product already exists. */
 export const cloneColour = internalMutation({
-  args: { productMatch: v.string(), from: v.string(), to: v.string(), fromCode: v.string(), toCode: v.string(), handle: v.string(), html: v.string(), imageUrls: v.array(v.string()), fakeQty: v.number(), seoTitle: v.optional(v.string()), seoDescription: v.optional(v.string()) },
+  args: { productMatch: v.string(), from: v.string(), to: v.string(), fromCode: v.string(), toCode: v.string(), handle: v.string(), html: v.string(), imageUrls: v.array(v.string()), fakeQty: v.number(), seoTitle: v.optional(v.string()), seoDescription: v.optional(v.string()), newName: v.optional(v.string()), price: v.optional(v.number()), compareAt: v.optional(v.number()), weightKg: v.optional(v.number()) },
   handler: async (ctx, a) => {
     const swap = (t?: string) => (t ? t.split(a.from).join(a.to) : t)
     const want = a.productMatch.trim().toLowerCase()
     const all = (await ctx.db.query("products").collect()).filter((p) => !p.deletedAt && p.name.toLowerCase().includes(want))
-    if (all.some((p) => p.name.includes(a.to))) return { skipped: "already exists" }
+    if (all.some((p) => p.name.includes(a.to)) || (a.newName && (await ctx.db.query("products").collect()).some((p) => !p.deletedAt && p.name === a.newName))) return { skipped: "already exists" }
     const src = all.find((p) => p.name.includes(a.from))
     if (!src) throw new ConvexError("Source product not found")
     const now = Date.now()
-    const name = swap(src.name)!
+    const name = a.newName ?? swap(src.name)!
     const web = src.web ? { ...src.web, id: "ops:new", title: name, html: a.html, handle: undefined, images: a.imageUrls.map((url) => ({ url, alt: "", w: null, h: null })), seo: { title: a.seoTitle ?? src.web.seo?.title ?? "", description: a.seoDescription ?? src.web.seo?.description ?? "" }, createdAt: new Date().toISOString(), updatedAt: now } : undefined
     const { _id, _creationTime, ...rest } = src as any
     const productId = await ctx.db.insert("products", { ...rest, name, description: a.html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim(), imageUrl: a.imageUrls[0], handle: a.handle, web, createdAt: now, preOrder: undefined, preOrderFrom: undefined, waVideoUrl: undefined, features: undefined, stockCheckSkip: undefined })
@@ -672,7 +672,8 @@ export const cloneColour = internalMutation({
       const { _id: _v, _creationTime: _c, shopifyItemId: _s, ...vrest } = vr as any
       const variantId = await ctx.db.insert("variants", {
         ...vrest, productId, sku: vr.sku.replace(a.fromCode, a.toCode), title: swap(vr.title)!, attrs: swap(vr.attrs), imageUrl: a.imageUrls[0], createdAt: now,
-        web: vr.web ? { ...vr.web, id: String(9e12 + Math.floor(now) + i), image: null, options: Object.fromEntries(Object.entries(vr.web.options ?? {}).map(([k, val]) => [k, swap(String(val))])) } : undefined,
+        ...(a.price != null ? { price: a.price } : {}), ...(a.weightKg != null ? { weightKg: a.weightKg } : {}),
+        web: vr.web ? { ...vr.web, id: String(9e12 + Math.floor(now) + i), image: null, ...(a.price != null ? { price: a.price } : {}), ...(a.compareAt != null ? { compareAt: a.compareAt } : {}), options: Object.fromEntries(Object.entries(vr.web.options ?? {}).map(([k, val]) => [k, swap(String(val))])) } : undefined,
       })
       items.push({ variantId, qty: a.fakeQty })
     }
