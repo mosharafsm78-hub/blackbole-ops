@@ -732,3 +732,36 @@ export const skuAndFakeStock = internalMutation({
     return { productId, sizes: items.length, created: !prod }
   },
 })
+
+/** One-time: a new colour on an EXISTING product (same website page). Copies the sibling colour's sizes (price, cost, weight, website fields) under
+ *  the new colour's SKUs and adds fake (not-in-hand) pairs in every size. Safe to re-run: sizes that already exist are only topped up by nothing. */
+export const addColourVariants = internalMutation({
+  args: { siblingSkuPrefix: v.string(), from: v.string(), to: v.string(), skuPrefix: v.string(), sizes: v.array(v.string()), fakeQty: v.number(), price: v.optional(v.number()), compareAt: v.optional(v.number()), weightKg: v.optional(v.number()) },
+  handler: async (ctx, a) => {
+    const swap = (t?: string) => (t ? t.split(a.from).join(a.to) : t)
+    const now = Date.now()
+    const items: { variantId: Id<"variants">; qty: number }[] = []
+    let made = 0
+    for (const [i, size] of a.sizes.entries()) {
+      const sib = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", `${a.siblingSkuPrefix}-${size}`)).first()
+      if (!sib) throw new ConvexError(`Sibling size ${size} not found`)
+      const sku = `${a.skuPrefix}-${size}`
+      if (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()) continue
+      const { _id, _creationTime, shopifyItemId: _s, ...rest } = sib as any
+      const variantId = await ctx.db.insert("variants", {
+        ...rest, sku, title: swap(sib.title)!, attrs: swap(sib.attrs), createdAt: now, active: true,
+        ...(a.price != null ? { price: a.price } : {}), ...(a.weightKg != null ? { weightKg: a.weightKg } : {}),
+        web: sib.web ? { ...sib.web, id: String(9e12 + Math.floor(now) + i), image: null, ...(a.price != null ? { price: a.price } : {}), ...(a.compareAt != null ? { compareAt: a.compareAt } : {}), options: Object.fromEntries(Object.entries(sib.web.options ?? {}).map(([k, val]) => [k, swap(String(val))])) } : undefined,
+      })
+      items.push({ variantId, qty: a.fakeQty })
+      made++
+    }
+    if (!items.length) return { skipped: "already exists" }
+    await applyTestStock(ctx, items, "System")
+    for (const it of items) if (!(await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", it.variantId)).first())) await ctx.db.insert("shopifyDirty", { variantId: it.variantId, at: now })
+    await ctx.scheduler.runAfter(3000, internal.shopifyStock.flush, {})
+    const first = await ctx.db.get(items[0].variantId)
+    if (first) await marketingChanged(ctx, { productId: first.productId })
+    return { sizes: made }
+  },
+})

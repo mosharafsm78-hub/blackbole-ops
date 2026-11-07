@@ -212,5 +212,27 @@
     "args": {
       "skuPart": "BKHL-KHK"
     }
+  },
+  {
+    "id": "2026-11-07-brinkley-mocha-brown",
+    "fn": "catalog:addColourVariants",
+    "args": {
+      "siblingSkuPrefix": "BB-SN-BBSFN-KGF",
+      "from": "Khaki Green",
+      "to": "Mocha Brown",
+      "skuPrefix": "BB-SN-BBSFN-MB",
+      "sizes": [
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44"
+      ],
+      "fakeQty": 10,
+      "price": 1580,
+      "compareAt": 2850,
+      "weightKg": 0.2
+    }
   }
 ]
