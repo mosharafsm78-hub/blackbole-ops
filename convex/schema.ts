@@ -684,6 +684,15 @@ export default defineSchema({
   // deleted records kept here (nothing is lost; can be restored by hand)
   archive: defineTable({ table: v.string(), data: v.any(), reason: v.string(), byName: v.string(), at: v.number() }).index("by_at", ["at"]),
   // products whose Shopify stock must be refreshed (live stock sync)
+  // Ops order status -> Shopify order (fulfilled / delivered / paid). One row per Shopify order; see convex/shopifyOrders.ts
+  shopifyOrderSync: defineTable({
+    orderId: v.id("orders"),
+    done: v.boolean(), // nothing left to send for the current Ops status
+    tries: v.number(),
+    nextAt: v.number(),
+    lastError: v.optional(v.string()),
+    lastOkAt: v.optional(v.number()),
+  }).index("by_order", ["orderId"]).index("by_open", ["done", "nextAt"]),
   shopifyDirty: defineTable({ variantId: v.id("variants"), at: v.number() }).index("by_variant", ["variantId"]),
 
   // Daily scoreboard: numbers per day an order was made (kept up to date on every order change)

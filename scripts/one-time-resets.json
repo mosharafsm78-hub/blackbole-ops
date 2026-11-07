@@ -234,5 +234,10 @@
       "compareAt": 2850,
       "weightKg": 0.2
     }
+  },
+  {
+    "id": "2026-11-08-shopify-order-sync-backfill",
+    "fn": "shopifyOrders:backfill",
+    "args": {}
   }
 ]

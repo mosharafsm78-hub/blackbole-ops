@@ -214,6 +214,8 @@ export async function emitOrderEvent(ctx: MutationCtx, orderId: Id<"orders">, st
   // WhatsApp parcel updates (Settings → WhatsApp verify → "Send parcel updates"; off by default, new orders only)
   const waKind = status === "in_transit" ? "shipped" : status === "delivered_due" || status === "delivered_paid" ? "delivered" : status === "pending_returned" ? "returned" : null
   if (waKind) await ctx.scheduler.runAfter(0, internal.waNotify.send, { orderId, kind: waKind })
+  // Website orders: keep the Shopify order in step (fulfilled at Processing, delivered, paid) - queued and retried in convex/shopifyOrders.ts
+  if (["processing", "ready_to_ship", "in_transit", "delivered_due", "delivered_paid"].includes(status)) await ctx.scheduler.runAfter(0, internal.shopifyOrders.enqueue, { orderId })
   // Meta Conversions API: a confirmed order is the Purchase Meta should learn from; delivery and returns follow (needs the pixel ID in Settings → Meta ads)
   const capi: CapiEvent | null = status === "approved" ? "Purchase" : status === "delivered_paid" || status === "delivered_due" ? "Delivered" : status === "returned" ? "Returned" : null
   if (capi) await ctx.scheduler.runAfter(0, internal.metaCapi.send, { orderId, event: capi })
