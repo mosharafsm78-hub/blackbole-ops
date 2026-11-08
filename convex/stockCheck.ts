@@ -10,7 +10,7 @@ import { v, ConvexError } from "convex/values"
 import type { Doc, Id } from "./_generated/dataModel"
 import { query, type MutationCtx } from "./_generated/server"
 import { internal } from "./_generated/api"
-import { mutation } from "./functions"
+import { internalMutation, mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
 import { marketingChanged } from "./marketingPush"
 
@@ -231,6 +231,25 @@ export const deleteSize = mutation({
     await ctx.scheduler.runAfter(0, internal.shopifyProducts.remove, { handle: parent?.handle, skus: [x.sku], whole: false })
     await purgeVariant(ctx, variantId)
     await ctx.scheduler.runAfter(0, internal.website.queueRebuildInternal, {})
+  },
+})
+
+/** Removes the empty, switched-off "WEB-<id>" placeholder sizes of one product (left over from the website import once the real SKUs were set).
+ *  Only sizes that are inactive, have a WEB- SKU and hold no stock are touched. Safe to re-run. */
+export const purgePlaceholders = internalMutation({
+  args: { productMatch: v.string() },
+  handler: async (ctx, { productMatch }) => {
+    const prods = (await ctx.db.query("products").collect()).filter((p) => p.name.toLowerCase().includes(productMatch.toLowerCase()))
+    let purged = 0, kept = 0
+    for (const p of prods) {
+      for (const x of await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()) {
+        if (x.active || !/^WEB-/i.test(x.sku)) continue
+        const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+        if (rows.some((r) => r.available || r.processing || r.inTransit || r.returning || r.damaged)) { kept++; continue }
+        await purgeVariant(ctx, x._id); purged++
+      }
+    }
+    return { purged, kept }
   },
 })
 

@@ -239,5 +239,12 @@
     "id": "2026-11-08-shopify-order-sync-backfill",
     "fn": "shopifyOrders:backfill",
     "args": {}
+  },
+  {
+    "id": "2026-11-08-brinkley-purge-web-placeholders",
+    "fn": "stockCheck:purgePlaceholders",
+    "args": {
+      "productMatch": "Brinkley Breeze Sandal for Men New"
+    }
   }
 ]

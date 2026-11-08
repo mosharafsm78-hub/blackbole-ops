@@ -66,3 +66,18 @@ describe("enqueue / backfill", () => {
     expect(await t.mutation(internal.shopifyOrders.backfill, {})).toEqual({ queued: 0 })
   })
 })
+
+describe("purgePlaceholders", () => {
+  it("removes only empty, inactive WEB- sizes of the named product", async () => {
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    await t.run(async (ctx: any) => {
+      const p = await ctx.db.insert("products", { name: "Brinkley Breeze Sandal for Men New", active: true, createdAt: 1 })
+      const q = await ctx.db.insert("products", { name: "Other", active: true, createdAt: 1 })
+      const mk = (productId: any, sku: string, active: boolean) => ctx.db.insert("variants", { productId, sku, title: sku, weightKg: 0.5, price: 1, active })
+      await mk(p, "WEB-1", false); await mk(p, "WEB-2", true); await mk(p, "BB-REAL-39", false); await mk(q, "WEB-3", false)
+    })
+    expect(await t.mutation(internal.stockCheck.purgePlaceholders, { productMatch: "Brinkley Breeze Sandal for Men New" })).toEqual({ purged: 1, kept: 0 })
+    const left = await t.run(async (ctx: any) => (await ctx.db.query("variants").collect()).map((x: any) => x.sku).sort())
+    expect(left).toEqual(["BB-REAL-39", "WEB-2", "WEB-3"])
+  })
+})
