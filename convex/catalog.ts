@@ -182,7 +182,8 @@ export const searchVariants = query({
   handler: async (ctx, { q, locationId }) => {
     const s = await currentStaff(ctx)
     if (!s) return []
-    const term = q.trim().toLowerCase()
+    // "BlackBole" is on every product but not always in the Ops name (e.g. "Brinkley Breeze Sandal for Men New"): leave it out of the search
+    const term = q.trim().toLowerCase().split(/\s+/).filter((w) => w !== "blackbole").join(" ")
     // Read only what can match (was: every product, variant and stock row on each keystroke)
     let variants: Doc<"variants">[] = []
     if (!term) variants = await ctx.db.query("variants").take(120)
