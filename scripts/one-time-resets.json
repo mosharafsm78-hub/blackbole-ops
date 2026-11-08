@@ -246,5 +246,38 @@
     "args": {
       "productMatch": "Brinkley Breeze Sandal for Men New"
     }
+  },
+  {
+    "id": "2026-11-08-calder-half-loafer-earth",
+    "fn": "catalog:cloneColour",
+    "args": {
+      "productMatch": "Khaki Half Loafer",
+      "from": "Khaki",
+      "to": "Earth",
+      "fromCode": "BKHL-KHK",
+      "toCode": "BCHL-ERT",
+      "handle": "blackbole-calder-half-loafer-earth",
+      "newName": "BlackBole Calder Half Loafer - Earth",
+      "price": 1980,
+      "compareAt": 4250,
+      "weightKg": 0.3,
+      "fakeQty": 10,
+      "html": "<h3>Key features</h3><ul><li><strong>Cushioned doctor insole.</strong> A soft footbed that supports the arch and eases pressure on the heel, so every step stays comfortable through long hours on your feet.</li><li><strong>Backless half-loafer design.</strong> Slip in and out in a second, with no heel to press down.</li><li><strong>Earth olive-green, suede-feel upper.</strong> A rich, earthy green that pairs easily with denim, chinos, white tees and panjabi.</li><li><strong>Hand-stitched moc toe</strong> with matching contrast stitching for a classic loafer look.</li><li><strong>Twin elastic side gores</strong> and a stitched throat tab for a snug, clean-finished fit.</li><li><strong>Durable brown rubber outsole</strong> with a flexible, stitched edge for everyday grip.</li><li><strong>Lightweight</strong> for daily wear, office, travel and jummah.</li></ul><h3>Description</h3><p>The BlackBole Calder Half Loafer in Earth gives you the polish of a loafer with the ease of a slipper. A soft <strong>cushioned doctor insole</strong> supports your foot and keeps it comfortable from morning to night.</p><p>The earthy olive-green, suede-feel upper is finished with hand-stitched moc-toe detailing and a stitched throat tab, while the open back lets you slip in and out in seconds. The brown rubber outsole is flexible and durable, built for everyday streets.</p><p>Wear it with jeans, chinos or a panjabi. It works just as well at the office, at Friday prayers, on errands or on a weekend out. Available in sizes 39 to 44.</p>",
+      "imageUrls": [
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/earth-1.jpg?v=1794146284",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/earth-2.jpg?v=1794146283",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/earth-3.jpg?v=1794146283",
+        "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/earth-4.jpg?v=1794146283"
+      ],
+      "seoTitle": "BlackBole Calder Half Loafer - Earth | Men's Olive Green Backless Loafer",
+      "seoDescription": "Men's backless moc-toe half loafer in earthy olive green with a cushioned doctor insole, contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
+    }
+  },
+  {
+    "id": "2026-11-08-calder-half-loafer-earth-stock",
+    "fn": "catalog:syncStockToShopify",
+    "args": {
+      "skuPart": "BCHL-ERT"
+    }
   }
 ]
