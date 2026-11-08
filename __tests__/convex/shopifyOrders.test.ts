@@ -73,7 +73,7 @@ describe("purgePlaceholders", () => {
     await t.run(async (ctx: any) => {
       const p = await ctx.db.insert("products", { name: "Brinkley Breeze Sandal for Men New", active: true, createdAt: 1 })
       const q = await ctx.db.insert("products", { name: "Other", active: true, createdAt: 1 })
-      const mk = (productId: any, sku: string, active: boolean) => ctx.db.insert("variants", { productId, sku, title: sku, weightKg: 0.5, price: 1, active })
+      const mk = (productId: any, sku: string, active: boolean) => ctx.db.insert("variants", { productId, sku, title: sku, weightKg: 0.5, price: 1, purchasePrice: 0, active })
       await mk(p, "WEB-1", false); await mk(p, "WEB-2", true); await mk(p, "BB-REAL-39", false); await mk(q, "WEB-3", false)
     })
     expect(await t.mutation(internal.stockCheck.purgePlaceholders, { productMatch: "Brinkley Breeze Sandal for Men New" })).toEqual({ purged: 1, kept: 0 })
