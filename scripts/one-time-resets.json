@@ -279,5 +279,10 @@
     "args": {
       "skuPart": "BCHL-ERT"
     }
+  },
+  {
+    "id": "2026-11-09-archive-stale-call-flags",
+    "fn": "accountability:archiveStaleCallFlags",
+    "args": {}
   }
 ]

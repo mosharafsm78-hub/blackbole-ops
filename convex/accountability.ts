@@ -1087,6 +1087,7 @@ const CX_CALL_SLA_STARTS_AT = dayStart("2026-10-31")
 const CONFIRMATION_CALL_SLA_DAYS = 2 // a new order should be confirmed (or otherwise resolved) within this long
 const FEEDBACK_CALL_SLA_DAYS = 3 // a delivered order should get its post-delivery feedback call within this long
 const RETURN_CALL_SLA_DAYS = 2 // a returned/damaged order should get its return feedback call within this long
+const CX_CALL_MAX_AGE_DAYS = 30 // a delivery/return older than this is no longer worth a call — never raise (or keep) an overdue-call flag for it
 const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach any of these stages
 
 /** Brand-new orders sitting unconfirmed (still Pending) past the SLA — the call that was never made, or never
@@ -1126,7 +1127,7 @@ export const overdueFeedbackCallCheck = internalMutation({
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", status).gte("createdAt", since)).collect()
       for (const o of rows) {
         if (o.deletedAt || o.csat || !o.deliveredAt) continue
-        if (o.deliveredAt < CX_CALL_SLA_STARTS_AT || o.deliveredAt > cutoff) continue
+        if (o.deliveredAt < CX_CALL_SLA_STARTS_AT || o.deliveredAt > cutoff || o.deliveredAt < now - CX_CALL_MAX_AGE_DAYS * DAY) continue
         await raiseAccountabilityFlag(
           ctx, o, "Feedback call overdue",
           `Delivered ${Math.floor((now - o.deliveredAt) / DAY)} day(s) ago — no post-delivery feedback call logged yet (SLA: ${FEEDBACK_CALL_SLA_DAYS} days).`,
@@ -1150,7 +1151,7 @@ export const overdueReturnCallCheck = internalMutation({
       const rows = await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", status).gte("createdAt", since)).collect()
       for (const o of rows) {
         if (o.deletedAt || o.returnCsat) continue
-        if (o.statusChangedAt === undefined || o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff) continue
+        if (o.statusChangedAt === undefined || o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff || o.statusChangedAt < now - CX_CALL_MAX_AGE_DAYS * DAY) continue
         await raiseAccountabilityFlag(
           ctx, o, "Return call overdue",
           `In a returned/damaged status ${Math.floor((now - o.statusChangedAt) / DAY)} day(s) — no return feedback call logged yet (SLA: ${RETURN_CALL_SLA_DAYS} days).`,
@@ -1159,6 +1160,34 @@ export const overdueReturnCallCheck = internalMutation({
         )
       }
     }
+  },
+})
+
+/** One-time cleanup: close the automatic "Feedback call overdue" / "Return call overdue" cases that are about a
+ *  delivery or return older than CX_CALL_MAX_AGE_DAYS — nobody needs to call about those now. Archived (not
+ *  deleted), and the points those cases cost Customer Care are given back with an offsetting entry. */
+export const archiveStaleCallFlags = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now()
+    const limit = now - CX_CALL_MAX_AGE_DAYS * DAY
+    let archived = 0
+    for (const f of await ctx.db.query("opsFlags").collect()) {
+      if (f.status !== "open" || !f.orderId) continue
+      if (f.reason !== "Feedback call overdue" && f.reason !== "Return call overdue") continue
+      const o = await ctx.db.get(f.orderId)
+      if (!o) continue
+      const trigger = f.reason === "Feedback call overdue" ? (o.deliveredAt ?? o.createdAt) : (o.statusChangedAt ?? o.createdAt)
+      if (trigger >= limit) continue
+      await ctx.db.patch(f._id, { status: "archived", archivedAt: now, archivedBy: "BlackBole Ops (automatic)", archiveReason: "Old order — a call is no longer needed", closedAt: now })
+      await logOrder(ctx, o._id, "Accountability case archived — old order, call no longer needed", "BlackBole Ops (automatic)")
+      const rk = f.reason === "Feedback call overdue" ? "cx.overdue_feedback_call" : "cx.overdue_return_call"
+      for (const e of await ctx.db.query("kpiEvents").withIndex("by_rule_order", (q) => q.eq("ruleKey", rk).eq("orderId", o._id)).collect()) {
+        if (e.points < 0) await ctx.db.insert("kpiEvents", { staffName: e.staffName, points: -e.points, ruleKey: "manual", label: `Reversed: ${e.label} (old order, call not needed)`, orderId: o._id, flagId: f._id, byName: "BlackBole Ops (automatic)", at: now })
+      }
+      archived++
+    }
+    return { archived }
   },
 })
 
@@ -1178,7 +1207,7 @@ export const overdueHoldCheck = internalMutation({
     const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", "on_hold").gte("statusChangedAt", since)).collect()
     for (const o of rows) {
       if (o.deletedAt) continue
-      if (o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff) continue
+      if (o.statusChangedAt < CX_CALL_SLA_STARTS_AT || o.statusChangedAt > cutoff || o.statusChangedAt < now - CX_CALL_MAX_AGE_DAYS * DAY) continue
       await raiseAccountabilityFlag(
         ctx, o, "Hold overdue",
         `On Hold ${Math.floor((now - o.statusChangedAt) / DAY)} day(s) — still unresolved (SLA: ${HOLD_SLA_DAYS} days).`,
