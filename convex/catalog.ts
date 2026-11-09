@@ -703,7 +703,7 @@ export const syncStockToShopify = internalMutation({
 /** One-time: give an existing (website-imported) product real SKUs and a weight, and add fake (not-in-hand) pairs in every size.
  *  Finds the product by its website handle; if Ops has none yet, makes it (the website import links it later by SKU). Safe to re-run. */
 export const skuAndFakeStock = internalMutation({
-  args: { handle: v.string(), title: v.string(), skuPrefix: v.string(), sizes: v.array(v.string()), weightKg: v.number(), fakeQty: v.number(), price: v.number(), costFrom: v.optional(v.string()) },
+  args: { handle: v.string(), title: v.string(), skuPrefix: v.string(), sizes: v.array(v.string()), weightKg: v.number(), fakeQty: v.number(), price: v.number(), costFrom: v.optional(v.string()), bareTitle: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     const now = Date.now()
     let prod = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", a.handle)).first()
@@ -721,7 +721,7 @@ export const skuAndFakeStock = internalMutation({
       if (vr) {
         await ctx.db.patch(vr._id, { sku, weightKg: a.weightKg, active: true, ...(vr.purchasePrice ? {} : { purchasePrice: cost }) })
       } else {
-        const id = await ctx.db.insert("variants", { productId, sku, title: `Bronze / ${size}`, weightKg: a.weightKg, price: a.price, purchasePrice: cost, active: true, createdAt: now })
+        const id = await ctx.db.insert("variants", { productId, sku, title: a.bareTitle ? size : `Bronze / ${size}`, weightKg: a.weightKg, price: a.price, purchasePrice: cost, active: true, createdAt: now })
         vr = (await ctx.db.get(id))!
       }
       items.push({ variantId: vr._id, qty: a.fakeQty })

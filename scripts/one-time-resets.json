@@ -284,5 +284,26 @@
     "id": "2026-11-09-archive-stale-call-flags",
     "fn": "accountability:archiveStaleCallFlags",
     "args": {}
+  },
+  {
+    "id": "2026-11-09-kazimir-earth-fake-stock",
+    "fn": "catalog:skuAndFakeStock",
+    "args": {
+      "handle": "blackbole-kazimir-sandal-earth-version",
+      "title": "BlackBole Kazimir Sandal – Earth Version",
+      "skuPrefix": "BB-SN-BKSN-EV",
+      "sizes": [
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44"
+      ],
+      "weightKg": 0.3,
+      "fakeQty": 10,
+      "price": 1580,
+      "bareTitle": true
+    }
   }
 ]
