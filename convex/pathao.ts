@@ -311,6 +311,10 @@ const PATH: OrderStatus[] = ["ready_to_ship", "in_transit", "delivered_due", "de
 
 async function moveTo(ctx: any, id: Id<"orders">, current: OrderStatus, target: OrderStatus, note: string) {
   if (target === current) return false
+  // Pathao says Delivered but the order is on Pending Return: systemStatus undoes it only if Pathao itself set the return
+  if (current === "pending_returned" && (target === "delivered_due" || target === "delivered_paid")) {
+    return await ctx.runMutation(internal.orders.systemStatus, { id, to: "delivered_due", note: `${note} (return undone: Pathao shows it delivered)` })
+  }
   if (canTransition(current, target)) {
     return await ctx.runMutation(internal.orders.systemStatus, { id, to: target, note })
   }

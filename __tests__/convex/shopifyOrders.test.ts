@@ -81,3 +81,26 @@ describe("purgePlaceholders", () => {
     expect(left).toEqual(["BB-REAL-39", "WEB-2", "WEB-3"])
   })
 })
+
+describe("Pathao return undone", () => {
+  const seed = async (t: any, byName: string) =>
+    t.run(async (ctx: any) => {
+      const loc = await ctx.db.insert("locations", { name: "Dhaka", isDefault: true, active: true })
+      const cust = await ctx.db.insert("customers", { code: 1, name: "A", phone: "01700000000", tag: "NEW", orderCount: 0, deliveredCount: 0, returnedCount: 0, cancelledCount: 0, totalSpent: 0, createdAt: 1 } as any)
+      const id = await ctx.db.insert("orders", { invoiceNo: 1, status: "pending_returned", source: "Manual", customerId: cust, customerName: "A", phone: "01700000000", address: "x", locationId: loc, deliveryType: "regular", items: [], subtotal: 0, discount: 0, deliveryFee: 0, paidAmount: 0, total: 0, due: 0, callCount: 0, createdByName: "t", createdAt: Date.now(), updatedAt: Date.now(), statusChangedAt: Date.now() } as any)
+      await ctx.db.insert("orderEvents", { orderId: id, type: "log", text: "Status changed In Transit → Pending Return — Pathao: paid_return", byName, at: Date.now() })
+      return id
+    })
+  it("puts it back to Delivered when Pathao itself moved it to Pending Return", async () => {
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    const id = await seed(t, "Pathao sync")
+    expect(await t.mutation(internal.orders.systemStatus, { id, to: "delivered_due", note: "Pathao: delivered" })).toBe(true)
+    expect((await t.run(async (ctx: any) => ctx.db.get(id))).status).toBe("delivered_due")
+  })
+  it("never undoes a return a person marked", async () => {
+    const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+    const id = await seed(t, "Rafi")
+    expect(await t.mutation(internal.orders.systemStatus, { id, to: "delivered_due", note: "Pathao: delivered" })).toBe(false)
+    expect((await t.run(async (ctx: any) => ctx.db.get(id))).status).toBe("pending_returned")
+  })
+})

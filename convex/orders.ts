@@ -936,8 +936,24 @@ export const systemStatus = internalMutation({
   args: { id: v.id("orders"), to: orderStatus, note: v.string(), byName: v.optional(v.string()) },
   handler: async (ctx, { id, to, note, byName }) => {
     const order = await ctx.db.get(id)
-    if (!order || order.deletedAt || order.status === to || !canTransition(order.status as OrderStatus, to)) return false
-    await applyStatus(ctx, order, to, byName ?? "Pathao sync", note, { systemReason: true })
+    if (!order || order.deletedAt || order.status === to) return false
+    // Pathao briefly reported a return and then delivered the parcel (a rider's wrong scan, then re-assigned).
+    // Undo the return, but ONLY when Pathao itself moved it to Pending Return — a return marked by a person
+    // (customer sent it back after delivery) is never undone by the courier status.
+    let undoReturn = false
+    if (order.status === "pending_returned" && to === "delivered_due") {
+      const events = await ctx.db.query("orderEvents").withIndex("by_order", (q) => q.eq("orderId", id)).order("desc").take(60)
+      const last = events.find((e) => e.text.startsWith("Status changed") && e.text.includes("→ Pending Return"))
+      undoReturn = !!last && /^pathao/i.test(last.byName)
+    }
+    if (!undoReturn && !canTransition(order.status as OrderStatus, to)) return false
+    await applyStatus(ctx, order, to, byName ?? "Pathao sync", note, { systemReason: true, force: undoReturn })
+    if (undoReturn) {
+      // the "return call overdue" case no longer applies — the parcel was delivered
+      for (const f of await ctx.db.query("opsFlags").withIndex("by_order", (q) => q.eq("orderId", id)).collect()) {
+        if (f.status === "open" && f.reason === "Return call overdue") await ctx.db.patch(f._id, { status: "archived", archivedAt: Date.now(), archivedBy: "BlackBole Ops (automatic)", archiveReason: "Parcel was delivered — return undone", closedAt: Date.now() })
+      }
+    }
     return true
   },
 })
