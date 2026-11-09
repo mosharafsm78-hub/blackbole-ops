@@ -308,6 +308,16 @@ export const holdReasonCounts = query({
  *  piling up forever. (Older orders are still there and still visible via the Orders list filters.) */
 const URGENCY_WINDOW_DAYS = 45
 
+/** A returned/damaged order is "handled" once a reason is logged OR a return feedback call reached the customer. */
+function returnReasonDone(o: { reason?: string; returnCsat?: unknown }): boolean {
+  const c = o.returnCsat as { outcome: string } | undefined
+  return isRealReason(o.reason) || (!!c && !CSAT_FOLLOWUP_OUTCOMES.includes(c.outcome))
+}
+/** A return or recovery call is due to be repeated. */
+function dueFollowUp(o: { returnCsatFollowUpAt?: number; recoveryFollowUpAt?: number }, upTo: number): boolean {
+  return !!((o.returnCsatFollowUpAt && o.returnCsatFollowUpAt <= upTo) || (o.recoveryFollowUpAt && o.recoveryFollowUpAt <= upTo))
+}
+
 /** Dashboard urgency numbers — the whole point is that a supervisor feels pressure from a number, not a mood.
  *  Pending orders reuses the same counter as the queue cards above; the other three scan the relevant status
  *  buckets directly (bounded to the last URGENCY_WINDOW_DAYS by createdAt, via the by_status index) since they
@@ -340,9 +350,12 @@ export const urgency = query({
         ),
       )
     ).flat().filter((o) => !o.deletedAt)
-    const reasonsPending = returnLike.filter((o) => !isRealReason(o.reason)).length
+    // a return feedback call that reached the customer counts as the reason being handled
+    const reasonsPending = returnLike.filter((o) => !returnReasonDone(o)).length
+    // follow-ups due include "call again" times set on return and recovery calls
+    const returnFollowUp = returnLike.filter((o) => dueFollowUp(o, now)).length
 
-    return { pendingOrders, feedbackPending, feedbackFollowUp, reasonsPending }
+    return { pendingOrders, feedbackPending, feedbackFollowUp: feedbackFollowUp + returnFollowUp, reasonsPending }
   },
 })
 
@@ -421,9 +434,12 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   // delivered, but nobody has done the post-delivery feedback call yet
   if (f.flag === "needsFeedback" && !(isDelivered(o.status as OrderStatus) && !o.csat)) return false
   // feedback call due today (Dhaka time) or overdue — mirrors the "followUp" flag above
-  if (f.flag === "csatFollowUp" && !(o.csatFollowUpAt && o.csatFollowUpAt < Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000)) return false
+  if (f.flag === "csatFollowUp") {
+    const endOfToday = Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000
+    if (!((o.csatFollowUpAt && o.csatFollowUpAt < endOfToday) || dueFollowUp(o, endOfToday - 1))) return false
+  }
   // returned / damaged / pending-returned with no reason logged — the fulfillment-quality data point is missing
-  if (f.flag === "needsReason" && !(isFlagged(o.status as OrderStatus) && !isRealReason(o.reason))) return false
+  if (f.flag === "needsReason" && !(isFlagged(o.status as OrderStatus) && !returnReasonDone(o))) return false
   if (f.customerTags?.length && tagOf && !f.customerTags.includes(tagOf.get(o.customerId) ?? "")) return false
   return true
 }
