@@ -9,7 +9,7 @@ import { CSAT_FOLLOWUP_OUTCOMES, RECOVERY_OUTCOMES, isNegativeOutcome, isRealRea
 import { Guard, useCan, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, Pill, StatusPill, TagPill } from "@/components/bits"
 import {
-  CallDialog, CartEditor, CsatDialog, EXCHANGE_REASONS, PathaoAddress, ProductSearch, ReasonDialog, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking } from "@/components/order-parts"
+  CallDialog, CartEditor, CsatDialog, EXCHANGE_REASONS, PathaoAddress, ProductSearch, ReasonDialog, StatusDialog, addToCart, type CartLine, type Place, CourierHistory, PathaoTracking, useTotals } from "@/components/order-parts"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -795,6 +795,16 @@ function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () 
   const [fee, setFee] = useState(0)
   const [cart, setCart] = useState<CartLine[]>([])
   const [busy, setBusy] = useState(false)
+  // the customer already paid for the old item: its price comes off the exchange order (change it if only part is credited)
+  const [credit, setCredit] = useState(Math.max(0, (order.total ?? 0) - (order.deliveryFee ?? 0)))
+  const [advanceMode, setAdvanceMode] = useState<"none" | "delivery" | "full" | "custom">("none")
+  const [customAdvance, setCustomAdvance] = useState(0)
+  const [advanceMethod, setAdvanceMethod] = useState("bKash")
+  const [advanceRef, setAdvanceRef] = useState("")
+  const gross = useTotals(cart, 0, fee, 0).total
+  const credited = Math.min(Math.max(0, credit), gross)
+  const due = gross - credited
+  const advance = advanceMode === "delivery" ? Math.min(fee, due) : advanceMode === "full" ? due : advanceMode === "custom" ? Math.min(Math.max(0, customAdvance), due) : 0
 
   const submit = async () => {
     if (!reason.trim()) { toast.error("Pick (or type) a reason"); return }
@@ -806,6 +816,9 @@ function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () 
         items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty, price: c.price, discount: c.discount })),
         deliveryFee: fee,
         note: [reason.trim(), note.trim()].filter(Boolean).join(" — "),
+        oldItemCredit: credited || undefined,
+        advanceAmount: advance > 0 ? advance : undefined, advanceMethod: advance > 0 ? advanceMethod : undefined,
+        advanceReference: advance > 0 ? advanceRef || undefined : undefined, advanceKind: advance > 0 && advanceMode !== "none" ? advanceMode : undefined,
       })
       toast.success(`Exchange order ${invoice(res.invoiceNo)} created and linked`)
       onClose()
@@ -837,7 +850,38 @@ function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () 
             <CartEditor cart={cart} onChange={setCart} />
             <div className="h-64"><ProductSearch locationId={order.locationId} onAdd={(l) => setCart((c) => addToCart(c, l))} /></div>
           </div>
-          <div className="space-y-1.5 sm:w-48"><Label>Delivery fee</Label><Input type="number" value={fee} onChange={(e) => setFee(Number(e.target.value) || 0)} /></div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label>Delivery fee</Label><Input type="number" value={fee} onChange={(e) => setFee(Number(e.target.value) || 0)} /></div>
+            <div className="space-y-1.5"><Label>Old item price to deduct</Label><Input type="number" value={credit} onChange={(e) => setCredit(Number(e.target.value) || 0)} /><p className="text-xs text-muted-foreground">The customer already paid for it. Set 0 for no deduction.</p></div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Advance received</Label>
+            <div className="grid grid-cols-4 gap-1">
+              {([["none", "None"], ["delivery", "Delivery charge"], ["full", "Full payment"], ["custom", "Custom"]] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setAdvanceMode(k)}
+                  className={`rounded-md border px-1.5 py-1.5 text-xs ${advanceMode === k ? "border-foreground bg-foreground text-background" : "hover:bg-accent"}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {advanceMode === "custom" && <div className="space-y-1.5 sm:w-48"><Label>Advance amount</Label><Input type="number" value={customAdvance} onChange={(e) => setCustomAdvance(Number(e.target.value) || 0)} /></div>}
+          {advance > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Advance paid via</Label>
+                <Select value={advanceMethod} onValueChange={setAdvanceMethod}>
+                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PAYMENT_METHODS.filter((m) => m !== "Cash On Delivery").map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5"><Label>Transaction ID</Label><Input value={advanceRef} onChange={(e) => setAdvanceRef(e.target.value)} placeholder="e.g. 9JK3LM2X" /></div>
+            </div>
+          )}
+          <div className="rounded-md border bg-muted/40 p-3 text-sm" data-testid="exchange-totals">
+            <div className="flex justify-between"><span>New item(s) + delivery fee</span><span className="tabular-nums">{taka(gross)}</span></div>
+            <div className="flex justify-between"><span>Old item deducted</span><span className="tabular-nums">−{taka(credited)}</span></div>
+            <div className="flex justify-between"><span>Advance received</span><span className="tabular-nums">−{taka(advance)}</span></div>
+            <div className="mt-1 flex justify-between border-t pt-1 font-semibold"><span>Customer pays on delivery</span><span className="tabular-nums">{taka(Math.max(0, due - advance))}</span></div>
+          </div>
           <p className="text-xs text-muted-foreground">Creates a linked exchange order and routes it like every other exchange — the courier gets told to collect the old item when it's booked.</p>
         </div>
         <DialogFooter>

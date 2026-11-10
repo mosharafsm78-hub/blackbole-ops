@@ -1262,7 +1262,11 @@ export const addPayment = mutation({
 
 /** Exchange: a new order linked to the original, sent via an exchange delivery partner. */
 export const createExchange = mutation({
-  args: { id: v.id("orders"), items: itemsInput, deliveryFee: v.number(), note: v.optional(v.string()) },
+  args: {
+    id: v.id("orders"), items: itemsInput, deliveryFee: v.number(), note: v.optional(v.string()),
+    oldItemCredit: v.optional(v.number()), // price of the old item, taken off the exchange order (the customer already paid for it)
+    advanceAmount: v.optional(v.number()), advanceMethod: v.optional(v.string()), advanceReference: v.optional(v.string()), advanceKind: v.optional(v.string()),
+  },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "orders.create")
     const o = await ctx.db.get(a.id)
@@ -1279,8 +1283,9 @@ export const createExchange = mutation({
       source: o.source, customerName: o.customerName, phone: o.phone, email: o.email, address: o.address, cityName: o.cityName,
       pathaoCityId: o.pathaoCityId, pathaoZoneId: o.pathaoZoneId, pathaoAreaId: o.pathaoAreaId, zoneName: o.zoneName, areaName: o.areaName,
       locationId: exWh?._id ?? o.locationId, deliveryPartnerId: exWh ? undefined : partner?._id ?? o.deliveryPartnerId, deliveryType: o.deliveryType,
-      items, discount: 0, deliveryFee: a.deliveryFee, customerNote: a.note, isExchange: true, exchangeOfId: o._id,
-      additionalInfo: `EXCHANGE parcel of ${invoiceLabel(o)}${o.consignmentId ? ` — Pathao ID ${o.consignmentId}` : ""}`,
+      items, discount: Math.max(0, a.oldItemCredit ?? 0), deliveryFee: a.deliveryFee, customerNote: a.note, isExchange: true, exchangeOfId: o._id,
+      advance: (a.advanceAmount ?? 0) > 0 ? { amount: a.advanceAmount!, method: a.advanceMethod ?? "bKash", reference: a.advanceReference?.trim() || undefined, kind: a.advanceKind } : undefined,
+      additionalInfo: `EXCHANGE parcel of ${invoiceLabel(o)}${o.consignmentId ? ` — Pathao ID ${o.consignmentId}` : ""}${a.oldItemCredit ? ` — old item credit ৳${a.oldItemCredit}` : ""}`,
     }, me.staff.name)
     await logOrder(ctx, o._id, `Exchange order BB-${res.invoiceNo} created`, me.staff.name)
     return res
