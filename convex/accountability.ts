@@ -1085,8 +1085,8 @@ export const businessHealth = query({
 // status from here on are ever counted.
 const CX_CALL_SLA_STARTS_AT = dayStart("2026-10-31")
 const CONFIRMATION_CALL_SLA_DAYS = 2 // a new order should be confirmed (or otherwise resolved) within this long
-const FEEDBACK_CALL_SLA_DAYS = 3 // a delivered order should get its post-delivery feedback call within this long
-const RETURN_CALL_SLA_DAYS = 2 // a returned/damaged order should get its return feedback call within this long
+const FEEDBACK_CALL_SLA_DAYS = 5 // a delivered order should get its post-delivery feedback call within this long
+const RETURN_CALL_SLA_DAYS = 5 // a returned/damaged order should get its return feedback call within this long
 const CX_CALL_MAX_AGE_DAYS = 30 // a delivery/return older than this is no longer worth a call — never raise (or keep) an overdue-call flag for it
 const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach any of these stages
 
@@ -1167,8 +1167,8 @@ export const overdueReturnCallCheck = internalMutation({
  *  delivery or return older than CX_CALL_MAX_AGE_DAYS — nobody needs to call about those now. Archived (not
  *  deleted), and the points those cases cost Customer Care are given back with an offsetting entry. */
 export const archiveStaleCallFlags = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { notYetLateDays: v.optional(v.number()) }, // also close cases whose delivery/return is newer than this (the call is not late yet under the longer deadline)
+  handler: async (ctx, { notYetLateDays }) => {
     const now = Date.now()
     const limit = now - CX_CALL_MAX_AGE_DAYS * DAY
     let archived = 0
@@ -1178,12 +1178,14 @@ export const archiveStaleCallFlags = internalMutation({
       const o = await ctx.db.get(f.orderId)
       if (!o) continue
       const trigger = f.reason === "Feedback call overdue" ? (o.deliveredAt ?? o.createdAt) : (o.statusChangedAt ?? o.createdAt)
-      if (trigger >= limit) continue
-      await ctx.db.patch(f._id, { status: "archived", archivedAt: now, archivedBy: "BlackBole Ops (automatic)", archiveReason: "Old order — a call is no longer needed", closedAt: now })
-      await logOrder(ctx, o._id, "Accountability case archived — old order, call no longer needed", "BlackBole Ops (automatic)")
+      const old = trigger < limit
+      const notLate = notYetLateDays !== undefined && trigger >= now - notYetLateDays * DAY
+      if (!old && !notLate) continue
+      await ctx.db.patch(f._id, { status: "archived", archivedAt: now, archivedBy: "BlackBole Ops (automatic)", archiveReason: old ? "Old order — a call is no longer needed" : "Call deadline is now 5 days — not late yet", closedAt: now })
+      await logOrder(ctx, o._id, "Accountability case archived — call not needed or not late yet", "BlackBole Ops (automatic)")
       const rk = f.reason === "Feedback call overdue" ? "cx.overdue_feedback_call" : "cx.overdue_return_call"
       for (const e of await ctx.db.query("kpiEvents").withIndex("by_rule_order", (q) => q.eq("ruleKey", rk).eq("orderId", o._id)).collect()) {
-        if (e.points < 0) await ctx.db.insert("kpiEvents", { staffName: e.staffName, points: -e.points, ruleKey: "manual", label: `Reversed: ${e.label} (old order, call not needed)`, orderId: o._id, flagId: f._id, byName: "BlackBole Ops (automatic)", at: now })
+        if (e.points < 0) await ctx.db.insert("kpiEvents", { staffName: e.staffName, points: -e.points, ruleKey: "manual", label: `Reversed: ${e.label} (call not needed or not late yet)`, orderId: o._id, flagId: f._id, byName: "BlackBole Ops (automatic)", at: now })
       }
       archived++
     }

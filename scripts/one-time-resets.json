@@ -305,5 +305,12 @@
       "price": 1580,
       "bareTitle": true
     }
+  },
+  {
+    "id": "2026-11-10-archive-call-flags-not-late-yet",
+    "fn": "accountability:archiveStaleCallFlags",
+    "args": {
+      "notYetLateDays": 5
+    }
   }
 ]
