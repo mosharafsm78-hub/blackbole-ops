@@ -19,6 +19,7 @@ import {
   type OrderStatus,
   ALL_MOVE_KEYS, PRE_ORDER_STATUS,
   buildAdvanceFields, isAdvanceReason, advanceReasonCode, type AdvanceFields,
+  FEEDBACK_CALL_AFTER_DAYS, feedbackCallDue,
 } from "./rules"
 
 // ---------- status counters (cheap tab counts) ----------
@@ -340,7 +341,7 @@ export const urgency = query({
         ),
       )
     ).flat().filter((o) => !o.deletedAt)
-    const feedbackPending = delivered.filter((o) => !o.csat).length
+    const feedbackPending = delivered.filter((o) => !o.csat && feedbackCallDue(o, now)).length
     const feedbackFollowUp = delivered.filter((o) => o.csatFollowUpAt && o.csatFollowUpAt <= now).length
 
     const returnLike = (
@@ -432,7 +433,7 @@ function matches(o: Doc<"orders">, f: Filters, tagOf?: Map<string, string>, open
   if (f.flag === "exchange" && !o.isExchange) return false
   if (f.flag === "wantsCancel" && !(o.autoCall?.result === "cancel" && o.status === "pending")) return false
   // delivered, but nobody has done the post-delivery feedback call yet
-  if (f.flag === "needsFeedback" && !(isDelivered(o.status as OrderStatus) && !o.csat)) return false
+  if (f.flag === "needsFeedback" && !(isDelivered(o.status as OrderStatus) && !o.csat && feedbackCallDue(o))) return false
   // feedback call due today (Dhaka time) or overdue — mirrors the "followUp" flag above
   if (f.flag === "csatFollowUp") {
     const endOfToday = Math.floor((Date.now() + 6 * 3600000) / 86400000 + 1) * 86400000 - 6 * 3600000

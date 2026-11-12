@@ -8,7 +8,7 @@ import { query, internalQuery, internalAction, type MutationCtx } from "./_gener
 import { mutation, internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { currentStaff, requirePerm, invoiceLabel, logOrder, notify, getSetting, setSetting } from "./lib"
-import { ACCOUNTABILITY_ROUTING, type OrderStatus } from "./rules"
+import { ACCOUNTABILITY_ROUTING, FEEDBACK_CALL_AFTER_DAYS, type OrderStatus } from "./rules"
 import { bdDay, dayStart, statsFromDays, type DayRow } from "./stats"
 import { awardPoints, type KpiRuleKey } from "./kpi"
 import type { Doc } from "./_generated/dataModel"
@@ -1085,7 +1085,7 @@ export const businessHealth = query({
 // status from here on are ever counted.
 const CX_CALL_SLA_STARTS_AT = dayStart("2026-10-31")
 const CONFIRMATION_CALL_SLA_DAYS = 2 // a new order should be confirmed (or otherwise resolved) within this long
-const FEEDBACK_CALL_SLA_DAYS = 5 // a delivered order should get its post-delivery feedback call within this long
+const FEEDBACK_CALL_SLA_DAYS = FEEDBACK_CALL_AFTER_DAYS // a delivered order should get its post-delivery feedback call within this long
 const RETURN_CALL_SLA_DAYS = 5 // a returned/damaged order should get its return feedback call within this long
 const CX_CALL_MAX_AGE_DAYS = 30 // a delivery/return older than this is no longer worth a call — never raise (or keep) an overdue-call flag for it
 const CX_SLA_LOOKBACK_DAYS = 45 // how far back in createdAt the scan bothers looking — plenty for any order to reach any of these stages
@@ -1167,21 +1167,22 @@ export const overdueReturnCallCheck = internalMutation({
  *  delivery or return older than CX_CALL_MAX_AGE_DAYS — nobody needs to call about those now. Archived (not
  *  deleted), and the points those cases cost Customer Care are given back with an offsetting entry. */
 export const archiveStaleCallFlags = internalMutation({
-  args: { notYetLateDays: v.optional(v.number()) }, // also close cases whose delivery/return is newer than this (the call is not late yet under the longer deadline)
-  handler: async (ctx, { notYetLateDays }) => {
+  args: { notYetLateDays: v.optional(v.number()), onlyReason: v.optional(v.string()) }, // also close cases whose delivery/return is newer than this (the call is not late yet under the longer deadline)
+  handler: async (ctx, { notYetLateDays, onlyReason }) => {
     const now = Date.now()
     const limit = now - CX_CALL_MAX_AGE_DAYS * DAY
     let archived = 0
     for (const f of await ctx.db.query("opsFlags").collect()) {
       if (f.status !== "open" || !f.orderId) continue
       if (f.reason !== "Feedback call overdue" && f.reason !== "Return call overdue") continue
+      if (onlyReason && f.reason !== onlyReason) continue
       const o = await ctx.db.get(f.orderId)
       if (!o) continue
       const trigger = f.reason === "Feedback call overdue" ? (o.deliveredAt ?? o.createdAt) : (o.statusChangedAt ?? o.createdAt)
       const old = trigger < limit
       const notLate = notYetLateDays !== undefined && trigger >= now - notYetLateDays * DAY
       if (!old && !notLate) continue
-      await ctx.db.patch(f._id, { status: "archived", archivedAt: now, archivedBy: "BlackBole Ops (automatic)", archiveReason: old ? "Old order — a call is no longer needed" : "Call deadline is now 5 days — not late yet", closedAt: now })
+      await ctx.db.patch(f._id, { status: "archived", archivedAt: now, archivedBy: "BlackBole Ops (automatic)", archiveReason: old ? "Old order — a call is no longer needed" : "Call deadline was extended — not late yet", closedAt: now })
       await logOrder(ctx, o._id, "Accountability case archived — call not needed or not late yet", "BlackBole Ops (automatic)")
       const rk = f.reason === "Feedback call overdue" ? "cx.overdue_feedback_call" : "cx.overdue_return_call"
       for (const e of await ctx.db.query("kpiEvents").withIndex("by_rule_order", (q) => q.eq("ruleKey", rk).eq("orderId", o._id)).collect()) {

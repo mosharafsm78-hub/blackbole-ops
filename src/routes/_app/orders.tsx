@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, ClipboardList, Clock, Lock, Download, Print
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
 import type { Id } from "@/convex/_generated/dataModel"
-import { EXCHANGE_SUBS, isRealReason, ORDER_SOURCES, RETURN_AT_FAULT_REASONS, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, holdBucket, moveKey, type OrderStatus } from "@/convex/rules"
+import { EXCHANGE_SUBS, FEEDBACK_CALL_AFTER_DAYS, feedbackCallDue, isRealReason, ORDER_SOURCES, RETURN_AT_FAULT_REASONS, STATUS_LABEL, STATUS_TABS, TRANSITIONS, hasPerm, holdBucket, moveKey, type OrderStatus } from "@/convex/rules"
 import { Guard, useMe, Perm } from "@/components/app-shell"
 import { ContactButtons, Empty, Loading, PageHeader, Pill, StatusPill } from "@/components/bits"
 import { NEEDS_REASON, StatusDialog } from "@/components/order-parts"
@@ -523,8 +523,10 @@ function OrdersPage() {
                     {DELIVERED.includes(o.status as OrderStatus) && (
                       (o as any).csat ? (
                         <div className="text-tone-green">✓ Feedback: {(o as any).csat.outcome}</div>
-                      ) : (
+                      ) : feedbackCallDue(o as any) ? (
                         <div className="whitespace-nowrap font-medium text-tone-red">⚠ Feedback call pending</div>
+                      ) : (
+                        <div className="whitespace-nowrap text-muted-foreground">Feedback call after {FEEDBACK_CALL_AFTER_DAYS} days</div>
                       )
                     )}
                     {RETURN_LIKE.includes(o.status as OrderStatus) && (() => {

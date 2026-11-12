@@ -546,3 +546,10 @@ export const CATEGORY_CODES: Record<string, string> = {
   Sandals: "SH", Shoes: "SH", Sneakers: "SH", Loafers: "SH", Boots: "SH", "Hiking Shoes": "SH", "Kids Shoes": "SH",
   Dresses: "DRESS", "T-Shirts": "TS", Shirts: "SHIRT", Pants: "PANT", Bags: "BAG", Accessories: "ACC",
 }
+
+/** The post-delivery feedback call is made this many days after delivery — not before. */
+export const FEEDBACK_CALL_AFTER_DAYS = 10
+/** True once a delivered order is due its feedback call. */
+export function feedbackCallDue(o: { deliveredAt?: number; statusChangedAt?: number; createdAt: number }, now = Date.now()): boolean {
+  return (o.deliveredAt ?? o.statusChangedAt ?? o.createdAt) <= now - FEEDBACK_CALL_AFTER_DAYS * 86400000
+}

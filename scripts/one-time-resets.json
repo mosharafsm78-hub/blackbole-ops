@@ -312,5 +312,13 @@
     "args": {
       "notYetLateDays": 5
     }
+  },
+  {
+    "id": "2026-11-12-archive-feedback-flags-before-day-10",
+    "fn": "accountability:archiveStaleCallFlags",
+    "args": {
+      "notYetLateDays": 10,
+      "onlyReason": "Feedback call overdue"
+    }
   }
 ]
