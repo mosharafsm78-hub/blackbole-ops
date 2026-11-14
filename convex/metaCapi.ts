@@ -19,6 +19,8 @@ const phoneHash = async (phone: string) => {
 }
 
 export type CapiEvent = "Purchase" | "Delivered" | "Returned"
+/** The event name Meta sees. Internally the confirmed order is still "Purchase" (kept so old order records stay valid). */
+export const EVENT_NAME: Record<CapiEvent, string> = { Purchase: "OrderConfirmed", Delivered: "Delivered", Returned: "Returned" }
 
 /** Pure. The event Meta gets for an order. `Purchase` keeps the order's own time so it lands inside the 7-day click window. */
 export async function buildEvent(o: { invoiceNo: number; phone: string; email?: string; createdAt: number; total: number; deliveryFee: number; items: { sku: string; qty: number; price: number }[]; city?: string }, event: CapiEvent, now = Date.now()) {
@@ -30,7 +32,10 @@ export async function buildEvent(o: { invoiceNo: number; phone: string; email?: 
   if (o.email?.includes("@")) user_data.em = [await sha(o.email.trim().toLowerCase())]
   if (o.city?.trim()) user_data.ct = [await sha(o.city.trim().toLowerCase().replace(/[^a-z]/g, ""))]
   return {
-    event_name: event, event_time: Math.floor(at / 1000), event_id: `bb-${o.invoiceNo}-${event.toLowerCase()}`, action_source: "website",
+    // The website (pixel + order service) already sends "Purchase" for every order when it is placed, under its own
+    // event id. A second "Purchase" here would make Meta count each order twice, so the confirmed order goes in as its
+    // own event, "OrderConfirmed" (Delivered and Returned keep their names). Meta can optimise ads on any of these.
+    event_name: EVENT_NAME[event], event_time: Math.floor(at / 1000), event_id: `bb-${o.invoiceNo}-${event.toLowerCase()}`, action_source: "website",
     user_data,
     custom_data: { currency: "BDT", value: Math.max(0, o.total - o.deliveryFee), order_id: String(o.invoiceNo), content_type: "product", contents: o.items.map((i) => ({ id: i.sku, quantity: i.qty, item_price: i.price })) },
   }

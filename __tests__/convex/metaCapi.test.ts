@@ -6,7 +6,7 @@ describe("Conversions API event", () => {
   it("sends a confirmed order as a Purchase with the order's own time, hashed phone/email, value without delivery", async () => {
     const now = Date.parse("2026-11-02T06:00:00Z")
     const ev = (await buildEvent(order, "Purchase", now))!
-    expect(ev).toMatchObject({ event_name: "Purchase", event_time: Math.floor(order.createdAt / 1000), event_id: "bb-1234-purchase", action_source: "website" })
+    expect(ev).toMatchObject({ event_name: "OrderConfirmed", event_time: Math.floor(order.createdAt / 1000), event_id: "bb-1234-purchase", action_source: "website" })
     expect(ev.custom_data).toMatchObject({ currency: "BDT", value: 1980, order_id: "1234", contents: [{ id: "BB-41", quantity: 1, item_price: 1980 }] })
     expect((ev.user_data as any).ph[0]).toMatch(/^[0-9a-f]{64}$/)
     expect((ev.user_data as any).em[0]).toMatch(/^[0-9a-f]{64}$/)
