@@ -3,7 +3,8 @@
 import { execSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 
-if (!process.env.CONVEX_DEPLOY_KEY) process.exit(0)
+// Vercel (cloud deploy key) or the self-hosted Convex on the VPS (its own URL + admin key).
+if (!process.env.CONVEX_DEPLOY_KEY && !process.env.CONVEX_SELF_HOSTED_URL) process.exit(0)
 const run = (cmd) => execSync(cmd, { stdio: ["ignore", "pipe", "pipe"] }).toString().trim()
 const get = (name) => { try { return run(`npx convex env get ${name}`) } catch { return "" } }
 
