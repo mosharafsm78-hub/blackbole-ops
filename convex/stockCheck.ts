@@ -13,13 +13,24 @@ import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
 import { marketingChanged } from "./marketingPush"
+import { splitVariant } from "./inventoryReport"
 
 export const realOf = (s: { available: number; virtual?: number }) => Math.max(0, s.available - Math.max(0, s.virtual ?? 0))
 export const fakeOf = (s: { available: number; virtual?: number }) => Math.min(Math.max(0, s.available), Math.max(0, s.virtual ?? 0))
 
 const PAGE = 30
 
-export type CheckLine = { variantId: Id<"variants">; locationId: Id<"locations">; locationName: string; title: string; sku: string; available: number; fake: number; real: number; counted: boolean; countedBy: string | null; countedAt: number | null }
+/** The colour and size of a variant, so a product with two colours doesn't show "44" twice with nothing to tell them apart.
+ *  The website colour option wins (variants titled just "44" keep their colour there), then a "Black / 44" style title. */
+export function colorAndSize(x: Pick<Doc<"variants">, "title" | "attrs" | "web">): { color: string; size: string } {
+  const split = splitVariant(x.title, x.attrs)
+  const opts = (x.web?.options ?? {}) as Record<string, unknown>
+  const key = Object.keys(opts).find((k) => /colou?r/i.test(k))
+  const fromWeb = key && typeof opts[key] === "string" ? (opts[key] as string).trim() : ""
+  return { color: fromWeb || split.color, size: split.size || x.title }
+}
+
+export type CheckLine = { variantId: Id<"variants">; locationId: Id<"locations">; locationName: string; title: string; color: string; size: string; sku: string; available: number; fake: number; real: number; counted: boolean; countedBy: string | null; countedAt: number | null }
 export type CheckProduct = { productId: Id<"products">; name: string; preOrder: boolean; skipped: boolean; system: number; fake: number; real: number; uncounted: boolean; lines: CheckLine[] }
 
 /** A page of products with their size lines: system stock, counted real pairs and the fake remainder. */
@@ -55,20 +66,23 @@ export const list = query({
       const lines: CheckLine[] = []
       for (const x of variants) {
         const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+        const cs = colorAndSize(x)
         // A size with no stock yet still gets a line at the home warehouse, so test pairs can be added to it.
         if (home && !rows.some((s) => s.locationId === home._id)) {
-          lines.push({ variantId: x._id, locationId: home._id, locationName: home.name, title: x.title, sku: x.sku, available: 0, fake: 0, real: 0, counted: true, countedBy: null, countedAt: null })
+          lines.push({ variantId: x._id, locationId: home._id, locationName: home.name, title: x.title, ...cs, sku: x.sku, available: 0, fake: 0, real: 0, counted: true, countedBy: null, countedAt: null })
         }
         for (const s of rows) {
           if (s.available <= 0 && !(s.virtual ?? 0)) continue
           lines.push({
             variantId: x._id, locationId: s.locationId, locationName: locs.get(s.locationId as string) ?? "",
-            title: x.title, sku: x.sku, available: s.available, fake: fakeOf(s), real: realOf(s),
+            title: x.title, ...cs, sku: x.sku, available: s.available, fake: fakeOf(s), real: realOf(s),
             counted: s.countedAt !== undefined, countedBy: s.countedBy ?? null, countedAt: s.countedAt ?? null,
           })
         }
       }
       if (lines.length === 0) continue
+      // Colour by colour, sizes small to large, so the two colours of one product read as two clean blocks.
+      lines.sort((a, b) => a.color.localeCompare(b.color) || a.size.localeCompare(b.size, undefined, { numeric: true }) || a.sku.localeCompare(b.sku) || a.locationName.localeCompare(b.locationName))
       if (filter !== "all" && !lines.some((l) => l.available > 0 || l.fake > 0)) continue // empty products only show under "All"
       const system = lines.reduce((t, l) => t + l.available, 0)
       const fake = lines.reduce((t, l) => t + l.fake, 0)

@@ -181,6 +181,23 @@ describe("adding test stock, and when it earns a purchase", () => {
     expect(found!.products[0].lines[0]).toMatchObject({ title: "41", available: 0 })
   })
 
+  it("tells the colours of one product apart: colour from the website option or the title, grouped and sorted by size", async () => {
+    const { t, asAdmin } = await setup()
+    const productId = await t.run((ctx) => ctx.db.insert("products", { name: "Two Colour Sandal", active: true, createdAt: NOW }))
+    const add = (sku: string, title: string, web?: object) => t.run((ctx) => ctx.db.insert("variants", { productId, sku, title, weightKg: 0.4, price: 1500, purchasePrice: 700, active: true, ...(web ? { web } : {}) }))
+    await add("BB-TC-MB-44", "44", { options: { Color: "Mocha Brown", "Shoe size": "44" } })
+    await add("BB-TC-KG-44", "44", { options: { Colour: "Khaki Green", "Shoe size": "44" } })
+    await add("BB-TC-MB-39", "39", { options: { Color: "Mocha Brown", "Shoe size": "39" } })
+    await add("BB-TC-KG-39", "Khaki Green / 39")
+    const found = await asAdmin.query(api.stockCheck.list, { filter: "all", search: "Two Colour", cursor: null })
+    expect(found!.products[0].lines.map((l) => [l.color, l.size, l.sku])).toEqual([
+      ["Khaki Green", "39", "BB-TC-KG-39"],
+      ["Khaki Green", "44", "BB-TC-KG-44"],
+      ["Mocha Brown", "39", "BB-TC-MB-39"],
+      ["Mocha Brown", "44", "BB-TC-MB-44"],
+    ])
+  })
+
   it("rejects bad quantities and people who may not adjust stock", async () => {
     const { t, asAdmin, asCx, locationId } = await setup()
     const productId = await t.run((ctx) => ctx.db.insert("products", { name: "P", active: true, createdAt: NOW }))

@@ -110,6 +110,9 @@ function ProductCard({ p }: { p: Product }) {
   const changed = p.lines.filter((l) => draft[key(l)] !== undefined && Number(draft[key(l)]) !== l.real)
   const toAdd = p.lines.filter((l) => Number(add[key(l)]) > 0).map((l) => ({ variantId: l.variantId, locationId: l.locationId, qty: Number(add[key(l)]) }))
   const needsSave = changed.length > 0 || p.lines.some((l) => !l.counted && draft[key(l)] === undefined) // "all good" still counts as counted
+  // Products in more than one colour get a Color column; every line shows its SKU so two "44"s can always be told apart.
+  const hasColor = p.lines.some((l) => l.color)
+  const label = (l: Product["lines"][number]) => (l.color ? `${l.color} / ${l.size}` : l.title)
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
     setBusy(true)
@@ -137,12 +140,12 @@ function ProductCard({ p }: { p: Product }) {
       <AlertDialog open={!!sizeDel} onOpenChange={(o) => { if (!o) setSizeDel(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete size {sizeDel?.title} of “{p.name}”?</AlertDialogTitle>
+            <AlertDialogTitle>Delete size {sizeDel ? label(sizeDel) : ""} of “{p.name}”?</AlertDialogTitle>
             <AlertDialogDescription>Only this size is removed, in every warehouse and in Shopify. The other sizes stay. It can't be undone, and it can't be deleted while an open order has it.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { const l = sizeDel; if (l) void run(() => delSize({ variantId: l.variantId }), `Deleted size ${l.title}`) }}>Delete size</AlertDialogAction>
+            <AlertDialogAction onClick={() => { const l = sizeDel; if (l) void run(() => delSize({ variantId: l.variantId }), `Deleted size ${label(l)}`) }}>Delete size</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -161,26 +164,31 @@ function ProductCard({ p }: { p: Product }) {
       <div className="mt-3 overflow-x-auto rounded-lg border">
         <table className="w-full min-w-[420px] text-sm">
           <thead className="bg-muted/50 text-xs text-muted-foreground">
-            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th><th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Fake</th><th className="px-3 py-1.5 text-right font-medium">Add fake pairs</th><th className="w-10 px-2 py-1.5"></th></tr>
+            <tr><th className="px-3 py-1.5 text-left font-medium">Size</th>{hasColor && <th className="px-3 py-1.5 text-left font-medium">Color</th>}<th className="px-3 py-1.5 text-left font-medium">Where</th><th className="px-3 py-1.5 text-right font-medium">System</th><th className="px-3 py-1.5 text-right font-medium">Really in hand</th><th className="px-3 py-1.5 text-right font-medium">Fake</th><th className="px-3 py-1.5 text-right font-medium">Add fake pairs</th><th className="w-10 px-2 py-1.5"></th></tr>
           </thead>
           <tbody>
-            {p.lines.map((l) => {
+            {p.lines.map((l, i) => {
               const real = Number(val(l))
               const fake = Number.isFinite(real) ? Math.max(0, l.available - real) : l.fake
+              const newColor = hasColor && i > 0 && p.lines[i - 1].color !== l.color // a thicker line where the next colour starts
               return (
-                <tr key={key(l)} className="border-t">
-                  <td className="px-3 py-1.5 font-medium">{l.title}</td>
+                <tr key={key(l)} className={cn("border-t", newColor && "border-t-2 border-t-foreground/30")}>
+                  <td className="px-3 py-1.5">
+                    <div className="font-medium">{hasColor ? l.size : l.title}</div>
+                    <div className="text-[11px] text-muted-foreground" data-testid="line-sku">{l.sku}</div>
+                  </td>
+                  {hasColor && <td className="px-3 py-1.5 font-medium" data-testid="line-color">{l.color || "—"}</td>}
                   <td className="px-3 py-1.5 text-muted-foreground">{l.locationName}</td>
                   <td className="px-3 py-1.5 text-right tabular-nums">{l.available}</td>
                   <td className="px-3 py-1.5 text-right">
-                    <Input type="number" inputMode="numeric" min={0} max={l.available} value={val(l)} onChange={(e) => setDraft({ ...draft, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Real pairs of ${p.name} size ${l.title}`} />
+                    <Input type="number" inputMode="numeric" min={0} max={l.available} value={val(l)} onChange={(e) => setDraft({ ...draft, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Real pairs of ${p.name} size ${label(l)}`} />
                   </td>
                   <td className={cn("px-3 py-1.5 text-right tabular-nums", fake > 0 && "font-semibold text-tone-amber")}>{fake}</td>
                   <td className="px-3 py-1.5 text-right">
-                    <Input type="number" inputMode="numeric" min={0} placeholder="+" value={add[key(l)] ?? ""} onChange={(e) => setAdd({ ...add, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Test pairs to add for ${p.name} size ${l.title}`} />
+                    <Input type="number" inputMode="numeric" min={0} placeholder="+" value={add[key(l)] ?? ""} onChange={(e) => setAdd({ ...add, [key(l)]: e.target.value })} className="ml-auto h-8 w-20 text-right tabular-nums" disabled={busy} aria-label={`Test pairs to add for ${p.name} size ${label(l)}`} />
                   </td>
                   <td className="px-2 py-1.5 text-right">
-                    <Button size="sm" variant="ghost" disabled={busy} title={`Delete size ${l.title}`} aria-label={`Delete size ${l.title}`} data-testid="delete-size" className="h-8 px-2 text-tone-red hover:bg-tone-red/10" onClick={() => setSizeDel(l)}>✕</Button>
+                    <Button size="sm" variant="ghost" disabled={busy} title={`Delete size ${label(l)}`} aria-label={`Delete size ${label(l)}`} data-testid="delete-size" className="h-8 px-2 text-tone-red hover:bg-tone-red/10" onClick={() => setSizeDel(l)}>✕</Button>
                   </td>
                 </tr>
               )
