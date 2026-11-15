@@ -43,7 +43,12 @@ echo "== starting convex (first time downloads the image, ~1-2 min) =="
 # Pull anonymously: a saved (stale) registry login on this server makes ghcr.io answer "denied".
 # The saved login itself is left alone - the Shopify apps may need it.
 mkdir -p /tmp/anon-docker
-DOCKER_CONFIG=/tmp/anon-docker docker pull -q ghcr.io/get-convex/convex-backend:latest
+IMG=""
+for cand in ghcr.io/convex/convex-backend:latest ghcr.io/get-convex/convex-backend:latest; do
+  if DOCKER_CONFIG=/tmp/anon-docker docker pull -q $cand; then IMG=$cand; break; fi
+done
+echo "image: ${IMG:-NONE FOUND}"
+[ -n "$IMG" ] && sed -i "s#image: .*#image: $IMG#" docker-compose.yml
 docker compose up -d
 sleep 8
 docker ps --filter name=convex-ops --format 'table {{.Names}}\t{{.Status}}'
