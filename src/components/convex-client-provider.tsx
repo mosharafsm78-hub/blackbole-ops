@@ -3,9 +3,6 @@ import { ConvexReactClient } from "convex/react";
 import { useEffect, useState } from "react";
 
 const CONVEX_URL = (import.meta as any).env.VITE_CONVEX_URL as string
-if (!CONVEX_URL) {
-  console.error('missing envar CONVEX_URL')
-}
 // Nearby Cloudflare relay for the live connection (much faster to open from Bangladesh). Empty = connect directly.
 const RELAY_URL = ""
 
