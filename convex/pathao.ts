@@ -398,6 +398,15 @@ export const webhookSecret = internalQuery({
   handler: async (ctx) => (await getSetting<any>(ctx, "pathaoWebhook")) ?? null,
 })
 
+// Used by a one-time job: the reply header Pathao checks when the webhook address is saved (keeps any saved signature token)
+export const setWebhookIntegration = internalMutation({
+  args: { integrationSecret: v.string() },
+  handler: async (ctx, { integrationSecret }) => {
+    const old = (await getSetting<any>(ctx, "pathaoWebhook")) ?? {}
+    await setSetting(ctx, "pathaoWebhook", { ...old, integrationSecret: integrationSecret.trim() })
+  },
+})
+
 export const byConsignment = internalQuery({
   args: { consignmentId: v.string() },
   handler: async (ctx, { consignmentId }) => {
