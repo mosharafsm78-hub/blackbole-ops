@@ -8,8 +8,8 @@ clear
 # 1. read-only GitHub deploy key (private part stays here; public part shown at a web path for adding to GitHub)
 if [ ! -f $DIR/deploy_key ]; then ssh-keygen -q -t ed25519 -N "" -C "vps3758598-blackbole-ops" -f $DIR/deploy_key; fi
 mkdir -p /var/lib/shaperk/public/.well-known/shaperk
-cp $DIR/deploy_key.pub /var/lib/shaperk/public/.well-known/shaperk/bb-ops-deploy.pub
-echo "public key published at http://216.219.95.184/.well-known/shaperk/bb-ops-deploy.pub"
+cp $DIR/deploy_key.pub /var/lib/shaperk/public/.well-known/shaperk/bbops.txt
+echo "public key published at http://216.219.95.184/.well-known/shaperk/bbops.txt"
 
 # 2. the update script
 cat > $DIR/autodeploy.sh <<'AD'
