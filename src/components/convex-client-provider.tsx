@@ -1,5 +1,6 @@
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
+import { useEffect, useState } from "react";
 
 const CONVEX_URL = (import.meta as any).env.VITE_CONVEX_URL as string
 if (!CONVEX_URL) {
@@ -29,9 +30,12 @@ export default function AppConvexProvider({
 }: {
   children: React.ReactNode
 }) {
+  // Shown only after the page has started in the browser (the server-rendered page can't know the choice).
+  const [showBadge, setShowBadge] = useState(false)
+  useEffect(() => setShowBadge(SERVER === "vps"), [])
   return (
     <ConvexAuthProvider client={convex}>
-      {SERVER === "vps" && (
+      {showBadge && (
         <div className="fixed bottom-2 left-2 z-[100] rounded bg-violet-600 px-2 py-1 text-[11px] font-medium text-white shadow" data-testid="server-badge">
           Own server (VPS) · <a href="?server=cloud" className="underline">back to cloud</a>
         </div>
