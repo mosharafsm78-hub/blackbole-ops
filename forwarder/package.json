@@ -1,0 +1,1 @@
+{ "name": "blackbole-ops-forwarder", "private": true, "type": "module", "dependencies": { "convex": "1.47.0" } }
