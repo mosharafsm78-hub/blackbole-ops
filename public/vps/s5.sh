@@ -11,6 +11,13 @@ mkdir -p /var/lib/shaperk/public/.well-known/shaperk
 cp $DIR/deploy_key.pub /var/lib/shaperk/public/.well-known/shaperk/bbops.txt
 echo "public key published at http://216.219.95.184/.well-known/shaperk/bbops.txt"
 
+# the public key folder over HTTPS too (browsers refuse plain http); only that folder is served
+EXTRA=/opt/shaperk/caddy/extra.caddy
+if ! grep -q "keys.216-219-95-184" $EXTRA; then
+  printf '%s\n' "keys.216-219-95-184.sslip.io {" "  root * /srv/public/.well-known/shaperk" "  file_server" "}" >> $EXTRA
+fi
+echo "also at https://keys.216-219-95-184.sslip.io/bbops.txt (live within 2 minutes)"
+
 # 2. the update script
 cat > $DIR/autodeploy.sh <<'AD'
 #!/bin/bash
