@@ -40,7 +40,11 @@ volumes:
   data:
 YML
 echo "== starting convex (first time downloads the image, ~1-2 min) =="
-docker compose pull -q && docker compose up -d
+# Pull anonymously: a saved (stale) registry login on this server makes ghcr.io answer "denied".
+# The saved login itself is left alone - the Shopify apps may need it.
+mkdir -p /tmp/anon-docker
+DOCKER_CONFIG=/tmp/anon-docker docker pull -q ghcr.io/get-convex/convex-backend:latest
+docker compose up -d
 sleep 8
 docker ps --filter name=convex-ops --format 'table {{.Names}}\t{{.Status}}'
 
