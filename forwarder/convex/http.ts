@@ -19,7 +19,9 @@ const forward = httpActionGeneric(async (_ctx, req) => {
     const r = await fetch(TARGET + u.pathname + u.search, { method: req.method, headers, body, redirect: "manual" })
     const out = new Headers(r.headers)
     for (const h of DROP_RESPONSE) out.delete(h)
-    return new Response(await r.arrayBuffer(), { status: r.status, headers: out })
+    // 101/204/205/304 answers must not carry a body (a browser's CORS check gets a 204): sending one made Response() throw
+    const noBody = r.status === 101 || r.status === 204 || r.status === 205 || r.status === 304
+    return new Response(noBody ? null : await r.arrayBuffer(), { status: r.status, headers: out })
   } catch (e) {
     return new Response(JSON.stringify({ error: "BlackBole server not reachable, please retry" }), { status: 502, headers: { "content-type": "application/json" } })
   }
