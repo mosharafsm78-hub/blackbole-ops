@@ -13,7 +13,7 @@ import { internal } from "./_generated/api"
 import { internalMutation, mutation } from "./functions"
 import { currentStaff, requirePerm } from "./lib"
 import { marketingChanged } from "./marketingPush"
-import { splitVariant } from "./inventoryReport"
+import { baseSku, splitVariant } from "./inventoryReport"
 
 export const realOf = (s: { available: number; virtual?: number }) => Math.max(0, s.available - Math.max(0, s.virtual ?? 0))
 export const fakeOf = (s: { available: number; virtual?: number }) => Math.min(Math.max(0, s.available), Math.max(0, s.virtual ?? 0))
@@ -21,13 +21,38 @@ export const fakeOf = (s: { available: number; virtual?: number }) => Math.min(M
 const PAGE = 30
 
 /** The colour and size of a variant, so a product with two colours doesn't show "44" twice with nothing to tell them apart.
- *  The website colour option wins (variants titled just "44" keep their colour there), then a "Black / 44" style title. */
+ *  The website colour option wins (variants titled just "44" keep their colour there), then a "Black / 44" style title.
+ *  A title's text only counts as a colour next to a numeric size, so letter sizes ("L", "Size: S") never read as colours. */
 export function colorAndSize(x: Pick<Doc<"variants">, "title" | "attrs" | "web">): { color: string; size: string } {
   const split = splitVariant(x.title, x.attrs)
   const opts = (x.web?.options ?? {}) as Record<string, unknown>
   const key = Object.keys(opts).find((k) => /colou?r/i.test(k))
   const fromWeb = key && typeof opts[key] === "string" ? (opts[key] as string).trim() : ""
-  return { color: fromWeb || split.color, size: split.size || x.title }
+  return { color: fromWeb || (split.size ? split.color : ""), size: split.size || x.title }
+}
+
+/** Gives every line of one product a colour label it can be told apart by. The SKU decides which lines belong together
+ *  (BB-X-KG-41 and BB-X-KG-42 are one colour), because saved colour names can be missing or wrong. A group shows its
+ *  colour name when that name is clear (one name for the whole group, used by no other group); otherwise its SKU code. */
+export function labelColors<L extends { color: string; size: string; sku: string }>(lines: L[]): L[] {
+  const shoe = lines.every((l) => /^\d{2,3}$/.test(l.size))
+  const groupOf = (l: L) => baseSku(l.sku, l.size)
+  const groups = new Map<string, L[]>()
+  for (const l of lines) groups.set(groupOf(l), [...(groups.get(groupOf(l)) ?? []), l])
+  if (!lines.some((l) => l.color) && !(shoe && groups.size > 1)) return lines // one colour (or clothing sizes): leave as it is
+  const nameOf = new Map<string, string>()
+  for (const [g, ls] of groups) {
+    const names = [...new Set(ls.map((l) => l.color))]
+    nameOf.set(g, names.length === 1 ? names[0] : "")
+  }
+  const used = [...nameOf.values()].filter(Boolean)
+  const out = lines.map((l) => {
+    const g = groupOf(l)
+    const name = nameOf.get(g) ?? ""
+    const clear = name && used.filter((n) => n === name).length === 1
+    return { ...l, color: clear ? name : groups.size > 1 ? (g.split(/[-_ ]/).pop() || g) : name }
+  })
+  return out.sort((a, b) => a.color.localeCompare(b.color) || a.size.localeCompare(b.size, undefined, { numeric: true }) || a.sku.localeCompare(b.sku))
 }
 
 export type CheckLine = { variantId: Id<"variants">; locationId: Id<"locations">; locationName: string; title: string; color: string; size: string; sku: string; available: number; fake: number; real: number; counted: boolean; countedBy: string | null; countedAt: number | null }
@@ -63,7 +88,7 @@ export const list = query({
       if (p.deletedAt || !p.active) continue
       if (p.stockCheckSkip && filter !== "all") continue // "not needed for now" products only show under All products
       const variants = (await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()).filter((x) => x.active)
-      const lines: CheckLine[] = []
+      let lines: CheckLine[] = []
       for (const x of variants) {
         const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
         const cs = colorAndSize(x)
@@ -82,7 +107,7 @@ export const list = query({
       }
       if (lines.length === 0) continue
       // Colour by colour, sizes small to large, so the two colours of one product read as two clean blocks.
-      lines.sort((a, b) => a.color.localeCompare(b.color) || a.size.localeCompare(b.size, undefined, { numeric: true }) || a.sku.localeCompare(b.sku) || a.locationName.localeCompare(b.locationName))
+      lines = labelColors(lines)
       if (filter !== "all" && !lines.some((l) => l.available > 0 || l.fake > 0)) continue // empty products only show under "All"
       const system = lines.reduce((t, l) => t + l.available, 0)
       const fake = lines.reduce((t, l) => t + l.fake, 0)
@@ -306,5 +331,29 @@ export const markUncountedReal = mutation({
       done++
     }
     return { done, more }
+  },
+})
+
+/** One-time: set the saved colour of every active variant whose SKU starts with a prefix (e.g. "BB-SN-BBSFN-MB-" →
+ *  "Mocha Brown"). Only the colour option changes; size, stock, prices and Shopify are left alone. Safe to re-run. */
+export const setColorBySku = internalMutation({
+  args: { items: v.array(v.object({ skuPrefix: v.string(), color: v.string() })) },
+  handler: async (ctx, { items }) => {
+    let changed = 0
+    for (const { skuPrefix, color } of items) {
+      if (skuPrefix.length < 6 || !color.trim()) throw new ConvexError("A SKU prefix of 6+ characters and a colour are needed")
+      const rows = await ctx.db.query("variants").withIndex("by_sku", (q) => q.gte("sku", skuPrefix).lt("sku", `${skuPrefix}￿`)).collect()
+      for (const x of rows) {
+        if (!x.active) continue
+        const web = (x.web ?? {}) as Record<string, any>
+        const opts = { ...((web.options ?? {}) as Record<string, string>) }
+        const key = Object.keys(opts).find((k) => /colou?r/i.test(k)) ?? "Color"
+        if (opts[key] === color.trim()) continue
+        opts[key] = color.trim()
+        await ctx.db.patch(x._id, { web: { ...web, options: opts } })
+        changed++
+      }
+    }
+    return { changed }
   },
 })

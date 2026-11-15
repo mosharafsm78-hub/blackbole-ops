@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import schema from "../../convex/schema"
-import { api } from "../../convex/_generated/api"
+import { api, internal } from "../../convex/_generated/api"
 import type { Id } from "../../convex/_generated/dataModel"
 import { buySuggestion } from "../../convex/targetPlan"
 
@@ -196,6 +196,24 @@ describe("adding test stock, and when it earns a purchase", () => {
       ["Mocha Brown", "39", "BB-TC-MB-39"],
       ["Mocha Brown", "44", "BB-TC-MB-44"],
     ])
+  })
+
+  it("falls back to the SKU code when saved colours are missing or wrong, and never treats letter sizes as colours", async () => {
+    const { t, asAdmin } = await setup()
+    const shoe = await t.run((ctx) => ctx.db.insert("products", { name: "Messy Sandal", active: true, createdAt: NOW }))
+    const add = (productId: Id<"products">, sku: string, title: string, web?: object) => t.run((ctx) => ctx.db.insert("variants", { productId, sku, title, weightKg: 0.4, price: 1500, purchasePrice: 700, active: true, ...(web ? { web } : {}) }))
+    await add(shoe, "BB-MS-KGF-39", "39", { options: { Color: "Mocha Brown" } }) // wrong saved name
+    await add(shoe, "BB-MS-KGF-40", "40")
+    await add(shoe, "BB-MS-MB-39", "39", { options: { Color: "Mocha Brown" } })
+    await add(shoe, "BB-MS-MB-40", "40")
+    const dress = await t.run((ctx) => ctx.db.insert("products", { name: "Messy Dress", active: true, createdAt: NOW }))
+    await add(dress, "WEE-1", "L"); await add(dress, "BB-DRESS-S", "Size: S")
+    const got = async (q: string) => (await asAdmin.query(api.stockCheck.list, { filter: "all", search: q, cursor: null }))!.products.find((p) => p.name === q)!.lines.map((l) => [l.color, l.size, l.sku])
+    expect(await got("Messy Sandal")).toEqual([["KGF", "39", "BB-MS-KGF-39"], ["KGF", "40", "BB-MS-KGF-40"], ["MB", "39", "BB-MS-MB-39"], ["MB", "40", "BB-MS-MB-40"]])
+    expect((await got("Messy Dress")).map((l) => l[0])).toEqual(["", ""])
+    // The one-time fix writes the right names; the page then shows them.
+    await t.mutation(internal.stockCheck.setColorBySku, { items: [{ skuPrefix: "BB-MS-KGF-", color: "Khaki Green" }, { skuPrefix: "BB-MS-MB-", color: "Mocha Brown" }] })
+    expect((await got("Messy Sandal")).map((l) => l[0])).toEqual(["Khaki Green", "Khaki Green", "Mocha Brown", "Mocha Brown"])
   })
 
   it("rejects bad quantities and people who may not adjust stock", async () => {

@@ -320,5 +320,21 @@
       "notYetLateDays": 10,
       "onlyReason": "Feedback call overdue"
     }
+  },
+  {
+    "id": "2026-11-15-brinkley-new-colours",
+    "fn": "stockCheck:setColorBySku",
+    "args": {
+      "items": [
+        {
+          "skuPrefix": "BB-SN-BBSFN-KGF-",
+          "color": "Khaki Green"
+        },
+        {
+          "skuPrefix": "BB-SN-BBSFN-MB-",
+          "color": "Mocha Brown"
+        }
+      ]
+    }
   }
 ]
