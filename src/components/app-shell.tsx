@@ -17,6 +17,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { cn } from "@/lib/utils"
 import { SignInForm } from "@/components/sign-in-form"
 import { WebsiteSubNav, websiteNavKey } from "@/components/website-nav"
+import { ConnectionBanner, SlowHint } from "@/lib/connection-health"
 
 type Me = { name: string; email: string; roleName: string; perms: string[] }
 const MeContext = createContext<Me | null>(null)
@@ -99,7 +100,7 @@ function Gate({ children }: { children: React.ReactNode }) {
     }
   }, [me?.kind, claim])
 
-  if (me === undefined) return <Centered><p className="text-sm text-muted-foreground">Loading…</p></Centered>
+  if (me === undefined) return <Centered><p className="text-center text-sm text-muted-foreground">Loading…</p><SlowHint autoReload /></Centered>
   if (me.kind === "signedOut") return <SignIn />
   if (me.kind === "firstRun") {
     return (
@@ -267,6 +268,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="h-full w-1/3 animate-[bbload_1.1s_ease-in-out_infinite] rounded-full bg-foreground" />
           </div>
           <style>{"@keyframes bbload{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}"}</style>
+          <SlowHint autoReload />
         </div>
       </AuthLoading>
       <Unauthenticated>
@@ -277,6 +279,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Layout>{children}</Layout>
         </Gate>
       </Authenticated>
+      <ConnectionBanner />
       <Toaster richColors position="top-right" />
     </>
   )

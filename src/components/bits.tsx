@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { STATUS_LABEL, type OrderStatus } from "@/convex/rules"
 import { STATUS_TONE, TAG_TONE, TONE_CLASS, telLink, waLink, type Tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { SlowHint } from "@/lib/connection-health"
 
 export function Pill({ tone, children, className }: { tone: Tone; children: React.ReactNode; className?: string }) {
   return (
@@ -76,7 +77,8 @@ export function Empty({ title, children }: { title: string; children?: React.Rea
 }
 
 export function Loading() {
-  return <div className="py-16 text-center text-sm text-muted-foreground">Loading…</div>
+  // After a while, says so and offers Reload (no automatic reload here: the page around it may hold typed-in work).
+  return <div className="py-16 text-center text-sm text-muted-foreground">Loading…<SlowHint after={12} /></div>
 }
 
 export function ContactButtons({ phone, onCall }: { phone: string; onCall?: () => void }) {

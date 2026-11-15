@@ -6,12 +6,13 @@
 // Without this, the app is stuck forever on the splash screen with no way forward except a manual hard
 // refresh — the failed import just silently kills app startup. One automatic reload, guarded so it can only
 // fire once per tab (never an infinite reload loop if the asset is genuinely gone), fixes it transparently.
+import { reloadOnce } from './connection-health'
+
 if (typeof window !== 'undefined') {
   window.addEventListener('vite:preloadError', (event) => {
     event.preventDefault()
-    const key = 'bb-reloaded-after-chunk-error'
-    if (sessionStorage.getItem(key)) return // already tried once this session — stop here instead of looping
-    sessionStorage.setItem(key, '1')
-    window.location.reload()
+    // At most one automatic reload a minute per tab: never a reload loop if an asset is genuinely gone, but a phone
+    // tab kept open for days still recovers from every later deploy (a once-per-session guard left it stuck).
+    reloadOnce()
   })
 }
