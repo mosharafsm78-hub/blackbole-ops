@@ -35,11 +35,12 @@ if (site && get("SITE_URL") !== site) {
 }
 
 // Pathao proxy: Convex can't reach Pathao directly, so it calls this site's /api/pathao-proxy.
-let proxySecret = get("PATHAO_PROXY_SECRET")
+let proxySecret = process.env.PATHAO_PROXY_SECRET || get("PATHAO_PROXY_SECRET")
 if (!proxySecret) {
   proxySecret = randomBytes(24).toString("hex")
   set("PATHAO_PROXY_SECRET", proxySecret)
 }
+// The Ops server (VPS) keeps its own copy of PATHAO_PROXY_URL/SECRET; this build only needs the secret baked in.
 if (site && get("PATHAO_PROXY_URL") !== `${site}/api/pathao-proxy`) set("PATHAO_PROXY_URL", `${site}/api/pathao-proxy`)
 const secretFile = "src/server/proxy-secret.ts"
 writeFileSync(secretFile, readFileSync(secretFile, "utf8").replace("__PATHAO_PROXY_SECRET__", proxySecret))

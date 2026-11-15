@@ -1,4 +1,4 @@
 {
-  "buildCommand": "cd forwarder && npm install --no-audit --no-fund && npx convex deploy && cd .. && npm run build",
+  "buildCommand": "node scripts/setup-convex-env.mjs && cd forwarder && npm install --no-audit --no-fund && npx convex deploy && cd .. && npm run build",
   "installCommand": "npm install"
 }
