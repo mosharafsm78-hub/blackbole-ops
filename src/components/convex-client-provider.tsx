@@ -9,21 +9,12 @@ if (!CONVEX_URL) {
 // Nearby Cloudflare relay for the live connection (much faster to open from Bangladesh). Empty = connect directly.
 const RELAY_URL = ""
 
-// Moving off Convex cloud: the self-hosted copy on BlackBole's own VPS. Open Ops with ?server=vps to try it in
-// this browser only (remembered), ?server=cloud to go back. Everyone else keeps using the default server.
+// Ops runs on BlackBole's own server (VPS) since 16 Nov 2026. The old cloud address only forwards
+// outside calls (webhooks, website) there. ?server=... is ignored now; there is one server.
 const VPS_URL = "https://ops-api.216-219-95-184.sslip.io"
-function chosenServer(): "vps" | "cloud" {
-  if (typeof window === "undefined") return "cloud"
-  try {
-    const q = new URLSearchParams(window.location.search).get("server")
-    if (q === "vps" || q === "cloud") localStorage.setItem("bb-server", q)
-    return localStorage.getItem("bb-server") === "vps" ? "vps" : "cloud"
-  } catch { return "cloud" }
-}
-export const SERVER = chosenServer()
-const convex = SERVER === "vps"
-  ? new ConvexReactClient(VPS_URL, { skipConvexDeploymentUrlCheck: true })
-  : new ConvexReactClient(RELAY_URL || CONVEX_URL, { skipConvexDeploymentUrlCheck: !!RELAY_URL })
+export const SERVER = "vps" as const
+const convex = new ConvexReactClient(VPS_URL, { skipConvexDeploymentUrlCheck: true })
+void RELAY_URL; void CONVEX_URL
 
 export default function AppConvexProvider({
   children,
@@ -31,8 +22,8 @@ export default function AppConvexProvider({
   children: React.ReactNode
 }) {
   // Shown only after the page has started in the browser (the server-rendered page can't know the choice).
-  const [showBadge, setShowBadge] = useState(false)
-  useEffect(() => setShowBadge(SERVER === "vps"), [])
+  const [showBadge] = useState(false) // no test badge any more: everyone is on the VPS
+  useEffect(() => {}, [])
   return (
     <ConvexAuthProvider client={convex}>
       {showBadge && (
