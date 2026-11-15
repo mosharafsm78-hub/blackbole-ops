@@ -481,8 +481,12 @@ export const markManual = mutation({
 export const sweepCancelRequests = internalMutation({
   args: {},
   handler: async (ctx) => {
-    const recent: Doc<"orders">[] = await ctx.db.query("orders").withIndex("by_created").order("desc").take(2000)
+    // Only pending / on-hold orders can be auto-cancelled, so read just those (by status) instead of the last 2000
+    // orders every 30 minutes, which was one of the largest database costs. Same ~5-week window as before.
     const now = Date.now()
+    const since = now - 35 * 86_400_000
+    const recent: Doc<"orders">[] = (await Promise.all((["pending", "on_hold"] as const).map((s) =>
+      ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", s).gte("createdAt", since)).collect()))).flat()
     let n = 0
     for (const o of recent) {
       if (o.deletedAt || o.waVerify?.result !== "cancel_requested") continue

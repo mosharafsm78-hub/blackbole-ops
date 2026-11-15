@@ -99,7 +99,7 @@ describe("product plan from sales and stock", () => {
 
     // today only 2 sold → the plan is unchanged, but the days left carry the shortfall
     await sell("BB-SOFT-41", "Soft Slide", 2, 1000, NOW + 60000)
-    vi.setSystemTime(NOW + 11 * 60000) // past the 10-minute data cache
+    vi.setSystemTime(NOW + 21 * 60000) // past the 20-minute data cache
     const second = await asAdmin.action(api.targets.progress, {})
     const r2 = second.products![0]
     expect(r2.monthUnits).toBe(210)
@@ -140,7 +140,7 @@ describe("product plan from sales and stock", () => {
 
     // …a stock count finds only 20 are real
     await t.run(async (ctx) => { const s = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", hero)).first(); await ctx.db.patch(s!._id, { available: 20 }) })
-    vi.setSystemTime(NOW + 11 * 60000) // past the 10-minute data cache, far inside the 7-day replan window
+    vi.setSystemTime(NOW + 21 * 60000) // past the 20-minute data cache, far inside the 7-day replan window
     const after = await asAdmin.action(api.targets.progress, {})
     expect(after.products![0].monthUnits).toBe(20)
     expect(after.productInfo!.gap).toBeGreaterThan(0) // the target can't be carried by what's really there

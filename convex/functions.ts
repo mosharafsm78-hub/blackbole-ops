@@ -5,12 +5,15 @@ import { Triggers } from "convex-helpers/server/triggers"
 import { customCtx, customMutation } from "convex-helpers/server/customFunctions"
 import { orderStatsTrigger } from "./stats"
 import { markDirty } from "./shopifyStock"
+import { bustPlanCaches } from "./cacheBust"
 
 const triggers = new Triggers<DataModel>()
 triggers.register("orders", orderStatsTrigger)
 // live stock → Shopify: stock rows changing, or orders entering/leaving Pending / On Hold
 triggers.register("stock", async (ctx, ch) => {
   if (ch.oldDoc?.available !== ch.newDoc?.available) await markDirty(ctx, [ch.newDoc?.variantId ?? ch.oldDoc?.variantId])
+  // A stock count (real / fake pairs) changed: drop the cached plans so they show it at once.
+  if (ch.oldDoc?.virtual !== ch.newDoc?.virtual || ch.oldDoc?.countedAt !== ch.newDoc?.countedAt) await bustPlanCaches(ctx)
 })
 triggers.register("orders", async (ctx, ch) => {
   const held = (o: any) => !!o && !o.deletedAt && (o.status === "pending" || o.status === "on_hold")

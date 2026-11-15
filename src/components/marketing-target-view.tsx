@@ -18,7 +18,7 @@ import { errMsg, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /** Marketing's own page: live, refreshes every minute or instantly via the returned refetch. */
-export const useMarketingProgress = () => usePolledAction(api.targets.marketingProgress, {}, 60000)
+export const useMarketingProgress = () => usePolledAction(api.targets.marketingProgress, {}, 3 * 60000) // every 3 minutes: each refresh reads a large cached plan
 
 /** The whole Target page, now solely for Marketing: the ৳18,00,000-style gross-sale target — counted from the
  *  moment an order is placed, not approved or delivered — daily pacing toward it, which products (how many pairs

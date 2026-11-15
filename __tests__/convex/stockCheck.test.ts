@@ -267,7 +267,7 @@ describe("the plan follows the counts as they are entered", () => {
 
     // The team finds only 440 of A's 500 are real: total stock moves 60 of 540 → 11%, but even a 1-pair change must count.
     await asAdmin.mutation(api.stockCheck.saveCounts, { items: [{ variantId: a.variantIds[0], locationId, real: 495 }] })
-    vi.setSystemTime(NOW + 11 * 60000) // past the 10-minute data cache
+    // no waiting: saving a count drops the cached plan, so it shows at once
     const second = await asAdmin.action(api.targets.progress, {})
     expect(second.products!.find((r) => r.key === "BB-A")!.stockUnits).toBe(495)
     const saved = await t.run((ctx) => ctx.db.query("revenueTargets").first())

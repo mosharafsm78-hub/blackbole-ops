@@ -18,6 +18,7 @@ import { hasPerm } from "./rules"
 import { applyTestStock } from "./stockCheck"
 import { finishCollections, type Rules, type SortKey } from "./websiteRules"
 import { marketingChanged } from "./marketingPush"
+import { bustPlanCaches } from "./cacheBust"
 
 export const EXPORT_URL = "https://blackbole-site.pages.dev/data/catalog-export.json"
 const REBUILD_DELAY = 30 * 1000 // short pause so several quick edits go out together
@@ -170,7 +171,17 @@ const json = (data: unknown, status = 200) => new Response(JSON.stringify(data),
 export const catalogHttp = httpAction(async (ctx, req) => {
   const key = process.env.MARKETING_FEED_KEY
   if (!key || key.length < 24 || req.headers.get("X-Feed-Key") !== key) return json({ error: "Invalid feed key" }, 401)
-  const data: any = await ctx.runQuery(internal.website.catalogData, {})
+  // The whole catalog (every product, size and stock row) is rebuilt at most every 10 minutes; reading it fresh on
+  // every request was a large database cost. If it is too big to cache, it is simply served fresh as before.
+  let data: any = null
+  try {
+    const hit = await ctx.runQuery(internal.dashboard.readCacheSystem, { key: "feed-catalog" })
+    if (hit && Date.now() - hit.at < 10 * 60_000) data = hit.value
+  } catch { data = null }
+  if (!data) {
+    data = await ctx.runQuery(internal.website.catalogData, {})
+    try { await ctx.runMutation(internal.dashboard.writeCache, { key: "feed-catalog", value: data }) } catch { /* too big to cache */ }
+  }
   // "Best selling" order uses pairs sold per product (worked out daily in the background, see salesTick).
   // It can never block the catalog: if it isn't there, collections simply keep their saved order.
   let sold: Record<string, number> = {}
@@ -784,6 +795,7 @@ async function setStatus(ctx: MutationCtx, id: Id<"products">, status: "active" 
 export const bulkStatus = mutation({
   args: { ids: v.array(v.id("products")), status: v.union(v.literal("active"), v.literal("draft"), v.literal("archived")) },
   handler: async (ctx, { ids, status }) => {
+    await bustPlanCaches(ctx) // product edits must show in the website feed and plans at once
     await requireWebsite(ctx)
     for (const id of ids.slice(0, 500)) await setStatus(ctx, id, status)
     await queueRebuild(ctx)
@@ -795,6 +807,7 @@ export const bulkStatus = mutation({
 export const bulkTags = mutation({
   args: { ids: v.array(v.id("products")), tags: v.array(v.string()), add: v.boolean() },
   handler: async (ctx, { ids, tags, add }) => {
+    await bustPlanCaches(ctx) // product edits must show in the website feed and plans at once
     await requireWebsite(ctx)
     const list = [...new Set(tags.map((t) => t.trim()).filter(Boolean))]
     if (!list.length) throw new ConvexError("Add a tag first")
@@ -864,6 +877,7 @@ export const saveProduct = mutation({
     collections: v.array(v.id("webCollections")),
   },
   handler: async (ctx, a) => {
+    await bustPlanCaches(ctx) // product edits must show in the website feed and plans at once
     await requireWebsite(ctx)
     const p = await ctx.db.get(a.id)
     if (!p || p.deletedAt) throw new ConvexError("Product not found")

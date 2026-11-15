@@ -71,8 +71,18 @@ export const stockBySku = internalQuery({
   handler: async (ctx, { product: only }) => {
     const locations = await ctx.db.query("locations").collect()
     const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
-    const variants = await ctx.db.query("variants").collect()
-    const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
+    // One product asked for: find it by name and read only its sizes. Reading the whole product and size tables for
+    // every single-product request was one of the largest database costs.
+    let variants: Doc<"variants">[]
+    let products: Map<string, Doc<"products">>
+    if (only !== undefined) {
+      const named = (await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", only)).take(50)).filter((p) => p.name === only)
+      products = new Map(named.map((p) => [p._id as string, p]))
+      variants = (await Promise.all(named.map((p) => ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()))).flat()
+    } else {
+      variants = await ctx.db.query("variants").collect()
+      products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
+    }
     const out: { sku: string; product: string; variant: string; price: number; webPrice: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null; handle: string | null }[] = []
     for (const vr of variants) {
       const p = products.get(vr.productId as string)
@@ -116,7 +126,7 @@ export const orders = httpAction(async (ctx, req) => {
 })
 
 /** Stock list for Marketing OS, worked out at most once every 5 minutes (it reads every size and warehouse row, and Marketing OS asks often). */
-const STOCK_CACHE_MS = 5 * 60_000
+const STOCK_CACHE_MS = 15 * 60_000 // the whole-catalog stock list reads every product and size: rebuild it at most every 15 minutes
 async function cachedStock(ctx: any, product?: string) {
   const key = `feed-stock:${product ?? "*"}`
   try {
