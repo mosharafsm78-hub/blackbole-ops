@@ -54,11 +54,9 @@ sleep 8
 docker ps --filter name=convex-ops --format 'table {{.Names}}\t{{.Status}}'
 
 echo "== web address (caddy) =="
-if ! grep -q "$API" $CADDYFILE; then
-  cp $CADDYFILE $CADDYFILE.bak-$(date +%Y%m%d-%H%M%S)
-  BAK=$(ls -t $CADDYFILE.bak-* | head -1)
-  cat >> $CADDYFILE <<CADDY
-
+# Kept in extra.caddy, which the Shaperk sync appends to its generated Caddyfile (never overwritten).
+EXTRA=/opt/shaperk/caddy/extra.caddy
+cat > $EXTRA <<CADDY
 $API {
   reverse_proxy convex-ops:3210
 }
@@ -66,13 +64,10 @@ $SITE {
   reverse_proxy convex-ops:3211
 }
 CADDY
-  if docker exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-    docker exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile && echo "caddy: sites added"
-  else
-    cat $BAK > $CADDYFILE; echo "caddy: NEW CONFIG INVALID - restored the old one, nothing changed"
-  fi
+if docker run --rm -v $EXTRA:/etc/caddy/Caddyfile:ro caddy:2 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+  echo "caddy: convex sites written to $EXTRA (live within 2 minutes)"
 else
-  echo "caddy: sites already there"
+  rm -f $EXTRA; echo "caddy: extra sites INVALID - removed, nothing changed"
 fi
 
 echo "== admin key (kept on this server only, not shown) =="
