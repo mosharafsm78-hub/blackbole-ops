@@ -357,5 +357,26 @@
     "id": "2026-11-16-variant-photos",
     "fn": "shopifyPull:syncVariantImages",
     "args": {}
+  },
+  {
+    "id": "2026-11-16-sidmouth-edge-sandal",
+    "fn": "catalog:skuAndFakeStock",
+    "args": {
+      "handle": "blackbole-sidmouth-edge-sandal",
+      "title": "BlackBole Sidmouth Edge Sandal",
+      "skuPrefix": "BB-SN-BSES",
+      "sizes": [
+        "39",
+        "40",
+        "41",
+        "42",
+        "43",
+        "44"
+      ],
+      "weightKg": 0.3,
+      "fakeQty": 10,
+      "price": 1580,
+      "bareTitle": true
+    }
   }
 ]
