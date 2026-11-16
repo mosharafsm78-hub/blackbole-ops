@@ -385,5 +385,21 @@
     "args": {
       "skuPart": "BB-SN-BSES"
     }
+  },
+  {
+    "id": "2026-11-16-bronze-to-khaki-green-v2",
+    "fn": "catalog:renameColourBySku",
+    "args": {
+      "skuPrefix": "BB-SN-BBSFN-BRZ",
+      "from": "Bronze",
+      "to": "Khaki Green"
+    }
+  },
+  {
+    "id": "2026-11-16-fix-order-item-photos-v2",
+    "fn": "orders:fixItemPhotos",
+    "args": {
+      "days": 30
+    }
   }
 ]

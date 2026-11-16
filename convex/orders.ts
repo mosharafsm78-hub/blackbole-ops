@@ -1813,14 +1813,16 @@ export const addPreOrderBd = internalMutation({
   },
 })
 
-/** One-time: recent orders showing the wrong colour photo. Re-points each line's photo at its own colour variant. */
+/** One-time: recent orders showing the wrong colour photo. Re-points each line's photo at its own colour variant.
+ *  Walks the orders newest first, 60 at a time, until it is past `days` days back. */
 export const fixItemPhotos = internalMutation({
-  args: { days: v.number() },
+  args: { days: v.number(), cursor: v.optional(v.string()) },
   handler: async (ctx, a) => {
     const since = Date.now() - a.days * 86400000
-    let orders = 0, lines = 0
-    for (const o of await ctx.db.query("orders").withIndex("by_created").order("desc").take(3000)) {
-      if (o.createdAt < since) break
+    const page = await ctx.db.query("orders").withIndex("by_created").order("desc").paginate({ numItems: 60, cursor: a.cursor ?? null })
+    let orders = 0, lines = 0, past = false
+    for (const o of page.page) {
+      if (o.createdAt < since) { past = true; break }
       if (o.deletedAt) continue
       let changed = false
       const items: typeof o.items = []
@@ -1832,6 +1834,7 @@ export const fixItemPhotos = internalMutation({
       }
       if (changed) { await ctx.db.patch(o._id, { items }); orders++ }
     }
+    if (!page.isDone && !past) await ctx.scheduler.runAfter(0, internal.orders.fixItemPhotos, { days: a.days, cursor: page.continueCursor })
     return { orders, lines }
   },
 })

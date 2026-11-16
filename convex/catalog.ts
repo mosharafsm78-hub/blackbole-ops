@@ -650,16 +650,16 @@ export const renameColour = internalMutation({
   },
 })
 
-/** One-time: a colour was renamed on Shopify (same SKUs). Renames it on the product (name, website title, options), its variants and every order line with that SKU prefix. */
+/** One-time: a colour was renamed on Shopify (same SKUs). Renames it on the product (name, website title, options) and its variants,
+ *  then walks the orders in small batches (renameColourInOrders). Reads only the SKUs it needs, so it never hits Convex's read limit. */
 export const renameColourBySku = internalMutation({
   args: { skuPrefix: v.string(), from: v.string(), to: v.string() },
   handler: async (ctx, a) => {
     const pre = a.skuPrefix.trim().toUpperCase()
     const swap = (t?: string) => (t && t.includes(a.from) ? t.split(a.from).join(a.to) : t)
     const productIds = new Set<Id<"products">>()
-    let variants = 0, orders = 0
-    for (const vr of await ctx.db.query("variants").collect()) {
-      if (!vr.sku.toUpperCase().startsWith(pre)) continue
+    let variants = 0
+    for (const vr of await ctx.db.query("variants").withIndex("by_sku", (q) => q.gte("sku", pre).lt("sku", pre + "~")).collect()) {
       productIds.add(vr.productId)
       const title = swap(vr.title)!, attrs = swap(vr.attrs)
       const web = vr.web ? { ...vr.web, options: Object.fromEntries(Object.entries(vr.web.options ?? {}).map(([k, val]) => [k, swap(String(val))])) } : undefined
@@ -672,12 +672,26 @@ export const renameColourBySku = internalMutation({
       await ctx.db.patch(id, { name, ...(p.web ? { web: { ...p.web, title: swap(p.web.title) ?? p.web.title } } : {}) })
       await marketingChanged(ctx, { productId: id })
     }
-    for (const o of await ctx.db.query("orders").collect()) {
+    await ctx.scheduler.runAfter(0, internal.catalog.renameColourInOrders, { skuPrefix: pre, from: a.from, to: a.to })
+    return { products: productIds.size, variants }
+  },
+})
+
+/** Walks every order (newest first, 100 at a time) and renames the colour on the lines whose SKU starts with `skuPrefix`. */
+export const renameColourInOrders = internalMutation({
+  args: { skuPrefix: v.string(), from: v.string(), to: v.string(), cursor: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const pre = a.skuPrefix.toUpperCase()
+    const swap = (t?: string) => (t && t.includes(a.from) ? t.split(a.from).join(a.to) : t)
+    const page = await ctx.db.query("orders").withIndex("by_created").order("desc").paginate({ numItems: 100, cursor: a.cursor ?? null })
+    let changed = 0
+    for (const o of page.page) {
       if (!o.items.some((i) => i.sku.toUpperCase().startsWith(pre))) continue
       const items = o.items.map((i) => (i.sku.toUpperCase().startsWith(pre) ? { ...i, name: swap(i.name)!, attrs: swap(i.attrs) } : i))
-      await ctx.db.patch(o._id, { items }); orders++
+      await ctx.db.patch(o._id, { items }); changed++
     }
-    return { products: productIds.size, variants, orders }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.catalog.renameColourInOrders, { ...a, cursor: page.continueCursor })
+    return { changed, done: page.isDone }
   },
 })
 
