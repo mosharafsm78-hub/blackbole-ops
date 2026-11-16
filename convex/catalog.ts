@@ -650,6 +650,37 @@ export const renameColour = internalMutation({
   },
 })
 
+/** One-time: a colour was renamed on Shopify (same SKUs). Renames it on the product (name, website title, options), its variants and every order line with that SKU prefix. */
+export const renameColourBySku = internalMutation({
+  args: { skuPrefix: v.string(), from: v.string(), to: v.string() },
+  handler: async (ctx, a) => {
+    const pre = a.skuPrefix.trim().toUpperCase()
+    const swap = (t?: string) => (t && t.includes(a.from) ? t.split(a.from).join(a.to) : t)
+    const productIds = new Set<Id<"products">>()
+    let variants = 0, orders = 0
+    for (const vr of await ctx.db.query("variants").collect()) {
+      if (!vr.sku.toUpperCase().startsWith(pre)) continue
+      productIds.add(vr.productId)
+      const title = swap(vr.title)!, attrs = swap(vr.attrs)
+      const web = vr.web ? { ...vr.web, options: Object.fromEntries(Object.entries(vr.web.options ?? {}).map(([k, val]) => [k, swap(String(val))])) } : undefined
+      if (title !== vr.title || attrs !== vr.attrs || web) { await ctx.db.patch(vr._id, { title, attrs, ...(web ? { web } : {}) }); variants++ }
+    }
+    for (const id of productIds) {
+      const p = await ctx.db.get(id)
+      if (!p) continue
+      const name = swap(p.name)!
+      await ctx.db.patch(id, { name, ...(p.web ? { web: { ...p.web, title: swap(p.web.title) ?? p.web.title } } : {}) })
+      await marketingChanged(ctx, { productId: id })
+    }
+    for (const o of await ctx.db.query("orders").collect()) {
+      if (!o.items.some((i) => i.sku.toUpperCase().startsWith(pre))) continue
+      const items = o.items.map((i) => (i.sku.toUpperCase().startsWith(pre) ? { ...i, name: swap(i.name)!, attrs: swap(i.attrs) } : i))
+      await ctx.db.patch(o._id, { items }); orders++
+    }
+    return { products: productIds.size, variants, orders }
+  },
+})
+
 /** One-time: a new colour of an existing product. Copies the sibling's sizes, prices, cost, weight and website fields, swaps the colour
  *  word and SKU code, and adds fake (not-in-hand) pairs in every size. Safe to re-run: does nothing if the new product already exists. */
 export const cloneColour = internalMutation({

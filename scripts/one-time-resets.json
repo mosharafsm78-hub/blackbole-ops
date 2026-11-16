@@ -343,5 +343,14 @@
     "args": {
       "integrationSecret": "f3992ecc-59da-4cbe-a049-a13da2018d51"
     }
+  },
+  {
+    "id": "2026-11-16-bronze-to-khaki-green",
+    "fn": "catalog:renameColourBySku",
+    "args": {
+      "skuPrefix": "BB-SN-BBSFN-BRZ",
+      "from": "Bronze",
+      "to": "Khaki Green"
+    }
   }
 ]
