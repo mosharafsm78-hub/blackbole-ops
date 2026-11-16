@@ -617,7 +617,8 @@ export const recentOrdersForVariant = query({
     if (!variant) return []
     const sku = variant.sku.trim().toUpperCase()
     const out: { _id: Id<"orders">; invoice: string; customerName: string; phone: string; createdAt: number; status: string; qty: number; source: string }[] = []
-    for (const o of await ctx.db.query("orders").withIndex("by_created").order("desc").take(1500)) {
+    // newest 500 orders (~2 weeks): reading 1500 full orders took up to 30 s on the single-CPU server
+    for (const o of await ctx.db.query("orders").withIndex("by_created").order("desc").take(500)) {
       if (o.deletedAt) continue
       let qty = 0
       for (const i of o.items) if ((i.variantId as string | undefined) === (variantId as string) || (!i.variantId && (i.sku ?? "").trim().toUpperCase() === sku)) qty += i.qty

@@ -4,14 +4,15 @@ import { internal } from "./_generated/api"
 const crons = cronJobs()
 
 // Pathao: statuses and payments every 10 minutes; every Payment Due order re-checked every 30 minutes (paused 11 pm–8 am; Shopify orders arrive 24/7 by webhook)
-crons.interval("pathao status sync", { minutes: 10 }, internal.pathao.cronTick, { job: "status" })
-crons.interval("pathao money sync", { minutes: 10 }, internal.pathao.cronTick, { job: "money" })
+// Pathao webhook now gives instant status updates (16 Nov 2026); polling is only a safety net — kept light for the single-CPU server.
+crons.interval("pathao status sync", { minutes: 30 }, internal.pathao.cronTick, { job: "status" })
+crons.interval("pathao money sync", { minutes: 60 }, internal.pathao.cronTick, { job: "money" })
 crons.interval("pathao payment due check", { minutes: 30 }, internal.pathao.cronTick, { job: "due" })
 // exchange orders without a Pathao parcel (Pathao booked the exchange under the earlier order number): find and link them
 crons.interval("pathao exchange parcels", { minutes: 60 }, internal.pathao.cronTick, { job: "exchange" })
 // automatic order confirmation calls: start due calls every minute (does nothing while switched off)
 // Shopify → Ops product sync (price, title, description, tags, SEO…): marketing edits in Shopify show up in Ops within minutes
-crons.interval("shopify product pull", { minutes: 5 }, internal.shopifyPull.run, {})
+crons.interval("shopify product pull", { minutes: 15 }, internal.shopifyPull.run, {})
 crons.interval("shopify clearance codes", { minutes: 60 }, internal.shopifyDiscounts.syncAll, {})
 // COD-popup orders: fill in the ad campaign from the order attributes (Marketing OS matches orders to ads with it)
 crons.interval("shopify order campaigns", { hours: 1 }, internal.campaignBackfill.run, {})
