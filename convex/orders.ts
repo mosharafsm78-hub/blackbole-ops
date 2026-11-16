@@ -488,10 +488,12 @@ export const sameNumberCount = query({
 
 async function withDupes(ctx: QueryCtx, page: Doc<"orders">[]) {
   const locs = new Map((await ctx.db.query("locations").collect()).map((l) => [l._id as string, l.name]))
+  // One read of all open orders (a few hundred) instead of up to 30 full orders per row (thousands per page) —
+  // that per-row read made the order list take seconds on BlackBole's own single-CPU server.
+  const openByPhone = page.length ? await openOrdersByPhone(ctx) : new Map<string, number>()
   return await Promise.all(
     page.map(async (o) => {
-      const same = await ctx.db.query("orders").withIndex("by_phone", (q) => q.eq("phone", o.phone)).take(30)
-      const dupes = same.filter((x) => x._id !== o._id && !x.deletedAt && OPEN.includes(x.status as OrderStatus)).length
+      const dupes = Math.max(0, (openByPhone.get(o.phone) ?? 0) - (!o.deletedAt && OPEN.includes(o.status as OrderStatus) ? 1 : 0))
       const c = await ctx.db.get(o.customerId)
       return { ...o, dupes, customerTag: c?.tag ?? "NEW", customerOrders: c?.orderCount ?? 1, locationName: locs.get(o.locationId) ?? "" }
     }),
