@@ -309,6 +309,15 @@ export const holdReasonCounts = query({
  *  order from months ago isn't realistic, so old unresolved ones just age out of this count instead of
  *  piling up forever. (Older orders are still there and still visible via the Orders list filters.) */
 const URGENCY_WINDOW_DAYS = 45
+const DELIVERED_ST: OrderStatus[] = ["delivered_due", "delivered_paid"]
+const FLAGGED_ST: OrderStatus[] = ["pending_returned", "returned", "damaged"]
+/** Which statuses each action-list flag can match (so the list reads only those). */
+const FLAG_STATUSES: Record<string, { statuses: OrderStatus[]; windowed: boolean }> = {
+  needsReason: { statuses: FLAGGED_ST, windowed: true },
+  needsFeedback: { statuses: DELIVERED_ST, windowed: true },
+  csatFollowUp: { statuses: [...DELIVERED_ST, ...FLAGGED_ST], windowed: true },
+  wantsCancel: { statuses: ["pending"], windowed: false },
+}
 
 /** A returned/damaged order is "handled" once a reason is logged OR a return feedback call reached the customer. */
 function returnReasonDone(o: { reason?: string; returnCsat?: unknown }): boolean {
@@ -546,7 +555,14 @@ export const list = query({
       rows = rows.filter((o) => !o.deletedAt).sort((x, y) => y.createdAt - x.createdAt)
       return { rows: await dupesIfSmall(ctx, rows.slice(0, limit), limit), hasMore: rows.length > limit }
     }
-    if (f.from && (f.dateField ?? "createdAt") === "createdAt") {
+    // Action-list flags only ever match a few statuses: read just those (last 45 days, the same window as the
+    // dashboard numbers) instead of scanning 3000 full orders — that scan timed out on BlackBole's own server.
+    const flagStatuses = FLAG_STATUSES[f.flag ?? ""]
+    if (flagStatuses && !f.from) {
+      const since = flagStatuses.windowed ? Date.now() - URGENCY_WINDOW_DAYS * 86400000 : 0
+      const sts = flagStatuses.statuses.filter((st) => !tab || tab.statuses.includes(st))
+      for (const st of sts) rows.push(...(await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st).gte("createdAt", since)).order("desc").take(3000)))
+    } else if (f.from && (f.dateField ?? "createdAt") === "createdAt") {
       rows = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", f.from!).lte("createdAt", f.to ?? Date.now() + 86400000)).order("desc").take(6000)
     } else if (tab) {
       for (const st of tab.statuses) rows.push(...(await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", st)).order("desc").take(3000)))
