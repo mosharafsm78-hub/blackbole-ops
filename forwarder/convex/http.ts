@@ -5,7 +5,7 @@
 // and the VPS answer is passed back. It reads no database, so it stays inside Convex's free plan.
 import { httpActionGeneric, httpRouter } from "convex/server"
 
-const TARGET = "https://ops-site.216-219-95-184.sslip.io"
+const TARGET = "https://ops-site.43-156-155-69.sslip.io"
 const DROP_REQUEST = ["host", "content-length", "connection", "accept-encoding"]
 const DROP_RESPONSE = ["content-encoding", "content-length", "transfer-encoding", "connection"]
 
