@@ -699,7 +699,7 @@ export default defineSchema({
   dayStats: defineTable({ day: v.string(), st: v.any(), src: v.any(), it: v.any(), due: v.number(), q: v.number() }).index("by_day", ["day"]),
 
   // Saved results of heavy read-only reports (dashboard), shared by everyone for a few minutes to save database reads
-  cache: defineTable({ key: v.string(), at: v.number(), value: v.any() }).index("by_key", ["key"]),
+  cache: defineTable({ key: v.string(), at: v.number(), value: v.any(), refreshingAt: v.optional(v.number()) }).index("by_key", ["key"]),
 
   // Shopify checkouts — the ones never finished are "abandoned carts" the team calls to win back
   checkouts: defineTable({

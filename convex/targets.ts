@@ -907,6 +907,8 @@ async function computeProgress(ctx: ActionCtx, month: string | undefined, system
     const key = `target-data:${m}:${period.first}`
     const hit = await ctx.runQuery(system ? internal.dashboard.readCacheSystem : internal.dashboard.readCache, { key })
     let data: Gathered | null = hit && (hit.value as Gathered).at && now - (hit.value as Gathered).at < CACHE_MS ? (hit.value as Gathered) : null
+    // Stale data: only one caller gathers again; the rest use the last numbers (the single-CPU server stalled otherwise).
+    if (!data && hit && (hit.value as Gathered)?.at && now - (hit.value as Gathered).at < 6 * 3600_000 && !(await ctx.runMutation(internal.dashboard.claimRefresh, { key }))) data = hit.value as Gathered
     let dirty = false
     if (!data) { data = await gather(ctx, m, row.start, now, current); dirty = true }
     let spendFailed = false

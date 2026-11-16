@@ -147,17 +147,35 @@ export const readCacheSystem = internalQuery({
   },
 })
 
+/** Marks a cache entry as being re-worked out; false if someone else started within the last 2 minutes. */
+export const claimRefresh = internalMutation({
+  args: { key: v.string() },
+  handler: async (ctx, { key }) => {
+    const row = await ctx.db.query("cache").withIndex("by_key", (q) => q.eq("key", key)).unique()
+    if (!row) return true
+    if (row.refreshingAt && Date.now() - row.refreshingAt < 120_000) return false
+    await ctx.db.patch(row._id, { refreshingAt: Date.now() })
+    return true
+  },
+})
+
 export const writeCache = internalMutation({
   args: { key: v.string(), value: v.any() },
   handler: async (ctx, { key, value }) => {
     const row = await ctx.db.query("cache").withIndex("by_key", (q) => q.eq("key", key)).unique()
-    if (row) await ctx.db.patch(row._id, { at: Date.now(), value })
+    if (row) await ctx.db.patch(row._id, { at: Date.now(), value, refreshingAt: undefined })
     else await ctx.db.insert("cache", { key, at: Date.now(), value })
   },
 })
 async function cached<T>(ctx: any, key: string, maxAgeMs: number, make: () => Promise<T>): Promise<T> {
   const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
   if (hit && Date.now() - hit.at < maxAgeMs) return hit.value as T
+  // Stale: only ONE person re-works it out; everyone else gets the last numbers at once (they are a few minutes old).
+  // Before this, every open dashboard recomputed together and the single-CPU server stalled for everyone.
+  if (hit && hit.value != null && Date.now() - hit.at < 6 * 3600_000) {
+    const mine = await ctx.runMutation(internal.dashboard.claimRefresh, { key })
+    if (!mine) return hit.value as T
+  }
   const value = await make()
   await ctx.runMutation(internal.dashboard.writeCache, { key, value })
   return value

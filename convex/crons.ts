@@ -100,6 +100,8 @@ crons.weekly("kpi revenue target pace check", { dayOfWeek: "monday", hourUTC: 3,
 crons.daily("kpi revenue target month check", { hourUTC: 3, minuteUTC: 25 }, internal.targets.monthTargetCheck, {})
 
 // Website: pairs sold per product (last 90 days) for "Best selling" collection order
+// keeps the shared Target numbers warm so a person opening Target never waits for the full re-count
+crons.interval("target numbers warm", { minutes: 15 }, internal.targets.progressForFeed, {})
 crons.interval("website best sellers", { hours: 6 }, internal.website.salesTick, {})
 
 // Shopify stock full repair: the per-change live sync only ever processes the variant that just changed, so a
