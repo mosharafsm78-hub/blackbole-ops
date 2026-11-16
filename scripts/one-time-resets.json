@@ -378,5 +378,12 @@
       "price": 1580,
       "bareTitle": true
     }
+  },
+  {
+    "id": "2026-11-16-sidmouth-edge-sandal-stock",
+    "fn": "catalog:syncStockToShopify",
+    "args": {
+      "skuPart": "BB-SN-BSES"
+    }
   }
 ]
