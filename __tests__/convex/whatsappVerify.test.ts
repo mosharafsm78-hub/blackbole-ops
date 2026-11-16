@@ -135,7 +135,6 @@ describe("WhatsApp order verification", () => {
 
   it("only trusted customers are approved on a WhatsApp tap: unknown or 70–84% → team calls; double order → team calls", async () => {
     const { t, as, order, status } = await setup()
-    const log = async (id: any) => (await t.run((ctx) => ctx.db.query("orderLogs").collect())).filter((l: any) => l.orderId === id).map((l: any) => l.text ?? l.message ?? "").join(" | ")
     const mid = await order("01711000021", undefined, { delivered: 8, returned: 2 }) // 80%
     await as.mutation(api.whatsappVerify.simulate, { invoice: mid.invoice, step: "start" })
     const r1 = await as.mutation(api.whatsappVerify.simulate, { invoice: mid.invoice, step: "confirm" })
@@ -153,7 +152,6 @@ describe("WhatsApp order verification", () => {
     await as.mutation(api.whatsappVerify.simulate, { invoice: dup.invoice, step: "start" })
     expect((await as.mutation(api.whatsappVerify.simulate, { invoice: dup.invoice, step: "confirm" })).result).toBe("confirmed_call")
     expect(await status(dup.id)).toBe("pending")
-    void log
   })
 
   it("risky customer (below 70% delivered): no automatic WhatsApp message, the team is asked to call and take the delivery charge in advance", async () => {
@@ -163,7 +161,7 @@ describe("WhatsApp order verification", () => {
     await t.action(internal.whatsappVerify.sendConfirmation, { orderId: r.id })
     const e = await t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${r.id}`)).first())
     expect(e?.result).toBe("auto_skipped")
-    expect(e?.out[0]).toMatch(/risky customer/)
+    expect(e?.out?.[0]).toMatch(/risky customer/)
     const o = (await t.run((ctx) => ctx.db.get(r.id))) as any
     expect(o.followUpAt).toBeTruthy()
     expect(o.waVerify).toBeUndefined()
