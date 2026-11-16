@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values"
-import { action, httpAction, internalAction, internalQuery, query } from "./_generated/server"
+import { action, httpAction, internalAction, internalQuery, query, type ActionCtx } from "./_generated/server"
 import { internalMutation, mutation } from "./functions"
 import { internal } from "./_generated/api"
 import type { Doc, Id } from "./_generated/dataModel"
@@ -543,39 +543,49 @@ export const customerHistory = action({
   args: { phone: v.string(), fresh: v.optional(v.boolean()) },
   handler: async (ctx, { phone, fresh }): Promise<CourierHistory | { error: string }> => {
     await ctx.runQuery(internal.pathao.checkPerm, { perm: "orders.view" })
-    const p = phone.replace(/\D/g, "").replace(/^88/, "")
-    if (!/^01\d{9}$/.test(p)) return { error: "Phone number looks wrong" }
-    const cached = await ctx.runQuery(internal.pathao.cachedHistory, { phone: p })
-    if (cached && !fresh && Date.now() - cached.at < 12 * 3600000) return { ...(cached.data as CourierHistory), at: cached.at }
-
-    const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, {})
-    if (!creds || creds.env !== "production") return { error: "Connect Pathao (live) in Settings to see courier history" }
-    let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await http(ctx, "https://merchant.pathao.com/api/v1/user/success", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tk.accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ phone: p }),
-      })
-      if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
-      if (!res.ok) {
-        console.log("pathao user/success", res.status, JSON.stringify(res.json).slice(0, 500))
-        return { error: `Pathao didn't answer (${res.status})` }
-      }
-      const h = readHistory(res.json)
-      if (!h) {
-        console.log("pathao user/success unknown shape", JSON.stringify(res.json).slice(0, 800))
-        return { error: "Couldn't read Pathao's answer" }
-      }
-      const done = h.delivered + h.returned
-      const data: CourierHistory = { provider: "pathao", ...h, successRate: done ? Math.round((h.delivered / done) * 100) : null, at: Date.now() }
-      console.log("pathao user/success shape", JSON.stringify(res.json).slice(0, 800))
-      await ctx.runMutation(internal.pathao.saveHistory, { phone: p, data })
-      return data
-    }
-    return { error: "Pathao login failed" }
+    return await fetchHistory(ctx, phone, fresh)
   },
 })
+
+/** Same check for automatic jobs (no staff login): fills the cache the WhatsApp auto-approve rules read. */
+export const historyForAuto = internalAction({
+  args: { phone: v.string() },
+  handler: async (ctx, { phone }) => { await fetchHistory(ctx, phone, false) },
+})
+
+async function fetchHistory(ctx: ActionCtx, phone: string, fresh?: boolean): Promise<CourierHistory | { error: string }> {
+  const p = phone.replace(/\D/g, "").replace(/^88/, "")
+  if (!/^01\d{9}$/.test(p)) return { error: "Phone number looks wrong" }
+  const cached = await ctx.runQuery(internal.pathao.cachedHistory, { phone: p })
+  if (cached && !fresh && Date.now() - cached.at < 12 * 3600000) return { ...(cached.data as CourierHistory), at: cached.at }
+
+  const { creds, token, tokenKey } = await ctx.runQuery(internal.pathao.config, {})
+  if (!creds || creds.env !== "production") return { error: "Connect Pathao (live) in Settings to see courier history" }
+  let tk: Token = token && token.expiresAt > Date.now() ? token : await issueToken(ctx, creds, tokenKey)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await http(ctx, "https://merchant.pathao.com/api/v1/user/success", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tk.accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ phone: p }),
+    })
+    if (res.status === 401 && attempt === 0) { tk = await issueToken(ctx, creds, tokenKey); continue }
+    if (!res.ok) {
+      console.log("pathao user/success", res.status, JSON.stringify(res.json).slice(0, 500))
+      return { error: `Pathao didn't answer (${res.status})` }
+    }
+    const h = readHistory(res.json)
+    if (!h) {
+      console.log("pathao user/success unknown shape", JSON.stringify(res.json).slice(0, 800))
+      return { error: "Couldn't read Pathao's answer" }
+    }
+    const done = h.delivered + h.returned
+    const data: CourierHistory = { provider: "pathao", ...h, successRate: done ? Math.round((h.delivered / done) * 100) : null, at: Date.now() }
+    console.log("pathao user/success shape", JSON.stringify(res.json).slice(0, 800))
+    await ctx.runMutation(internal.pathao.saveHistory, { phone: p, data })
+    return data
+  }
+  return { error: "Pathao login failed" }
+}
 
 // ---------- parcel tracking: the same timeline and costs the Pathao merchant panel shows ----------
 export type TrackEvent = { stage: string | null; text: string; at: number | null }

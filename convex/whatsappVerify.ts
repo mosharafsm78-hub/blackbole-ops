@@ -18,6 +18,7 @@ import { currentStaff, getSetting, invoiceLabel, logOrder, notify, requirePerm, 
 import { applyStatus, insertOrder } from "./orders"
 import { canTransition } from "./rules"
 import { askList, ratingRows, saveRating } from "./survey"
+import { riskFor } from "./waRisk"
 
 export type WaConf = { enabled: boolean; mode: "test" | "live"; phoneNumberId: string; businessNumber: string; autoSend?: boolean; templateName?: string; templateLang?: string; lifecycle?: boolean; lifecycleSince?: number; cartReminder?: boolean }
 export const DEFAULT_CONF: WaConf = { enabled: false, mode: "test", phoneNumberId: "", businessNumber: "", autoSend: false, templateName: "order_confirmation", templateLang: "en" }
@@ -190,8 +191,17 @@ export async function handleInbound(ctx: any, a: { waId: string; wamid: string; 
           await ctx.db.patch(o._id, { followUpAt: Date.now() })
           return record("address_issue", [txt(`Thank you! One more check: ${bad}. Our team will call you shortly to complete it. — BlackBole`)], o._id)
         }
+        // Only trusted customers are approved on a tap; everyone else is confirmed on WhatsApp and then called by the team.
+        const risk = await riskFor(ctx, o)
+        if (risk.tier !== "trusted") {
+          await markWa(ctx, o, "confirmed", BY)
+          const advance = risk.tier === "risky" ? " Take the delivery charge in advance." : ""
+          await logOrder(ctx, o._id, `Customer confirmed on WhatsApp — NOT auto-approved (${risk.reason}). Please call to confirm.${advance}`, BY)
+          await ctx.db.patch(o._id, { followUpAt: Date.now() })
+          return record("confirmed_call", [txt(`Thank you! We have received your confirmation for order ${invoiceLabel(o)}. Our team will call you shortly to finalise it. — BlackBole`)], o._id)
+        }
         await markWa(ctx, o, "confirmed", BY)
-        // Confirm = approved. A held order stays held (the team put it there on purpose); if approving fails (e.g. stock), it stays Pending for the team.
+        // Confirm = approved (trusted customer). A held order stays held (the team put it there on purpose); if approving fails (e.g. stock), it stays Pending for the team.
         if (o.status === "pending") {
           try { await applyStatus(ctx, o, "approved", BY, "Customer confirmed on WhatsApp") } catch (e) { await logOrder(ctx, o._id, "Customer confirmed on WhatsApp but auto-approve failed — please approve manually", BY) }
         }
@@ -288,6 +298,14 @@ export const claimAuto = internalMutation({
       await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_skipped", out: [`not sent: ${bad}`], at: Date.now() })
       return null
     }
+    // Risky customer (low delivery record): no automatic message — the team calls and asks for the delivery charge in advance.
+    const risk = await riskFor(ctx, o)
+    if (risk.tier === "risky") {
+      await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_skipped", out: [`not sent: risky customer — ${risk.reason}`], at: Date.now() })
+      await logOrder(ctx, orderId, `Risky customer (${risk.reason}) — no WhatsApp message sent. Please call, and take the delivery charge in advance.`, "WhatsApp verify")
+      await ctx.db.patch(orderId, { followUpAt: Date.now() })
+      return null
+    }
     await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_pending", out: [preview], at: Date.now() })
     return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: tk(o.due > 0 ? o.due : o.total), id: o._id }
   },
@@ -321,11 +339,18 @@ export const backfillSentBadge = internalMutation({
     return n
   },
 })
+export const orderPhone = internalQuery({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }) => (await ctx.db.get(orderId))?.phone ?? null,
+})
 export const sendConfirmation = internalAction({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const { conf: c, sec } = await ctx.runQuery(internal.whatsappVerify.liveConf, {})
     if (!c.enabled || !c.autoSend) return
+    // Fresh Pathao delivery record for this customer (cached 12 h) so the rules can judge the order.
+    const ph = await ctx.runQuery(internal.whatsappVerify.orderPhone, { orderId })
+    if (ph) { try { await ctx.runAction(internal.pathao.historyForAuto, { phone: ph }) } catch (e) { console.log("pathao history for auto failed", String(e)) } }
     const name = (c.templateName || "order_confirmation").trim()
     const m = await ctx.runMutation(internal.whatsappVerify.claimAuto, { orderId, preview: `Template “${name}”` })
     if (!m) return

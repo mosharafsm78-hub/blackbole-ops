@@ -14,7 +14,13 @@ async function setup() {
   const v41 = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-HSS-41")).unique()))!
   await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: v41._id, qty: 10, unitCost: 520 }] })
   await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "test", phoneNumberId: "", businessNumber: "+880 1700-000000" })
-  const order = async (phone: string, address = "House 12, Road 5, Lalmatia, Dhaka") => {
+  // Pathao record for the phone (default: a trusted customer, 90% delivered) — the WhatsApp auto-approve rules read it.
+  const order = async (phone: string, address = "House 12, Road 5, Lalmatia, Dhaka", pathao: { delivered: number; returned: number } | null = { delivered: 9, returned: 1 }) => {
+    if (pathao) await t.run(async (ctx) => {
+      const old = await ctx.db.query("courierChecks").withIndex("by_phone", (q) => q.eq("phone", phone).eq("provider", "pathao")).first()
+      const data = { provider: "pathao", processed: pathao.delivered + pathao.returned, ...pathao, successRate: Math.round((pathao.delivered / (pathao.delivered + pathao.returned)) * 100), rating: null, message: null, at: Date.now() }
+      if (old) await ctx.db.patch(old._id, { data }); else await ctx.db.insert("courierChecks", { phone, provider: "pathao", data, at: Date.now() })
+    })
     const r = await as.mutation(api.orders.create, { source: "Website", customerName: "Rahim Uddin", phone, address, locationId, deliveryType: "regular", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }], discount: 0, deliveryFee: 60, advanceAmount: 0, advanceMethod: "bKash", approve: false })
     const o = (await t.run((ctx) => ctx.db.get(r.orderId))) as any
     return { id: r.orderId, invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, o }
@@ -125,6 +131,46 @@ describe("WhatsApp order verification", () => {
     const o3 = await order("01711000013")
     await as.mutation(api.whatsappVerify.simulate, { invoice: o3.invoice, step: "start" })
     expect((await as.mutation(api.whatsappVerify.simulate, { invoice: o3.invoice, step: "confirm" })).replies).toHaveLength(1)
+  })
+
+  it("only trusted customers are approved on a WhatsApp tap: unknown or 70–84% → team calls; double order → team calls", async () => {
+    const { t, as, order, status } = await setup()
+    const log = async (id: any) => (await t.run((ctx) => ctx.db.query("orderLogs").collect())).filter((l: any) => l.orderId === id).map((l: any) => l.text ?? l.message ?? "").join(" | ")
+    const mid = await order("01711000021", undefined, { delivered: 8, returned: 2 }) // 80%
+    await as.mutation(api.whatsappVerify.simulate, { invoice: mid.invoice, step: "start" })
+    const r1 = await as.mutation(api.whatsappVerify.simulate, { invoice: mid.invoice, step: "confirm" })
+    expect(r1.result).toBe("confirmed_call")
+    expect(r1.replies[0]).toMatch(/call you shortly/)
+    expect(await status(mid.id)).toBe("pending")
+    expect(((await t.run((ctx) => ctx.db.get(mid.id))) as any).waVerify?.result).toBe("confirmed")
+    const fresh = await order("01711000022", undefined, null) // no Pathao history
+    await as.mutation(api.whatsappVerify.simulate, { invoice: fresh.invoice, step: "start" })
+    expect((await as.mutation(api.whatsappVerify.simulate, { invoice: fresh.invoice, step: "confirm" })).result).toBe("confirmed_call")
+    expect(await status(fresh.id)).toBe("pending")
+    // trusted (90%) but a second open order on the same phone → call
+    await order("01711000023")
+    const dup = await order("01711000023")
+    await as.mutation(api.whatsappVerify.simulate, { invoice: dup.invoice, step: "start" })
+    expect((await as.mutation(api.whatsappVerify.simulate, { invoice: dup.invoice, step: "confirm" })).result).toBe("confirmed_call")
+    expect(await status(dup.id)).toBe("pending")
+    void log
+  })
+
+  it("risky customer (below 70% delivered): no automatic WhatsApp message, the team is asked to call and take the delivery charge in advance", async () => {
+    const { t, as, order } = await setup()
+    await as.mutation(api.whatsappVerify.saveSettings, { enabled: true, mode: "test", phoneNumberId: "", businessNumber: "8801700000000", autoSend: true })
+    const r = await order("01711000031", undefined, { delivered: 5, returned: 5 }) // 50%
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: r.id })
+    const e = await t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${r.id}`)).first())
+    expect(e?.result).toBe("auto_skipped")
+    expect(e?.out[0]).toMatch(/risky customer/)
+    const o = (await t.run((ctx) => ctx.db.get(r.id))) as any
+    expect(o.followUpAt).toBeTruthy()
+    expect(o.waVerify).toBeUndefined()
+    // a trusted customer still gets the message
+    const ok = await order("01711000032")
+    await t.action(internal.whatsappVerify.sendConfirmation, { orderId: ok.id })
+    expect((await t.run((ctx) => ctx.db.query("waVerifyEvents").withIndex("by_wamid", (q) => q.eq("wamid", `auto-${ok.id}`)).first()))?.result).toBe("auto_test")
   })
 
   it("pre-order confirmation shows the pre-order days, never 2–3 days", () => {
