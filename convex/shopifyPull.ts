@@ -119,13 +119,14 @@ export const run = internalAction({
     try {
       let cursor: string | null = a.cursor ?? null, more = true, n = 0
       while (more && n < PAGES_PER_RUN) {
-        const r: any = await shopifyGql(ctx, `query($c:String,$q:String){ products(first:${PAGE}, after:$c, query:$q){ pageInfo{ hasNextPage endCursor } nodes { handle title descriptionHtml vendor productType tags seo{ title description } variants(first:100){ nodes { sku price compareAtPrice } } } } }`, { c: cursor, q: q ?? null })
+        const r: any = await shopifyGql(ctx, `query($c:String,$q:String){ products(first:${PAGE}, after:$c, query:$q){ pageInfo{ hasNextPage endCursor } nodes { handle title descriptionHtml vendor productType tags seo{ title description } variants(first:100){ nodes { sku price compareAtPrice image{ url } } } } } }`, { c: cursor, q: q ?? null })
         for (const node of r.products.nodes) {
           const sn = snapFromShopify(node)
           await ctx.runMutation(internal.shopifyPull.applyFromShopify, {
             p: { handle: node.handle, title: sn.title, html: sn.html, vendor: sn.vendor, type: sn.type, tags: node.tags ?? [], seoT: sn.seoT, seoD: sn.seoD,
               variants: (node.variants?.nodes ?? []).filter((x: any) => normSku(x.sku)).map((x: any) => ({ sku: x.sku, price: money(x.price), compareAt: money(x.compareAtPrice) })) },
           })
+          await ctx.runMutation(internal.shopifyPull.applyVariantImages, { images: variantImagesOf(node) })
         }
         more = !!r.products.pageInfo.hasNextPage
         cursor = r.products.pageInfo.endCursor ?? null
@@ -140,5 +141,43 @@ export const run = internalAction({
     } catch (e: any) {
       await ctx.runMutation(internal.shopifyPull.setState, { s: { ...st, busy: 0, error: String(e?.message ?? e).slice(0, 300), at: Date.now() } })
     }
+  },
+})
+
+
+/** [sku, photo url] for every variant of a Shopify product that has its own photo. */
+function variantImagesOf(node: any): { sku: string; url: string }[] {
+  return (node?.variants?.nodes ?? []).filter((x: any) => normSku(x.sku) && x.image?.url).map((x: any) => ({ sku: String(x.sku), url: String(x.image.url) }))
+}
+
+/** Each colour variant keeps the photo Shopify shows for it, so orders show the right colour. */
+export const applyVariantImages = internalMutation({
+  args: { images: v.array(v.object({ sku: v.string(), url: v.string() })) },
+  handler: async (ctx, { images }) => {
+    let n = 0
+    for (const im of images) {
+      const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", im.sku.trim().toUpperCase())).first()
+      if (vr && vr.imageUrl !== im.url) { await ctx.db.patch(vr._id, { imageUrl: im.url }); n++ }
+    }
+    return n
+  },
+})
+
+/** Full pass over every Shopify product: copy each variant's own photo into Ops, then fix recent orders' photos. */
+export const syncVariantImages = internalAction({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    let cursor: string | null = a.cursor ?? null, more = true, n = 0, changed = 0
+    while (more && n < PAGES_PER_RUN) {
+      const r: any = await shopifyGql(ctx, `query($c:String){ products(first:${PAGE}, after:$c){ pageInfo{ hasNextPage endCursor } nodes { variants(first:100){ nodes { sku image{ url } } } } } }`, { c: cursor })
+      for (const node of r.products.nodes) changed += await ctx.runMutation(internal.shopifyPull.applyVariantImages, { images: variantImagesOf(node) })
+      more = !!r.products.pageInfo.hasNextPage
+      cursor = r.products.pageInfo.endCursor ?? null
+      n++
+      if (more && n < PAGES_PER_RUN) await new Promise((res) => setTimeout(res, 12_000))
+    }
+    if (more) { await ctx.scheduler.runAfter(15_000, internal.shopifyPull.syncVariantImages, { cursor: cursor ?? undefined }); return { changed, more: true } }
+    await ctx.runMutation(internal.orders.fixItemPhotos, { days: 21 })
+    return { changed, more: false }
   },
 })

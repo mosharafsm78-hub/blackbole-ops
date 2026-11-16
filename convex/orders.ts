@@ -14,6 +14,7 @@ import {
   computePurchaseCost, currentStaff, defaultLocation, defaultPartner, emitOrderEvent, getSetting, invoiceLabel, logOrder,
   hasPreOrderItem, moveOrderStock, preOrderOrigin, nextCounter, notify, pathaoBookAt, requirePerm,
 } from "./lib"
+import { variantPhoto } from "./lib"
 import {
   ACCOUNTABILITY_ROUTING, CSAT_FOLLOWUP_OUTCOMES, HOLD_CHIPS, holdBucket, EXCHANGE_SUBS, STATUS_BUCKET, STATUS_LABEL, STATUS_TABS, TRANSITIONS, canTransition, hasPerm, isRealReason, moveKey, normalizePhone, orderTotals,
   type OrderStatus,
@@ -201,7 +202,7 @@ export async function buildItems(ctx: MutationCtx, items: { variantId: Id<"varia
     if (!vr) throw new ConvexError("A product in the cart no longer exists")
     const p = await ctx.db.get(vr.productId)
     out.push({
-      variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl,
+      variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p),
       price: i.price, qty: i.qty, discount: i.discount, weightKg: vr.weightKg,
     })
   }
@@ -1490,7 +1491,7 @@ export const upload = mutation({
           const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", r.sku.trim().toUpperCase())).first()
           if (!vr) throw new ConvexError(`SKU ${r.sku} not found`)
           const p = await ctx.db.get(vr.productId)
-          items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: r.price ?? vr.price, qty: r.qty || 1, discount: 0, weightKg: vr.weightKg })
+          items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p), price: r.price ?? vr.price, qty: r.qty || 1, discount: 0, weightKg: vr.weightKg })
         }
         const f = g[0]
         const res = await insertOrder(ctx, {
@@ -1809,5 +1810,28 @@ export const addPreOrderBd = internalMutation({
       if (!o.preOrderFrom) { await ctx.db.patch(o._id, { preOrderFrom: (await preOrderOrigin(ctx, o.items)) ?? "china" }); marked++ }
     }
     return { roles, marked }
+  },
+})
+
+/** One-time: recent orders showing the wrong colour photo. Re-points each line's photo at its own colour variant. */
+export const fixItemPhotos = internalMutation({
+  args: { days: v.number() },
+  handler: async (ctx, a) => {
+    const since = Date.now() - a.days * 86400000
+    let orders = 0, lines = 0
+    for (const o of await ctx.db.query("orders").withIndex("by_created").order("desc").take(3000)) {
+      if (o.createdAt < since) break
+      if (o.deletedAt) continue
+      let changed = false
+      const items: typeof o.items = []
+      for (const i of o.items) {
+        const vr = i.variantId ? await ctx.db.get(i.variantId) : null
+        const p = vr ? await ctx.db.get(vr.productId) : null
+        const img = vr ? variantPhoto(vr, p) : undefined
+        if (img && img !== i.imageUrl) { items.push({ ...i, imageUrl: img }); changed = true; lines++ } else items.push(i)
+      }
+      if (changed) { await ctx.db.patch(o._id, { items }); orders++ }
+    }
+    return { orders, lines }
   },
 })

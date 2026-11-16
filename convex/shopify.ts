@@ -3,6 +3,7 @@ import { httpAction, internalQuery } from "./_generated/server"
 import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
 import { getSetting, setSetting } from "./lib"
+import { variantPhoto } from "./lib"
 
 export const secret = internalQuery({
   args: {},
@@ -20,7 +21,7 @@ export const variantsBySku = internalQuery({
       const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku.toUpperCase())).first()
       if (!vr) continue
       const p = await ctx.db.get(vr.productId)
-      out[sku] = { variantId: vr._id, weightKg: vr.weightKg, imageUrl: p?.imageUrl, name: p?.name ?? vr.sku, title: vr.title }
+      out[sku] = { variantId: vr._id, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: vr.title }
     }
     return out
   },

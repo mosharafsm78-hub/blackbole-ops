@@ -264,3 +264,10 @@ export async function preOrderOrigin(ctx: QueryCtx, items: Doc<"orders">["items"
 export async function hasPreOrderItem(ctx: QueryCtx, items: Doc<"orders">["items"]) {
   return (await preOrderOrigin(ctx, items)) !== null
 }
+
+/** The photo to show for an order line: the colour variant's own photo first, then the product's main photo. */
+export function variantPhoto(vr: any, p?: any): string | undefined {
+  const w = vr?.web?.image
+  const fromWeb = typeof w === "string" ? w : typeof w?.url === "string" ? w.url : undefined
+  return vr?.imageUrl || fromWeb || p?.imageUrl || undefined
+}

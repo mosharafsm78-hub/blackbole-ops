@@ -8,6 +8,7 @@ import { computePurchaseCost, currentStaff, logOrder, moveOrderStock, requirePer
 import { STATUS_BUCKET, normalizePhone, type OrderStatus } from "./rules"
 import { insertOrder } from "./orders"
 import { awardPoints } from "./kpi"
+import { variantPhoto } from "./lib"
 
 /** A checkout counts as abandoned once nothing has happened on it for this long. */
 export const ABANDON_AFTER = 15 * 60000
@@ -59,7 +60,7 @@ export const importMany = mutation({
       for (const i of r.items) {
         const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", i.sku.toUpperCase())).first()
         const p = vr ? await ctx.db.get(vr.productId) : null
-        items.push({ variantId: vr?._id, sku: i.sku.toUpperCase(), name: p?.name ?? i.name, attrs: vr?.title ?? i.attrs, imageUrl: p?.imageUrl, price: i.price, qty: i.qty, discount: i.discount, weightKg: vr?.weightKg ?? 0.5 })
+        items.push({ variantId: vr?._id, sku: i.sku.toUpperCase(), name: p?.name ?? i.name, attrs: vr?.title ?? i.attrs, imageUrl: vr ? variantPhoto(vr, p) : p?.imageUrl, price: i.price, qty: i.qty, discount: i.discount, weightKg: vr?.weightKg ?? 0.5 })
       }
       await upsertCart(ctx, { ...r, items })
       added++
@@ -140,7 +141,7 @@ export const variantsByName = internalQuery({
       const vr = await matchByName(ctx, l.title, l.variant)
       if (!vr) continue
       const p = await ctx.db.get(vr.productId)
-      out[l.key] = { variantId: vr._id, sku: vr.sku, weightKg: vr.weightKg, imageUrl: p?.imageUrl, name: p?.name ?? vr.sku, title: vr.title }
+      out[l.key] = { variantId: vr._id, sku: vr.sku, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: vr.title }
     }
     return out
   },
@@ -159,7 +160,7 @@ export async function linkItems<T extends { variantId?: any; sku: string; name: 
     if (!vr) { out.push(i); continue }
     const p = await ctx.db.get(vr.productId)
     linked++
-    out.push({ ...i, variantId: vr._id, sku: vr.sku, name: p?.name ?? i.name, attrs: vr.title, weightKg: vr.weightKg, imageUrl: i.imageUrl ?? p?.imageUrl })
+    out.push({ ...i, variantId: vr._id, sku: vr.sku, name: p?.name ?? i.name, attrs: vr.title, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p) ?? i.imageUrl })
   }
   return { items: out, linked }
 }
@@ -219,7 +220,7 @@ export const codLead = internalMutation({
       const p = vr ? await ctx.db.get(vr.productId) : null
       const qty = Math.max(1, Math.min(10, Math.round(i.qty)))
       const price = Math.max(0, Math.round(i.price))
-      items.push({ variantId: vr?._id, sku: vr?.sku ?? (sku || `SHOPIFY-${i.id ?? "?"}`), name: (p?.name ?? i.title).slice(0, 160), attrs: (vr?.title ?? i.variant ?? "").slice(0, 80) || undefined, imageUrl: p?.imageUrl, price, qty, discount: 0, weightKg: vr?.weightKg ?? 0.5 })
+      items.push({ variantId: vr?._id, sku: vr?.sku ?? (sku || `SHOPIFY-${i.id ?? "?"}`), name: (p?.name ?? i.title).slice(0, 160), attrs: (vr?.title ?? i.variant ?? "").slice(0, 80) || undefined, imageUrl: vr ? variantPhoto(vr, p) : p?.imageUrl, price, qty, discount: 0, weightKg: vr?.weightKg ?? 0.5 })
     }
     const subtotal = items.reduce((t, i) => t + i.price * i.qty, 0)
     const deliveryFee = a.zone === "outside" ? 130 : 90
@@ -564,7 +565,7 @@ export const addDemo = internalMutation({
     const items: Doc<"checkouts">["items"] = []
     for (const vr of chosen.slice(0, 2)) {
       const p = await ctx.db.get(vr.productId)
-      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: p?.imageUrl, price: vr.price, qty: 1, discount: 0, weightKg: vr.weightKg })
+      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p), price: vr.price, qty: 1, discount: 0, weightKg: vr.weightKg })
     }
     const subtotal = items.reduce((s, i) => s + i.price, 0)
     const now = Date.now()

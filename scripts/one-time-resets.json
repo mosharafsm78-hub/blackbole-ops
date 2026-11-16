@@ -352,5 +352,10 @@
       "from": "Bronze",
       "to": "Khaki Green"
     }
+  },
+  {
+    "id": "2026-11-16-variant-photos",
+    "fn": "shopifyPull:syncVariantImages",
+    "args": {}
   }
 ]
