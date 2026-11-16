@@ -11,15 +11,22 @@ const RELAY_URL = ""
 const VPS_URL = "https://ops-api.43-156-155-69.sslip.io"
 export const SERVER = "vps" as const
 
-// Keep everyone signed in across server moves: the saved sign-in is stored under the server address,
-// so copy the long-lived refresh token from the previous addresses (a fresh login token is fetched with it).
+// Keep everyone signed in across server moves: the saved sign-in is stored under the server address.
+// Once per browser: copy the old login token + refresh token to the new address. The new server rejects
+// the old login token, which makes the sign-in library renew it with the refresh token (no new login needed).
 const ns = (u: string) => u.replace(/[^a-zA-Z0-9]/g, "")
 try {
-  const to = "__convexAuthRefreshToken_" + ns(VPS_URL)
-  if (typeof localStorage !== "undefined" && !localStorage.getItem(to)) {
+  const mark = "__bbSignInMoved_" + ns(VPS_URL)
+  if (typeof localStorage !== "undefined" && !localStorage.getItem(mark)) {
+    localStorage.setItem(mark, "1")
+    const jwtTo = "__convexAuthJWT_" + ns(VPS_URL), rtTo = "__convexAuthRefreshToken_" + ns(VPS_URL)
     for (const prev of ["https://ops-api.216-219-95-184.sslip.io", "https://basic-crane-965.convex.cloud"]) {
-      const v = localStorage.getItem("__convexAuthRefreshToken_" + ns(prev))
-      if (v) { localStorage.setItem(to, v); break }
+      const jwt = localStorage.getItem("__convexAuthJWT_" + ns(prev)), rt = localStorage.getItem("__convexAuthRefreshToken_" + ns(prev))
+      if (jwt && rt) {
+        if (!localStorage.getItem(jwtTo)) localStorage.setItem(jwtTo, jwt)
+        localStorage.setItem(rtTo, rt)
+        break
+      }
     }
   }
 } catch { /* storage blocked: the person just signs in again */ }
