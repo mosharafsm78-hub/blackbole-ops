@@ -533,3 +533,40 @@ export const topSelling = action({
     }
   },
 })
+
+/** Order counts by status for any date range (cancelled included), read a page at a time. */
+export const statusCountsPage = internalQuery({
+  args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, to, cursor }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const page = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to)).paginate({ cursor, numItems: 800 })
+    const counts: Record<string, { count: number; value: number }> = {}
+    for (const o of page.page) {
+      if (o.deletedAt) continue
+      const c = (counts[o.status] ??= { count: 0, value: 0 })
+      c.count++; c.value += o.total
+    }
+    return { isDone: page.isDone, cursor: page.continueCursor, counts }
+  },
+})
+
+export const statusCounts = action({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }): Promise<any> => {
+    const all: Record<string, { count: number; value: number }> = {}
+    let cursor: string | null = null
+    for (let i = 0; i < 60; i++) {
+      const res: any = await ctx.runQuery(internal.dashboard.statusCountsPage, { from, to, cursor })
+      if (!res) return null
+      for (const [k, c] of Object.entries(res.counts) as [string, { count: number; value: number }][]) {
+        const a = (all[k] ??= { count: 0, value: 0 })
+        a.count += c.count; a.value += c.value
+      }
+      if (res.isDone) break
+      cursor = res.cursor
+    }
+    const rows = Object.entries(all).map(([status, c]) => ({ status, ...c })).sort((a, b) => b.count - a.count)
+    return { total: rows.reduce((t, r) => t + r.count, 0), rows }
+  },
+})

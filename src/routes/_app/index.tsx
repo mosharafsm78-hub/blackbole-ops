@@ -215,19 +215,7 @@ function Dashboard() {
           <MonthlySummary />
 
           <div className="grid gap-4 lg:grid-cols-3">
-            <section className="rounded-xl border bg-card p-4">
-              <h2 className="mb-3 text-sm font-semibold">Orders by status (this period)</h2>
-              <div className="space-y-2">
-                {(Object.entries(n.byStatus) as [string, number][]).sort((a, b) => b[1] - a[1]).map(([s, c]) => (
-                  <div key={s} className="flex items-center gap-3 text-sm">
-                    <span className="w-32 shrink-0"><StatusPill status={s} /></span>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground/60" style={{ width: `${pct(c, n.totalOrders + n.cancelled)}%` }} /></div>
-                    <span className="w-8 text-right tabular-nums">{c}</span>
-                  </div>
-                ))}
-                {Object.keys(n.byStatus).length === 0 && <p className="text-sm text-muted-foreground">No orders in this period.</p>}
-              </div>
-            </section>
+            <StatusByDate defaultFrom={from} defaultTo={to} />
 
             <section className="rounded-xl border bg-card p-4">
               <h2 className="mb-3 text-sm font-semibold">Where orders come from</h2>
@@ -512,12 +500,6 @@ function TopSelling({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo
   const from = dayStart(fromD), to = dayStart(toD) + 86400000 - 1
   const valid = Number.isFinite(from) && Number.isFinite(to) && from <= to
   const [data] = usePolledAction(api.dashboard.topSelling, { from: valid ? from : defaultFrom, to: valid ? to : defaultTo, group, q: qd, limit: 50 }, 10 * 60000)
-  const today = dayStr(Date.now())
-  const preset = (a: string, b: string) => { setFromD(a); setToD(b) }
-  const now = new Date(Date.now() + 6 * 3600000)
-  const monthStart = `${now.toISOString().slice(0, 7)}-01`
-  const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
-  const lastMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).toISOString().slice(0, 10)
   const rows = data?.rows ?? []
   const shown = more ? rows : rows.slice(0, 10)
   return (
@@ -530,19 +512,7 @@ function TopSelling({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo
           ))}
         </div>
       </div>
-      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
-        <input type="date" value={fromD} max={toD} onChange={(e) => setFromD(e.target.value)} className="rounded-md border bg-background px-1.5 py-1" />
-        <span className="text-muted-foreground">to</span>
-        <input type="date" value={toD} min={fromD} onChange={(e) => setToD(e.target.value)} className="rounded-md border bg-background px-1.5 py-1" />
-      </div>
-      <div className="mb-2 flex flex-wrap gap-1 text-[11px]">
-        {[
-          ["Today", today, today], ["7 days", dayStr(Date.now() - 6 * 86400000), today], ["30 days", dayStr(Date.now() - 29 * 86400000), today],
-          ["This month", monthStart, today], ["Last month", lastMonthStart, lastMonthEnd], ["90 days", dayStr(Date.now() - 89 * 86400000), today],
-        ].map(([label, a, b]) => (
-          <button key={label} type="button" onClick={() => preset(a, b)} className={cn("rounded-full border px-2 py-0.5", fromD === a && toD === b ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{label}</button>
-        ))}
-      </div>
+      <DateRangePicker fromD={fromD} toD={toD} onChange={(a, b) => { setFromD(a); setToD(b) }} />
       <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product, color or SKU" className="mb-3 w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" />
       {data === undefined && <p className="text-sm text-muted-foreground">Loading…</p>}
       {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.count} {group === "size" ? "items" : "products"} · {data.totalQty} pcs · {taka(data.totalValue)} (cancelled orders not counted)</p>}
@@ -565,6 +535,59 @@ function TopSelling({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo
       {rows.length > 10 && (
         <button type="button" onClick={() => setMore(!more)} className="mt-3 text-xs font-medium text-primary hover:underline">{more ? "Show top 10" : `Show top ${rows.length}`}</button>
       )}
+    </section>
+  )
+}
+
+function DateRangePicker({ fromD, toD, onChange }: { fromD: string; toD: string; onChange: (from: string, to: string) => void }) {
+  const today = dayStr(Date.now())
+  const now = new Date(Date.now() + 6 * 3600000)
+  const monthStart = `${now.toISOString().slice(0, 7)}-01`
+  const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
+  const lastMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).toISOString().slice(0, 10)
+  const presets: [string, string, string][] = [
+    ["Today", today, today], ["7 days", dayStr(Date.now() - 6 * 86400000), today], ["30 days", dayStr(Date.now() - 29 * 86400000), today],
+    ["This month", monthStart, today], ["Last month", lastMonthStart, lastMonthEnd], ["90 days", dayStr(Date.now() - 89 * 86400000), today],
+  ]
+  return (
+    <>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+        <input type="date" value={fromD} max={toD} onChange={(e) => onChange(e.target.value, toD)} className="rounded-md border bg-background px-1.5 py-1" />
+        <span className="text-muted-foreground">to</span>
+        <input type="date" value={toD} min={fromD} onChange={(e) => onChange(fromD, e.target.value)} className="rounded-md border bg-background px-1.5 py-1" />
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1 text-[11px]">
+        {presets.map(([label, a, b]) => (
+          <button key={label} type="button" onClick={() => onChange(a, b)} className={cn("rounded-full border px-2 py-0.5", fromD === a && toD === b ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{label}</button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function StatusByDate({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo: number }) {
+  const [fromD, setFromD] = useState(dayStr(defaultFrom))
+  const [toD, setToD] = useState(dayStr(defaultTo))
+  useEffect(() => { setFromD(dayStr(defaultFrom)); setToD(dayStr(defaultTo)) }, [defaultFrom, defaultTo])
+  const from = dayStart(fromD), to = dayStart(toD) + 86400000 - 1
+  const valid = Number.isFinite(from) && Number.isFinite(to) && from <= to
+  const [data] = usePolledAction(api.dashboard.statusCounts, { from: valid ? from : defaultFrom, to: valid ? to : defaultTo }, 5 * 60000)
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <h2 className="mb-2 text-sm font-semibold">Orders by status</h2>
+      <DateRangePicker fromD={fromD} toD={toD} onChange={(a, b) => { setFromD(a); setToD(b) }} />
+      {data === undefined && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.total} orders (cancelled included)</p>}
+      <div className="space-y-2">
+        {(data?.rows ?? []).map((r: any) => (
+          <div key={r.status} className="flex items-center gap-3 text-sm">
+            <span className="w-32 shrink-0"><StatusPill status={r.status} /></span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground/60" style={{ width: `${pct(r.count, data.total)}%` }} /></div>
+            <span className="w-8 text-right tabular-nums" title={taka(r.value)}>{r.count}</span>
+          </div>
+        ))}
+        {data && data.rows.length === 0 && <p className="text-sm text-muted-foreground">No orders in these dates.</p>}
+      </div>
     </section>
   )
 }
