@@ -570,3 +570,43 @@ export const statusCounts = action({
     return { total: rows.reduce((t, r) => t + r.count, 0), rows }
   },
 })
+
+/** Orders, pieces and value per order source for any date range (cancelled not counted), a page at a time. */
+export const sourceCountsPage = internalQuery({
+  args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, to, cursor }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const page = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to)).paginate({ cursor, numItems: 800 })
+    const out: Record<string, { count: number; qty: number; value: number; delivered: number; returned: number }> = {}
+    for (const o of page.page) {
+      if (o.deletedAt || o.status === "cancelled") continue
+      const c = (out[o.source] ??= { count: 0, qty: 0, value: 0, delivered: 0, returned: 0 })
+      c.count++; c.value += o.total
+      c.qty += o.items.reduce((t, i) => t + i.qty, 0)
+      if (o.status === "delivered_due" || o.status === "delivered_paid") c.delivered++
+      else if (["pending_returned", "returned", "damaged"].includes(o.status)) c.returned++
+    }
+    return { isDone: page.isDone, cursor: page.continueCursor, out }
+  },
+})
+
+export const sourceCounts = action({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, { from, to }): Promise<any> => {
+    const all: Record<string, { count: number; qty: number; value: number; delivered: number; returned: number }> = {}
+    let cursor: string | null = null
+    for (let i = 0; i < 60; i++) {
+      const res: any = await ctx.runQuery(internal.dashboard.sourceCountsPage, { from, to, cursor })
+      if (!res) return null
+      for (const [k, c] of Object.entries(res.out) as [string, any][]) {
+        const a = (all[k] ??= { count: 0, qty: 0, value: 0, delivered: 0, returned: 0 })
+        a.count += c.count; a.qty += c.qty; a.value += c.value; a.delivered += c.delivered; a.returned += c.returned
+      }
+      if (res.isDone) break
+      cursor = res.cursor
+    }
+    const rows = Object.entries(all).map(([source, c]) => ({ source, ...c, deliveryRate: c.delivered + c.returned ? Math.round((c.delivered / (c.delivered + c.returned)) * 100) : null })).sort((a, b) => b.count - a.count)
+    return { orders: rows.reduce((t, r) => t + r.count, 0), qty: rows.reduce((t, r) => t + r.qty, 0), value: rows.reduce((t, r) => t + r.value, 0), rows }
+  },
+})

@@ -217,18 +217,7 @@ function Dashboard() {
           <div className="grid gap-4 lg:grid-cols-3">
             <StatusByDate defaultFrom={from} defaultTo={to} />
 
-            <section className="rounded-xl border bg-card p-4">
-              <h2 className="mb-3 text-sm font-semibold">Where orders come from</h2>
-              <div className="space-y-2.5">
-                {n.bySource.map((s: any) => (
-                  <div key={s.source} className="text-sm">
-                    <div className="flex justify-between"><span className="font-medium">{s.source}</span><span className="tabular-nums text-muted-foreground">{s.count} · {taka(s.value)}</span></div>
-                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-tone-violet" style={{ width: `${pct(s.count, n.totalOrders)}%` }} /></div>
-                  </div>
-                ))}
-                {n.bySource.length === 0 && <p className="text-sm text-muted-foreground">No orders yet.</p>}
-              </div>
-            </section>
+            <SourceByDate defaultFrom={from} defaultTo={to} />
 
             <TopSelling defaultFrom={from} defaultTo={to} />
           </div>
@@ -584,6 +573,33 @@ function StatusByDate({ defaultFrom, defaultTo }: { defaultFrom: number; default
             <span className="w-32 shrink-0"><StatusPill status={r.status} /></span>
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-foreground/60" style={{ width: `${pct(r.count, data.total)}%` }} /></div>
             <span className="w-8 text-right tabular-nums" title={taka(r.value)}>{r.count}</span>
+          </div>
+        ))}
+        {data && data.rows.length === 0 && <p className="text-sm text-muted-foreground">No orders in these dates.</p>}
+      </div>
+    </section>
+  )
+}
+
+function SourceByDate({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo: number }) {
+  const [fromD, setFromD] = useState(dayStr(defaultFrom))
+  const [toD, setToD] = useState(dayStr(defaultTo))
+  useEffect(() => { setFromD(dayStr(defaultFrom)); setToD(dayStr(defaultTo)) }, [defaultFrom, defaultTo])
+  const from = dayStart(fromD), to = dayStart(toD) + 86400000 - 1
+  const valid = Number.isFinite(from) && Number.isFinite(to) && from <= to
+  const [data] = usePolledAction(api.dashboard.sourceCounts, { from: valid ? from : defaultFrom, to: valid ? to : defaultTo }, 5 * 60000)
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <h2 className="mb-2 text-sm font-semibold">Where orders come from</h2>
+      <DateRangePicker fromD={fromD} toD={toD} onChange={(a, b) => { setFromD(a); setToD(b) }} />
+      {data === undefined && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.orders} orders · {data.qty} pcs · {taka(data.value)} (cancelled orders not counted)</p>}
+      <div className="space-y-2.5">
+        {(data?.rows ?? []).map((s: any) => (
+          <div key={s.source} className="text-sm">
+            <div className="flex justify-between gap-2"><span className="font-medium">{s.source}</span><span className="tabular-nums text-muted-foreground">{s.count} orders · {s.qty} pcs · {taka(s.value)}</span></div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-tone-violet" style={{ width: `${pct(s.count, data.orders)}%` }} /></div>
+            {s.deliveryRate !== null && <div className={cn("mt-0.5 text-[11px]", s.deliveryRate < 70 ? "text-tone-red" : "text-tone-green")}>{s.delivered} delivered · {s.returned} returned ({s.deliveryRate}%)</div>}
           </div>
         ))}
         {data && data.rows.length === 0 && <p className="text-sm text-muted-foreground">No orders in these dates.</p>}
