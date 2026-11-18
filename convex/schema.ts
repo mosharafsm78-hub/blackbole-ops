@@ -699,6 +699,26 @@ export default defineSchema({
   dayStats: defineTable({ day: v.string(), st: v.any(), src: v.any(), it: v.any(), due: v.number(), q: v.number() }).index("by_day", ["day"]),
 
   // Saved results of heavy read-only reports (dashboard), shared by everyone for a few minutes to save database reads
+  // Action Center: one row per problem the daily AI check found (key = problem + subject, e.g. "product-returns:veyron loafer").
+  // Re-checked every morning; a problem that is gone from the data is closed by the AI itself.
+  actionItems: defineTable({
+    key: v.string(),
+    kind: v.string(),
+    problem: v.string(),
+    finding: v.string(),
+    solution: v.string(),
+    impact: v.number(),
+    team: v.array(v.string()),
+    mode: v.union(v.literal("auto"), v.literal("human")),
+    aiDid: v.string(),
+    detail: v.array(v.string()),
+    status: v.union(v.literal("open"), v.literal("fixed")),
+    firstSeen: v.number(),
+    lastSeen: v.number(),
+    fixedAt: v.optional(v.number()),
+    aiLog: v.array(v.object({ at: v.number(), text: v.string() })),
+  }).index("by_key", ["key"]).index("by_status", ["status", "lastSeen"]),
+
   cache: defineTable({ key: v.string(), at: v.number(), value: v.any(), refreshingAt: v.optional(v.number()) }).index("by_key", ["key"]),
 
   // Shopify checkouts — the ones never finished are "abandoned carts" the team calls to win back

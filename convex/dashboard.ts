@@ -358,7 +358,11 @@ export const insightsData = internalQuery({
 
 export const insights = action({
   args: {},
-  handler: async (ctx): Promise<any> => cached(ctx, "insights-v2", 30 * 60000, () => buildInsights(ctx)),
+  // Now served from the Action Center's daily AI check (convex/actionCenter.ts); buildInsights below is kept as the old rules.
+  handler: async (ctx): Promise<any> => {
+    if (!(await ctx.runQuery(internal.dashboard.signedIn, {}))) return { findings: [], windowDays: 90 }
+    return { findings: await ctx.runQuery(internal.actionCenter.openForDashboard, {}), windowDays: 90 }
+  },
 })
 
 async function buildInsights(ctx: any) {

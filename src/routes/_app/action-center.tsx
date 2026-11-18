@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { useMutation, useQuery } from "convex/react"
+import { useAction, useMutation, useQuery } from "convex/react"
 import { toast } from "sonner"
 import { api } from "@/convex/_generated/api"
-import { usePolledAction } from "@/lib/use-polled-action"
 import { Guard } from "@/components/app-shell"
 import { Loading, PageHeader, TeamTag } from "@/components/bits"
 import { Button } from "@/components/ui/button"
@@ -38,18 +37,27 @@ const STAGE: Record<Stage, { label: string; sub: string; badge: string; border: 
   pending: { label: "Needs action", sub: "nobody's started", badge: "bg-tone-amber-bg text-tone-amber", border: "border-l-tone-amber", dot: "bg-tone-amber", icon: "○" },
   ai: { label: "AI working", sub: "running automatically", badge: "bg-tone-green-bg text-tone-green", border: "border-l-tone-green", dot: "bg-tone-green", icon: "◐" },
   human: { label: "In progress", sub: "a team member is on it", badge: "bg-tone-blue-bg text-tone-blue", border: "border-l-tone-blue", dot: "bg-tone-blue", icon: "●" },
-  done: { label: "Done", sub: "resolved", badge: "bg-muted text-muted-foreground", border: "border-l-muted-foreground/30", dot: "bg-muted-foreground/50", icon: "✓" },
+  done: { label: "Done", sub: "fixed or resolved", badge: "bg-muted text-muted-foreground", border: "border-l-muted-foreground/30", dot: "bg-muted-foreground/50", icon: "✓" },
 }
 
-function stageOf(f: { status: string }, ls: { status: string } | undefined): Stage {
-  if (ls?.status === "resolved") return "done"
+function stageOf(f: { status: string; fixed?: boolean }, ls: { status: string } | undefined): Stage {
+  if (f.fixed || ls?.status === "resolved") return "done"
   if (f.status === "automatic") return "ai"
   if (ls?.status === "in_progress") return "human"
   return "pending"
 }
 
 function ActionCenter() {
-  const [data] = usePolledAction(api.dashboard.insights, {}, 15 * 60000)
+  const res = useQuery(api.actionCenter.list)
+  const checkNow = useAction(api.actionCenter.checkNow)
+  const [checking, setChecking] = useState(false)
+  const data = useMemo(() => res && {
+    run: res.run as { at: number; areas: number; open: number; added: number; fixed: number } | null,
+    findings: res.items.map((r) => ({
+      id: r.key, problem: r.problem, finding: r.finding, solution: r.solution, impact: r.impact, team: r.team, detail: r.detail,
+      status: r.mode === "auto" ? "automatic" : "human", aiDid: r.aiDid, aiLog: r.aiLog, firstSeen: r.firstSeen, fixed: r.status === "fixed", fixedAt: r.fixedAt,
+    })).sort((x, y) => y.impact - x.impact),
+  }, [res])
   const findingIds = useMemo(() => (data?.findings ?? []).map((f: any) => f.id), [data])
   const latest = useQuery(api.findingLog.latest, findingIds.length ? { findingIds } : "skip")
 
@@ -66,12 +74,25 @@ function ActionCenter() {
     return g
   }, [data, latest])
 
+  const runNow = async () => {
+    setChecking(true)
+    try { await checkNow({}); toast.success("Checked") } catch (e) { toast.error(errMsg(e)) } finally { setChecking(false) }
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <PageHeader title="Action Center" sub="Every problem the data has found over the last 90 days — where it sits right now, what AI is doing, what still needs you, and a real log of what actually got done." />
+      <PageHeader title="Action Center" sub="Every morning at 8 am, AI checks orders, returns, stock, courier money and the team. It adds new problems with what to do, takes the safe steps itself, and closes a problem by itself once it's gone from the data." />
+      {data && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3.5 py-2.5 text-sm">
+          <span className="text-muted-foreground">
+            {data.run ? <>AI checked {data.run.areas} areas {dateTime(data.run.at)} · <b className="text-foreground">{data.run.added} new</b> · <b className="text-foreground">{data.run.fixed} fixed</b> · {data.run.open} open</> : "AI hasn't run its first check yet."}
+          </span>
+          <Button size="sm" variant="outline" disabled={checking} onClick={() => void runNow()}>{checking ? "Checking…" : "Check now"}</Button>
+        </div>
+      )}
       {!data ? <Loading /> : data.findings.length === 0 ? (
         <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          Nothing flagged right now — once a real pattern shows up (returns, cancellations, repeat customers), it'll appear here.
+          Nothing wrong in today's check. AI looks again tomorrow at 8 am.
         </div>
       ) : (
         <>
@@ -141,6 +162,9 @@ function FindingCard({ f, stage }: { f: any; stage: Stage }) {
               {LOG_STATUS[ls.status].label} by {ls.byName}
             </span>
           )}
+          {f.fixed ? <span className="rounded-full bg-tone-green-bg px-2.5 py-1 text-[11px] font-bold text-tone-green">Fixed · gone from data</span>
+            : Date.now() - f.firstSeen < 86400000 ? <span className="rounded-full bg-tone-red-bg px-2.5 py-1 text-[11px] font-bold text-tone-red">New today</span>
+            : <span className="text-[11px] text-muted-foreground">Open {Math.floor((Date.now() - f.firstSeen) / 86400000)} days</span>}
           {(f.team as string[] | undefined)?.map((t) => <TeamTag key={t} team={t} />)}
         </div>
         <div className="flex items-center gap-2">
@@ -156,54 +180,26 @@ function FindingCard({ f, stage }: { f: any; stage: Stage }) {
       <div className={cn("mt-3 rounded-lg px-3.5 py-2.5", stage === "ai" ? "bg-tone-green-bg/40" : "bg-muted/60")}>
         <div className="text-xs font-bold text-foreground/70">{f.status === "automatic" ? "AI is doing" : "AI found"}</div>
         <div className="mt-0.5 text-sm">{f.aiDid}</div>
+        {f.aiLog?.length > 0 && (
+          <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+            {[...f.aiLog].reverse().slice(0, 4).map((l: any, i: number) => <li key={i}>✓ {l.text} <span className="opacity-70">· {dateTime(l.at)}</span></li>)}
+          </ul>
+        )}
       </div>
 
       {f.detail?.length > 0 && (
         <div className="mt-2 rounded-lg border px-3.5 py-2.5">
-          <div className="text-xs font-bold text-foreground/70">Last {f.detail.length} return reason{f.detail.length > 1 ? "s" : ""}</div>
+          <div className="text-xs font-bold text-foreground/70">Details</div>
           <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
             {f.detail.map((r: string, i: number) => <li key={i}>· {r}</li>)}
           </ul>
         </div>
       )}
 
-      {f.id === "repeat-rate" && <WinbackActivity />}
-
       <p className="mt-3 text-sm"><span className="font-semibold">{f.status === "automatic" ? "What it does: " : "Do this: "}</span>{f.solution}</p>
 
       <FindingLog findingId={f.id} />
     </section>
-  )
-}
-
-/** The real, individual automatic actions win-back has taken — not a summary, the actual list: who got
- *  messaged, on which channel, and when. This is "what AI actually did," not a description of what it will do. */
-function WinbackActivity() {
-  const sms = useQuery(api.winback.activity)
-  const wa = useQuery(api.waQueue.activity)
-  const merged = useMemo(() => {
-    const a = (sms ?? []).map((r) => ({ id: `s-${r._id}`, name: r.name, phone: r.phone, at: r.at, channel: "SMS", ok: r.status === "sent" }))
-    const b = (wa ?? []).map((r) => ({ id: `w-${r._id}`, name: r.name, phone: r.phone, at: r.sentAt, channel: "WhatsApp", ok: true }))
-    return [...a, ...b].sort((x, y) => y.at - x.at).slice(0, 12)
-  }, [sms, wa])
-
-  if (sms === undefined || wa === undefined) return null
-  return (
-    <div className="mt-3 rounded-lg border px-3.5 py-2.5">
-      <div className="text-xs font-bold text-foreground/70">Recent automatic actions — what AI actually did</div>
-      {merged.length === 0 ? (
-        <p className="mt-1 text-xs text-muted-foreground">Nothing has fired yet — this will fill in as soon as the first message goes out.</p>
-      ) : (
-        <ul className="mt-1.5 space-y-1 text-xs">
-          {merged.map((m) => (
-            <li key={m.id} className="flex items-center justify-between gap-2">
-              <span>{m.ok ? "✓" : "✗"} {m.channel} to <span className="font-medium">{m.name}</span> <span className="text-muted-foreground">({m.phone})</span></span>
-              <span className="shrink-0 text-muted-foreground">{dateTime(m.at)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
   )
 }
 
