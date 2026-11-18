@@ -9,6 +9,7 @@ import { internal } from "./_generated/api"
 import { notify, requirePerm } from "./lib"
 import { isRealReason } from "./rules"
 import { SLA_DAYS } from "./accountability"
+import { variantLabel } from "./catalog"
 
 const DAY = 86400000
 const BD = 6 * 3600000
@@ -26,6 +27,16 @@ type Finding = {
   followUpOrderIds?: string[]
 }
 
+// A customer's return reason in one line; skips placeholders like "Customer confirmed on WhatsApp" and repeats.
+function reasonText(reason?: string, note?: string): string | null {
+  if (!isRealReason(reason)) return null
+  const r = reason!.trim().replace(/^"|"$/g, ""), n = (note ?? "").trim().replace(/^"|"$/g, "")
+  if (/confirmed on whatsapp|^exchange$/i.test(r) && !n) return null
+  if (/confirmed on whatsapp/i.test(r)) return n
+  if (!n || n.toLowerCase() === r.toLowerCase()) return r
+  return r.toLowerCase() === "other" ? n : `${r} — ${n}`
+}
+
 // ---------- data the checks read ----------
 export const recentOrders = internalQuery({
   args: { from: v.number(), cursor: v.union(v.string(), v.null()) },
@@ -35,7 +46,7 @@ export const recentOrders = internalQuery({
       isDone: page.isDone, cursor: page.continueCursor,
       rows: page.page.filter((o) => !o.deletedAt).map((o) => ({
         status: o.status, source: o.source, city: (o.cityName ?? "").trim(), createdAt: o.createdAt, total: o.total,
-        reason: isRealReason(o.reason) ? (o.reasonNote ? `${o.reason} — "${o.reasonNote}"` : o.reason!.trim()) : null,
+        reason: reasonText(o.reason, o.reasonNote),
         items: o.items.map((i) => ({ variantId: i.variantId ?? null, name: i.name, attrs: i.attrs ?? "", qty: i.qty, value: i.price * i.qty - i.discount })),
       })),
     }
@@ -77,7 +88,7 @@ export const stockData = internalQuery({
     const products = new Map((await ctx.db.query("products").collect()).map((p) => [p._id as string, p]))
     return variants.map((x) => {
       const p = products.get(x.productId)
-      return { id: x._id as string, sku: x.sku, title: x.title, product: p?.name ?? x.sku, productActive: !!p?.active, cost: x.purchasePrice, real: real.get(x._id) ?? 0 }
+      return { id: x._id as string, sku: x.sku, title: variantLabel(x), product: p?.name ?? x.sku, productActive: !!p?.active, cost: x.purchasePrice, real: real.get(x._id) ?? 0 }
     })
   },
 })
@@ -272,7 +283,7 @@ async function findProblems(ctx: any): Promise<Finding[]> {
     solution: "Order more of these sizes now, or move the ad budget to a product that is in stock.",
     impact: Math.round(g.lostPerWeek), aiDid: "Checks stock against sales every morning and reminds Purchasing until it is restocked.", detail: g.sizes,
   })
-  const dead = stock.filter((s: any) => s.real >= 5 && !(sold60.get(s.id) ?? 0)).map((s: any) => ({ ...s, value: s.real * s.cost })).sort((a: any, b: any) => b.value - a.value)
+  const dead = stock.filter((s: any) => s.productActive && s.real >= 5 && !(sold60.get(s.id) ?? 0)).map((s: any) => ({ ...s, value: s.real * s.cost })).sort((a: any, b: any) => b.value - a.value)
   const deadValue = dead.reduce((t: number, s: any) => t + s.value, 0)
   if (dead.length && deadValue >= 20000) out.push({
     key: "dead-stock", kind: "stock", mode: "human", team: ["Marketing"],
