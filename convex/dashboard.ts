@@ -358,7 +358,7 @@ export const insightsData = internalQuery({
 
 export const insights = action({
   args: {},
-  handler: async (ctx): Promise<any> => cached(ctx, "insights", 30 * 60000, () => buildInsights(ctx)),
+  handler: async (ctx): Promise<any> => cached(ctx, "insights-v2", 30 * 60000, () => buildInsights(ctx)),
 })
 
 async function buildInsights(ctx: any) {
@@ -420,34 +420,7 @@ async function buildInsights(ctx: any) {
     })
   }
 
-  // C. Hardly anyone buys a second time — a growth lever, not just an ops problem.
-  const customers = d.customers as { count: number; value: number }[]
-  const repeat = customers.filter((c) => c.count >= 2)
-  const single = customers.filter((c) => c.count === 1)
-  const repeatRate = customers.length ? repeat.length / customers.length : 0
-  if (customers.length >= 30 && repeatRate < 0.15 && single.length > 0) {
-    const singleTotal = single.reduce((t, c) => t + c.value, 0)
-    const impact = Math.round(singleTotal * 0.15)
-    const [wb, wa] = await Promise.all([
-      ctx.runQuery(internal.winback.liveStats, {}).catch(() => null),
-      ctx.runQuery(internal.waQueue.liveStats, {}).catch(() => null),
-    ])
-    const live = wb?.enabled
-    const waLine = wa ? ` WhatsApp queue: ${wa.sentTotal} sent by the team, ${wa.pendingTotal} waiting.` : ""
-    findings.push({
-      id: "repeat-rate",
-      problem: "You're selling once and losing the customer",
-      finding: `Only ${Math.round(repeatRate * 100)}% of ${customers.length} customers in the last ${INSIGHT_WINDOW_DAYS} days bought a second time. ${single.length} one-time buyers spent ${taka(Math.round(singleTotal))} total and then went quiet.`,
-      solution: `Auto-send an SMS 10–20 days after delivery with a small win-back discount for a second order, plus a WhatsApp message the team taps to send. Even a 15% response on these buyers alone is worth roughly ${taka(impact)} — and it's the cheapest growth you have, since you already paid to acquire them once.`,
-      impact,
-      status: "automatic" as const,
-      aiDid: (live
-        ? `Sending the win-back SMS automatically, no one touches it. So far: ${wb!.sentTotal} sent, ${wb!.redeemed} redeemed the discount.`
-        : `Built and ready — starts sending automatically from ${new Date(wb?.startAt ?? Date.now()).toLocaleString("en-GB", { timeZone: "Asia/Dhaka", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} (Dhaka time).`) + waLine,
-      detail: [] as string[],
-      team: ["Marketing"],
-    })
-  }
+  // (Removed 18 Nov 2026 at Emon's request: the "selling once / win-back" card is no longer shown.)
 
   // D. Accountability cases sitting open past the 2-day SLA — a live operational pulse, not a 90-day rolling
   //    aggregate. The other three findings only move when a pattern shifts, which can go quiet for days even
