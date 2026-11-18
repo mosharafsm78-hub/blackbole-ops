@@ -499,6 +499,22 @@ export const topSellingPage = internalQuery({
 export const topSelling = action({
   args: { from: v.number(), to: v.number(), group: v.optional(v.union(v.literal("size"), v.literal("product"))), q: v.optional(v.string()), limit: v.optional(v.number()) },
   handler: async (ctx, { from, to, group = "size", q, limit = 50 }): Promise<any> => {
+    if (!(await ctx.auth.getUserIdentity())) return null
+    // one saved full list per date range and view (shared by everyone, 5 minutes); search and top-N just filter it
+    const full: any = await cached(ctx, `top:${from}:${to}:${group}`, 5 * 60000, () => buildTopSelling(ctx, from, to, group, "", 5000))
+    if (!full) return null
+    const words = (q ?? "").toLowerCase().split(/\s+/).filter(Boolean)
+    const rows = words.length ? full.rows.filter((r: any) => words.every((w) => `${r.name} ${r.sku}`.toLowerCase().includes(w))) : full.rows
+    return {
+      totalQty: rows.reduce((t: number, r: any) => t + r.qty, 0),
+      totalValue: rows.reduce((t: number, r: any) => t + r.value, 0),
+      count: rows.length,
+      rows: rows.slice(0, limit),
+    }
+  },
+})
+async function buildTopSelling(ctx: any, from: number, to: number, group: "size" | "product", q: string | undefined, limit: number): Promise<any> {
+  {
     type Row = { key: string; name: string; sku: string; imageUrl: string | null; qty: number; value: number; orders: number; delivered: number; returned: number; sizes: Set<string> }
     const map = new Map<string, Row>()
     let cursor: string | null = null
@@ -531,8 +547,8 @@ export const topSelling = action({
       count: all.length,
       rows: all.slice(0, limit).map(({ sizes, ...r }) => ({ ...r, sizes: sizes.size, deliveryRate: r.delivered + r.returned ? Math.round((r.delivered / (r.delivered + r.returned)) * 100) : null })),
     }
-  },
-})
+  }
+}
 
 /** Order counts by status for any date range (cancelled included), read a page at a time. */
 export const statusCountsPage = internalQuery({
@@ -554,6 +570,12 @@ export const statusCountsPage = internalQuery({
 export const statusCounts = action({
   args: { from: v.number(), to: v.number() },
   handler: async (ctx, { from, to }): Promise<any> => {
+    if (!(await ctx.auth.getUserIdentity())) return null
+    return cached(ctx, `status:${from}:${to}`, 5 * 60000, () => buildStatusCounts(ctx, from, to))
+  },
+})
+async function buildStatusCounts(ctx: any, from: number, to: number): Promise<any> {
+  {
     const all: Record<string, { count: number; value: number }> = {}
     let cursor: string | null = null
     for (let i = 0; i < 60; i++) {
@@ -568,8 +590,8 @@ export const statusCounts = action({
     }
     const rows = Object.entries(all).map(([status, c]) => ({ status, ...c })).sort((a, b) => b.count - a.count)
     return { total: rows.reduce((t, r) => t + r.count, 0), rows }
-  },
-})
+  }
+}
 
 /** Orders, pieces and value per order source for any date range (cancelled not counted), a page at a time. */
 export const sourceCountsPage = internalQuery({
@@ -594,6 +616,12 @@ export const sourceCountsPage = internalQuery({
 export const sourceCounts = action({
   args: { from: v.number(), to: v.number() },
   handler: async (ctx, { from, to }): Promise<any> => {
+    if (!(await ctx.auth.getUserIdentity())) return null
+    return cached(ctx, `source:${from}:${to}`, 5 * 60000, () => buildSourceCounts(ctx, from, to))
+  },
+})
+async function buildSourceCounts(ctx: any, from: number, to: number): Promise<any> {
+  {
     const all: Record<string, { count: number; qty: number; value: number; delivered: number; returned: number }> = {}
     let cursor: string | null = null
     for (let i = 0; i < 60; i++) {
@@ -608,5 +636,5 @@ export const sourceCounts = action({
     }
     const rows = Object.entries(all).map(([source, c]) => ({ source, ...c, deliveryRate: c.delivered + c.returned ? Math.round((c.delivered / (c.delivered + c.returned)) * 100) : null })).sort((a, b) => b.count - a.count)
     return { orders: rows.reduce((t, r) => t + r.count, 0), qty: rows.reduce((t, r) => t + r.qty, 0), value: rows.reduce((t, r) => t + r.value, 0), rows }
-  },
-})
+  }
+}

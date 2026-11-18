@@ -593,11 +593,11 @@ function SourceByDate({ defaultFrom, defaultTo }: { defaultFrom: number; default
       <h2 className="mb-2 text-sm font-semibold">Where orders come from</h2>
       <DateRangePicker fromD={fromD} toD={toD} onChange={(a, b) => { setFromD(a); setToD(b) }} />
       {data === undefined && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.orders} orders · {data.qty} pcs · {taka(data.value)} (cancelled orders not counted)</p>}
+      {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.orders} orders · {taka(data.value)} (cancelled orders not counted)</p>}
       <div className="space-y-2.5">
         {(data?.rows ?? []).map((s: any) => (
           <div key={s.source} className="text-sm">
-            <div className="flex justify-between gap-2"><span className="font-medium">{s.source}</span><span className="tabular-nums text-muted-foreground">{s.count} orders · {s.qty} pcs · {taka(s.value)}</span></div>
+            <div className="flex justify-between gap-2"><span className="font-medium">{s.source}</span><span className="tabular-nums text-muted-foreground">{s.count} orders · {taka(s.value)}</span></div>
             <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-tone-violet" style={{ width: `${pct(s.count, data.orders)}%` }} /></div>
             {s.deliveryRate !== null && <div className={cn("mt-0.5 text-[11px]", s.deliveryRate < 70 ? "text-tone-red" : "text-tone-green")}>{s.delivered} delivered · {s.returned} returned ({s.deliveryRate}%)</div>}
           </div>
