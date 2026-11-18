@@ -177,6 +177,14 @@ export const productSizes = query({
   },
 })
 
+/** Variant name with every option (e.g. "Khaki Green / 39"): some products keep only the size in the title and the color in the website options. */
+export function variantLabel(vr: Pick<Doc<"variants">, "title" | "web">): string {
+  const opts = Object.values((vr.web?.options ?? {}) as Record<string, string>).map((x) => String(x ?? "").trim()).filter(Boolean)
+  const t = vr.title.trim()
+  const missing = opts.filter((o) => !t.toLowerCase().split(/\s*\/\s*/).includes(o.toLowerCase()))
+  return missing.length ? [...missing, t].join(" / ") : t
+}
+
 export const searchVariants = query({
   args: { q: v.string(), locationId: v.optional(v.id("locations")) },
   handler: async (ctx, { q, locationId }) => {
@@ -220,8 +228,8 @@ export const searchVariants = query({
       .map((vr) => {
         const p = pmap.get(vr.productId)
         return {
-          _id: vr._id, productId: vr.productId, sku: vr.sku, title: vr.title, attrs: vr.attrs, price: vr.price, purchasePrice: vr.purchasePrice,
-          weightKg: vr.weightKg, productName: p?.name ?? "", imageUrl: p?.imageUrl,
+          _id: vr._id, productId: vr.productId, sku: vr.sku, title: variantLabel(vr), attrs: vr.attrs, price: vr.price, purchasePrice: vr.purchasePrice,
+          weightKg: vr.weightKg, productName: p?.name ?? "", imageUrl: vr.web?.image || vr.imageUrl || p?.imageUrl,
           available: stock.get(vr._id)?.available ?? 0,
         }
       })
