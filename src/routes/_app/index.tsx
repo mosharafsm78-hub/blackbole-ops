@@ -242,19 +242,7 @@ function Dashboard() {
               </div>
             </section>
 
-            <section className="rounded-xl border bg-card p-4">
-              <h2 className="mb-3 text-sm font-semibold">Top selling items</h2>
-              <ol className="space-y-2">
-                {n.topItems.map((i: any, k: number) => (
-                  <li key={i.sku} className="flex items-center gap-3 text-sm">
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{k + 1}</span>
-                    <div className="min-w-0 flex-1"><div className="truncate">{i.name}</div><div className="truncate font-mono text-[11px] text-muted-foreground">{i.sku}</div></div>
-                    <div className="text-right"><div className="font-semibold tabular-nums">{i.qty}</div><div className="text-[11px] text-muted-foreground tabular-nums">{taka(i.value)}</div></div>
-                  </li>
-                ))}
-                {n.topItems.length === 0 && <p className="text-sm text-muted-foreground">No sales yet.</p>}
-              </ol>
-            </section>
+            <TopSelling defaultFrom={from} defaultTo={to} />
           </div>
         </>
       )}
@@ -504,6 +492,78 @@ function MonthlySummary() {
           </table>
           <p className="px-4 py-2 text-[11px] text-muted-foreground">Orders and sales exclude cancelled. Delivery % = delivered ÷ (delivered + returned).</p>
         </div>
+      )}
+    </section>
+  )
+}
+
+// ---------- Top selling items with their own dates, search and size/product view ----------
+const dayStr = (t: number) => new Date(t + 6 * 3600000).toISOString().slice(0, 10)
+const dayStart = (d: string) => Date.parse(d + "T00:00:00+06:00")
+function TopSelling({ defaultFrom, defaultTo }: { defaultFrom: number; defaultTo: number }) {
+  const [fromD, setFromD] = useState(dayStr(defaultFrom))
+  const [toD, setToD] = useState(dayStr(defaultTo))
+  useEffect(() => { setFromD(dayStr(defaultFrom)); setToD(dayStr(defaultTo)) }, [defaultFrom, defaultTo])
+  const [group, setGroup] = useState<"size" | "product">("size")
+  const [q, setQ] = useState("")
+  const [qd, setQd] = useState("")
+  useEffect(() => { const t = setTimeout(() => setQd(q), 300); return () => clearTimeout(t) }, [q])
+  const [more, setMore] = useState(false)
+  const from = dayStart(fromD), to = dayStart(toD) + 86400000 - 1
+  const valid = Number.isFinite(from) && Number.isFinite(to) && from <= to
+  const [data] = usePolledAction(api.dashboard.topSelling, { from: valid ? from : defaultFrom, to: valid ? to : defaultTo, group, q: qd, limit: 50 }, 10 * 60000)
+  const today = dayStr(Date.now())
+  const preset = (a: string, b: string) => { setFromD(a); setToD(b) }
+  const now = new Date(Date.now() + 6 * 3600000)
+  const monthStart = `${now.toISOString().slice(0, 7)}-01`
+  const lastMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 10)
+  const lastMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).toISOString().slice(0, 10)
+  const rows = data?.rows ?? []
+  const shown = more ? rows : rows.slice(0, 10)
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">Top selling items</h2>
+        <div className="flex rounded-md border p-0.5 text-xs">
+          {(["size", "product"] as const).map((g) => (
+            <button key={g} type="button" onClick={() => setGroup(g)} className={cn("rounded px-2 py-0.5", group === g ? "bg-foreground text-background" : "text-muted-foreground")}>{g === "size" ? "By size" : "By product"}</button>
+          ))}
+        </div>
+      </div>
+      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+        <input type="date" value={fromD} max={toD} onChange={(e) => setFromD(e.target.value)} className="rounded-md border bg-background px-1.5 py-1" />
+        <span className="text-muted-foreground">to</span>
+        <input type="date" value={toD} min={fromD} onChange={(e) => setToD(e.target.value)} className="rounded-md border bg-background px-1.5 py-1" />
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1 text-[11px]">
+        {[
+          ["Today", today, today], ["7 days", dayStr(Date.now() - 6 * 86400000), today], ["30 days", dayStr(Date.now() - 29 * 86400000), today],
+          ["This month", monthStart, today], ["Last month", lastMonthStart, lastMonthEnd], ["90 days", dayStr(Date.now() - 89 * 86400000), today],
+        ].map(([label, a, b]) => (
+          <button key={label} type="button" onClick={() => preset(a, b)} className={cn("rounded-full border px-2 py-0.5", fromD === a && toD === b ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{label}</button>
+        ))}
+      </div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product, color or SKU" className="mb-3 w-full rounded-md border bg-background px-2.5 py-1.5 text-sm" />
+      {data === undefined && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {data && <p className="mb-2 text-[11px] text-muted-foreground">{data.count} {group === "size" ? "items" : "products"} · {data.totalQty} pcs · {taka(data.totalValue)} (cancelled orders not counted)</p>}
+      <ol className="space-y-2">
+        {shown.map((i: any, k: number) => (
+          <li key={i.key} className="flex items-center gap-3 text-sm">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{k + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate" title={i.name}>{i.name}</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {group === "size" ? <span className="font-mono">{i.sku}</span> : <span>{i.sizes} sizes</span>}
+                {i.deliveryRate !== null && <span className={cn("ml-2", i.deliveryRate < 70 ? "text-tone-red" : "text-tone-green")}>{i.delivered} delivered · {i.returned} returned ({i.deliveryRate}%)</span>}
+              </div>
+            </div>
+            <div className="text-right"><div className="font-semibold tabular-nums">{i.qty}</div><div className="text-[11px] text-muted-foreground tabular-nums">{taka(i.value)}</div></div>
+          </li>
+        ))}
+        {data && rows.length === 0 && <p className="text-sm text-muted-foreground">No sales in these dates.</p>}
+      </ol>
+      {rows.length > 10 && (
+        <button type="button" onClick={() => setMore(!more)} className="mt-3 text-xs font-medium text-primary hover:underline">{more ? "Show top 10" : `Show top ${rows.length}`}</button>
       )}
     </section>
   )

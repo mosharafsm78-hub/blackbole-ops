@@ -477,3 +477,59 @@ async function buildInsights(ctx: any) {
   findings.sort((a, b) => b.impact - a.impact)
   return { findings, windowDays: INSIGHT_WINDOW_DAYS }
 }
+
+/** Best sellers for any date range: per size or per product (all sizes together), with delivered / returned so
+ *  "sells a lot but comes back" is visible. Orders are read a page at a time so long ranges stay inside limits. */
+export const topSellingPage = internalQuery({
+  args: { from: v.number(), to: v.number(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { from, to, cursor }) => {
+    const s = await currentStaff(ctx)
+    if (!s) return null
+    const page = await ctx.db.query("orders").withIndex("by_created", (q) => q.gte("createdAt", from).lte("createdAt", to)).paginate({ cursor, numItems: 400 })
+    return {
+      isDone: page.isDone, cursor: page.continueCursor,
+      rows: page.page.filter((o) => !o.deletedAt && o.status !== "cancelled").map((o) => ({
+        status: o.status,
+        items: o.items.map((i) => ({ sku: i.sku, name: i.name, attrs: i.attrs ?? "", qty: i.qty, value: i.price * i.qty - i.discount, imageUrl: i.imageUrl ?? null })),
+      })),
+    }
+  },
+})
+
+export const topSelling = action({
+  args: { from: v.number(), to: v.number(), group: v.optional(v.union(v.literal("size"), v.literal("product"))), q: v.optional(v.string()), limit: v.optional(v.number()) },
+  handler: async (ctx, { from, to, group = "size", q, limit = 50 }): Promise<any> => {
+    type Row = { key: string; name: string; sku: string; imageUrl: string | null; qty: number; value: number; orders: number; delivered: number; returned: number; sizes: Set<string> }
+    const map = new Map<string, Row>()
+    let cursor: string | null = null
+    for (let i = 0; i < 60; i++) {
+      const res: any = await ctx.runQuery(internal.dashboard.topSellingPage, { from, to, cursor })
+      if (!res) return null
+      for (const o of res.rows) {
+        const done = o.status === "delivered_due" || o.status === "delivered_paid"
+        const back = ["pending_returned", "returned", "damaged"].includes(o.status)
+        for (const it of o.items) {
+          const key = group === "product" ? it.name.trim().toLowerCase() : it.sku
+          const r = map.get(key) ?? { key, name: group === "product" ? it.name : `${it.name}${it.attrs ? ` - ${it.attrs}` : ""}`, sku: group === "product" ? "" : it.sku, imageUrl: it.imageUrl, qty: 0, value: 0, orders: 0, delivered: 0, returned: 0, sizes: new Set<string>() }
+          r.qty += it.qty; r.value += it.value; r.orders++
+          if (done) r.delivered += it.qty
+          if (back) r.returned += it.qty
+          if (it.attrs) r.sizes.add(it.attrs)
+          if (!r.imageUrl && it.imageUrl) r.imageUrl = it.imageUrl
+          map.set(key, r)
+        }
+      }
+      if (res.isDone) break
+      cursor = res.cursor
+    }
+    const words = (q ?? "").toLowerCase().split(/\s+/).filter(Boolean)
+    const all = [...map.values()].filter((r) => words.every((w) => `${r.name} ${r.sku}`.toLowerCase().includes(w)))
+    all.sort((a, b) => b.qty - a.qty || b.value - a.value)
+    return {
+      totalQty: all.reduce((t, r) => t + r.qty, 0),
+      totalValue: all.reduce((t, r) => t + r.value, 0),
+      count: all.length,
+      rows: all.slice(0, limit).map(({ sizes, ...r }) => ({ ...r, sizes: sizes.size, deliveryRate: r.delivered + r.returned ? Math.round((r.delivered / (r.delivered + r.returned)) * 100) : null })),
+    }
+  },
+})

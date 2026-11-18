@@ -229,7 +229,7 @@ export const searchVariants = query({
         const p = pmap.get(vr.productId)
         return {
           _id: vr._id, productId: vr.productId, sku: vr.sku, title: variantLabel(vr), attrs: vr.attrs, price: vr.price, purchasePrice: vr.purchasePrice,
-          weightKg: vr.weightKg, productName: p?.name ?? "", imageUrl: vr.web?.image || vr.imageUrl || p?.imageUrl,
+          weightKg: vr.weightKg, productName: p?.name ?? "", imageUrl: ((vr.web?.image as string | undefined) || vr.imageUrl || p?.imageUrl) as string | undefined,
           available: stock.get(vr._id)?.available ?? 0,
         }
       })
@@ -271,7 +271,7 @@ export const inventory = query({
       const p = pmap.get(vr.productId)
       return {
         wh: (whOf.get(vr._id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
-        _id: vr._id, sku: vr.sku, title: variantLabel(vr), productName: p?.name ?? "", imageUrl: vr.web?.image || vr.imageUrl || p?.imageUrl,
+        _id: vr._id, sku: vr.sku, title: variantLabel(vr), productName: p?.name ?? "", imageUrl: ((vr.web?.image as string | undefined) || vr.imageUrl || p?.imageUrl) as string | undefined,
         price: vr.price, purchasePrice: vr.purchasePrice, ...st,
         stockValue: st.available * vr.price, costValue: st.available * vr.purchasePrice,
       }
@@ -490,7 +490,7 @@ export const productDetail = query({
             _id: vr._id,
             sku: vr.sku,
             title: label,
-            imageUrl: vr.web?.image || vr.imageUrl || undefined,
+            imageUrl: ((vr.web?.image as string | undefined) || vr.imageUrl || undefined) as string | undefined,
             attrs: vr.attrs,
             price: vr.price,
             purchasePrice: vr.purchasePrice,
