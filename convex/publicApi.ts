@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { httpAction, internalQuery } from "./_generated/server"
 import { internalMutation } from "./functions"
 import { internal } from "./_generated/api"
@@ -34,7 +35,7 @@ export const createFromApi = internalMutation({
         continue
       }
       const p = await ctx.db.get(vr.productId)
-      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: vr.imageUrl ?? p?.imageUrl, price: Number(it.price ?? vr.price), qty, discount: Number(it.discount ?? 0), weightKg: vr.weightKg })
+      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: variantLabel(vr), imageUrl: vr.imageUrl ?? p?.imageUrl, price: Number(it.price ?? vr.price), qty, discount: Number(it.discount ?? 0), weightKg: vr.weightKg })
     }
     if (!items.length) throw new ConvexError("The order has no products")
     const res = await insertOrder(ctx, {

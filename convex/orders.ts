@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internal } from "./_generated/api"
@@ -202,7 +203,7 @@ export async function buildItems(ctx: MutationCtx, items: { variantId: Id<"varia
     if (!vr) throw new ConvexError("A product in the cart no longer exists")
     const p = await ctx.db.get(vr.productId)
     out.push({
-      variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p),
+      variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: variantLabel(vr), imageUrl: variantPhoto(vr, p),
       price: i.price, qty: i.qty, discount: i.discount, weightKg: vr.weightKg,
     })
   }
@@ -1509,7 +1510,7 @@ export const upload = mutation({
           const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", r.sku.trim().toUpperCase())).first()
           if (!vr) throw new ConvexError(`SKU ${r.sku} not found`)
           const p = await ctx.db.get(vr.productId)
-          items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p), price: r.price ?? vr.price, qty: r.qty || 1, discount: 0, weightKg: vr.weightKg })
+          items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: variantLabel(vr), imageUrl: variantPhoto(vr, p), price: r.price ?? vr.price, qty: r.qty || 1, discount: 0, weightKg: vr.weightKg })
         }
         const f = g[0]
         const res = await insertOrder(ctx, {

@@ -70,11 +70,11 @@ function ProductDetailPage() {
 
       <div className="grid gap-4 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
-          {product.imageUrl
-            ? <img src={product.imageUrl} alt="" className="w-full rounded-lg border object-cover" />
+          {(active?.imageUrl || product.imageUrl)
+            ? <img src={active?.imageUrl || product.imageUrl} alt="" className="w-full rounded-lg border object-cover" />
             : <div className="aspect-square w-full rounded-lg bg-muted" />}
           <div className="grid grid-cols-2 gap-2">
-            <Stat label="Sizes" value={product.variants.length} />
+            <Stat label="Variants" value={product.variants.length} />
             <Stat label="In stock" value={totalAvailable} tone={totalAvailable <= 0 ? "red" : undefined} />
           </div>
         </div>

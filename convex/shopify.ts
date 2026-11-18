@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { v } from "convex/values"
 import { httpAction, internalQuery } from "./_generated/server"
 import { internalMutation } from "./functions"
@@ -21,7 +22,7 @@ export const variantsBySku = internalQuery({
       const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku.toUpperCase())).first()
       if (!vr) continue
       const p = await ctx.db.get(vr.productId)
-      out[sku] = { variantId: vr._id, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: vr.title }
+      out[sku] = { variantId: vr._id, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: variantLabel(vr) }
     }
     return out
   },

@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 // Website → Inventory (Shopify's Products → Inventory): one row per size/variant with Unavailable / Committed /
 // Available / On hand. Stock is owned by Ops (stock table); this file only READS it. Changing a quantity on the
 // Inventory screen calls Ops' own catalog.adjustStock (same permission "inventory.adjust", same stock log).
@@ -50,7 +51,7 @@ export function inventoryRows(input: {
     const w: any = owner.web ?? {}
     const s = sums.get(vr._id as string) ?? { available: 0, processing: 0, inTransit: 0, returning: 0, unavailable: 0 }
     rows.push({
-      variantId: vr._id, sku: vr.sku, variantTitle: vr.title,
+      variantId: vr._id, sku: vr.sku, variantTitle: variantLabel(vr),
       productTitle: String(w.title || owner.name), opsName: own.name, productId: owner._id,
       onWebsite: !!w.published && !!owner.handle, setUp: !!owner.handle && !!owner.web,
       preOrder: !!owner.preOrder || !!own.preOrder || (Array.isArray(w.tags) && w.tags.some((t: any) => String(t).toLowerCase() === "pre-order")),

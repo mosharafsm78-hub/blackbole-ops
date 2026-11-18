@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 // Comprehensive Inventory Report (Phase 1 · Task 2).
 //
 // READ-ONLY and fully additive: this module only reads the existing `products`, `variants`, `stock` and
@@ -152,7 +153,7 @@ export const summary = query({
     for (const vr of variants) {
       const product = productById.get(vr.productId as string)
       if (!product || product.deletedAt) continue
-      const { color } = splitVariant(vr.title, vr.attrs)
+      const { color } = splitVariant(variantLabel(vr), vr.attrs)
       const key = `${vr.productId as string}|${color.toLowerCase()}`
       let cg = colorGroups.get(key)
       if (!cg) {
@@ -196,7 +197,7 @@ export const summary = query({
         for (const variantId of cg.variantIds) {
           const vr = variantById.get(variantId)
           if (!vr) continue
-          const { size } = splitVariant(vr.title, vr.attrs)
+          const { size } = splitVariant(variantLabel(vr), vr.attrs)
           const vlKey = `${variantId}|${locId}`
           const st = stockByVariantLoc.get(vlKey) ?? { available: 0, processing: 0, inTransit: 0 }
           const committed = committedByVariantLoc.get(vlKey) ?? 0

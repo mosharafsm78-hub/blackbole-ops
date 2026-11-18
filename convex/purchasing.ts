@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { v, ConvexError } from "convex/values"
 import { query, type MutationCtx } from "./_generated/server"
 import { mutation } from "./functions"
@@ -259,7 +260,7 @@ async function buildLines(ctx: any, lines: { variantId: Id<"variants">; orderedQ
       throw new ConvexError(`${vr.sku}: ordered quantity can't be less than already received (${was.receivedQty + was.damagedQty})`)
     }
     out.push({
-      variantId: l.variantId, sku: vr.sku, name: p?.name ?? vr.sku, title: vr.title,
+      variantId: l.variantId, sku: vr.sku, name: p?.name ?? vr.sku, title: variantLabel(vr),
       orderedQty: l.orderedQty, unitCost: Math.max(0, l.unitCost),
       receivedQty: was?.receivedQty ?? 0, damagedQty: was?.damagedQty ?? 0,
     })
@@ -702,7 +703,7 @@ export const matchLines = query({
       }
       if (!vr) return null
       const p = products.get(vr.productId)
-      return { variantId: vr._id, sku: vr.sku, name: p?.name ?? "", title: vr.title, purchasePrice: vr.purchasePrice }
+      return { variantId: vr._id, sku: vr.sku, name: p?.name ?? "", title: variantLabel(vr), purchasePrice: vr.purchasePrice }
     })
   },
 })
@@ -776,7 +777,7 @@ export const labelData = query({
       const vr = await ctx.db.get(variantId)
       if (!vr || qty <= 0) return
       const p = await ctx.db.get(vr.productId)
-      rows.push({ sku: vr.sku, name: p?.name ?? "", title: vr.title, price: vr.price, qty })
+      rows.push({ sku: vr.sku, name: p?.name ?? "", title: variantLabel(vr), price: vr.price, qty })
     }
     if (receiptId) {
       const r = await ctx.db.get(receiptId)

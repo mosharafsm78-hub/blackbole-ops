@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 // Goods bought from a supplier sometimes have to go back — arrived damaged, wrong item, expired, or any other
 // reason the supplier owns. This is the mirror image of catalog.receiveStock: stock leaves the warehouse the
 // moment the return is created (it's no longer here to sell or use), and what the supplier actually does about
@@ -76,7 +77,7 @@ export const create = mutation({
       const row = await getStockRow(ctx, l.variantId, a.locationId)
       const onHand = (row as any)[l.bucket] as number
       if (l.qty > onHand) throw new ConvexError(`${vr.sku}: only ${onHand} in ${l.bucket === "damaged" ? "Damaged" : "Available"} to send back`)
-      items.push({ variantId: l.variantId, sku: vr.sku, name: product?.name ?? vr.sku, title: vr.title, qty: l.qty, unitCost: vr.purchasePrice || 0, bucket: l.bucket })
+      items.push({ variantId: l.variantId, sku: vr.sku, name: product?.name ?? vr.sku, title: variantLabel(vr), qty: l.qty, unitCost: vr.purchasePrice || 0, bucket: l.bucket })
     }
 
     const code = await nextCounter(ctx, "supplierReturn", 1)

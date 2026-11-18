@@ -271,7 +271,7 @@ export const inventory = query({
       const p = pmap.get(vr.productId)
       return {
         wh: (whOf.get(vr._id) ?? []).sort((a, b) => a.name.localeCompare(b.name)),
-        _id: vr._id, sku: vr.sku, title: vr.title, productName: p?.name ?? "", imageUrl: p?.imageUrl,
+        _id: vr._id, sku: vr.sku, title: variantLabel(vr), productName: p?.name ?? "", imageUrl: vr.web?.image || vr.imageUrl || p?.imageUrl,
         price: vr.price, purchasePrice: vr.purchasePrice, ...st,
         stockValue: st.available * vr.price, costValue: st.available * vr.purchasePrice,
       }
@@ -482,13 +482,15 @@ export const productDetail = query({
       active: product.active,
       features: product.features ?? [],
       variants: variants
-        .sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true }))
-        .map((vr) => {
+        .map((vr) => ({ vr, label: variantLabel(vr) }))
+        .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+        .map(({ vr, label }) => {
           const sum = stock.get(vr._id) ?? emptySum()
           return {
             _id: vr._id,
             sku: vr.sku,
-            title: vr.title,
+            title: label,
+            imageUrl: vr.web?.image || vr.imageUrl || undefined,
             attrs: vr.attrs,
             price: vr.price,
             purchasePrice: vr.purchasePrice,

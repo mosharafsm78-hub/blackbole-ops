@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { v, ConvexError } from "convex/values"
 import { paginationOptsValidator } from "convex/server"
 import { internalAction, internalQuery, query } from "./_generated/server"
@@ -67,7 +68,7 @@ export const stockRows = internalQuery({
       const by = (b: keyof Doc<"stock">) => rows.reduce((s, r) => s + ((r[b] as number) ?? 0), 0)
       const perLoc = Object.fromEntries(locs.map((l) => [l.name, rows.find((r) => r.locationId === l._id)?.available ?? 0]))
       return {
-        SKU: vr.sku, Product: products.get(vr.productId)?.name ?? "", Variant: vr.title,
+        SKU: vr.sku, Product: products.get(vr.productId)?.name ?? "", Variant: variantLabel(vr),
         ...perLoc,
         Available: by("available"), Processing: by("processing"), "In transit": by("inTransit"), Returning: by("returning"),
         Damaged: by("damaged"), Wastage: by("wastage"), Expired: by("expired"),

@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 import { v, ConvexError } from "convex/values"
 import { httpAction, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
@@ -141,7 +142,7 @@ export const variantsByName = internalQuery({
       const vr = await matchByName(ctx, l.title, l.variant)
       if (!vr) continue
       const p = await ctx.db.get(vr.productId)
-      out[l.key] = { variantId: vr._id, sku: vr.sku, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: vr.title }
+      out[l.key] = { variantId: vr._id, sku: vr.sku, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p), name: p?.name ?? vr.sku, title: variantLabel(vr) }
     }
     return out
   },
@@ -160,7 +161,7 @@ export async function linkItems<T extends { variantId?: any; sku: string; name: 
     if (!vr) { out.push(i); continue }
     const p = await ctx.db.get(vr.productId)
     linked++
-    out.push({ ...i, variantId: vr._id, sku: vr.sku, name: p?.name ?? i.name, attrs: vr.title, weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p) ?? i.imageUrl })
+    out.push({ ...i, variantId: vr._id, sku: vr.sku, name: p?.name ?? i.name, attrs: variantLabel(vr), weightKg: vr.weightKg, imageUrl: variantPhoto(vr, p) ?? i.imageUrl })
   }
   return { items: out, linked }
 }
@@ -565,7 +566,7 @@ export const addDemo = internalMutation({
     const items: Doc<"checkouts">["items"] = []
     for (const vr of chosen.slice(0, 2)) {
       const p = await ctx.db.get(vr.productId)
-      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: vr.title, imageUrl: variantPhoto(vr, p), price: vr.price, qty: 1, discount: 0, weightKg: vr.weightKg })
+      items.push({ variantId: vr._id, sku: vr.sku, name: p?.name ?? vr.sku, attrs: variantLabel(vr), imageUrl: variantPhoto(vr, p), price: vr.price, qty: 1, discount: 0, weightKg: vr.weightKg })
     }
     const subtotal = items.reduce((s, i) => s + i.price, 0)
     const now = Date.now()

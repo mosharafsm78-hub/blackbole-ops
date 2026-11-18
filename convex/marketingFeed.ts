@@ -1,3 +1,4 @@
+import { variantLabel } from "./catalog"
 // Read-only data feed for BlackBole Marketing OS (a separate app).
 // It needs MARKETING_FEED_KEY set in this deployment's environment variables; without it the feed is off.
 // Nothing here changes any data.
@@ -92,7 +93,7 @@ export const stockBySku = internalQuery({
       const available = rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)
       // price = the Ops selling price (what the team edits on Products). webPrice = the price saved for the website,
       // sent so Marketing OS can flag a mismatch (pre-orders: that is only the booking money, so not sent).
-      out.push({ sku: vr.sku, product: p.name, variant: vr.title, price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder || /^PO-/i.test(vr.sku), imageUrl: vr.imageUrl ?? p.imageUrl ?? (p as any).web?.images?.[0]?.url ?? null, handle: p.handle ?? null })
+      out.push({ sku: vr.sku, product: p.name, variant: variantLabel(vr), price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder || /^PO-/i.test(vr.sku), imageUrl: vr.imageUrl ?? p.imageUrl ?? (p as any).web?.images?.[0]?.url ?? null, handle: p.handle ?? null })
     }
     return out
   },
