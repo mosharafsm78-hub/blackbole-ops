@@ -490,9 +490,9 @@ function MonthlySummary() {
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{r.orders ? taka(Math.round(r.sales / r.orders)) : "—"}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-green">{r.delivered}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-red">{r.returned}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{r.cancelled}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-green">{r.delivered}<div className="text-[11px] text-muted-foreground">{taka(r.deliveredValue ?? 0)}</div></td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-tone-red">{r.returned}<div className="text-[11px] text-muted-foreground">{taka((r as any).returnedValue ?? 0)}</div></td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{r.cancelled}<div className="text-[11px] text-muted-foreground">{taka((r as any).cancelledValue ?? 0)}</div></td>
                   <td className="px-3 py-2.5 text-right">
                     {r.deliveryRate === null ? <span className="text-muted-foreground">—</span> : (
                       <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", r.deliveryRate >= 80 ? "bg-tone-green-bg text-tone-green" : r.deliveryRate >= 65 ? "bg-tone-amber-bg text-tone-amber" : "bg-tone-red-bg text-tone-red")}>{r.deliveryRate}%</span>

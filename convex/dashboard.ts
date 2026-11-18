@@ -236,7 +236,7 @@ export const monthMoney = internalQuery({
 /** Month by month: orders, sales, delivered, returned, cancelled, delivery %, Pathao paid us (re-worked out at most every 2 hours). */
 export const monthly = action({
   args: { months: v.optional(v.number()) },
-  handler: async (ctx, { months = 6 }): Promise<any[]> => cached(ctx, `monthly:${months}`, 2 * 3600000, () => buildMonthly(ctx, months)),
+  handler: async (ctx, { months = 6 }): Promise<any[]> => cached(ctx, `monthly-v2:${months}`, 2 * 3600000, () => buildMonthly(ctx, months)),
 })
 
 async function buildMonthly(ctx: any, months: number): Promise<any[]> {
@@ -248,17 +248,17 @@ async function buildMonthly(ctx: any, months: number): Promise<any[]> {
     const out = new Map<string, any>()
     for (let i = 0; i < months; i++) {
       const k = new Date(Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1) + i, 1)).toISOString().slice(0, 7)
-      out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, cancelled: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
+      out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, returnedValue: 0, cancelled: 0, cancelledValue: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
     }
     let cursor: string | null = null
     for (let i = 0; i < 200; i++) {
       const res: { isDone: boolean; cursor: string; rows: { at: number; status: string; total: number; items: number }[] } = await ctx.runQuery(internal.dashboard.monthPage, { from: start, cursor })
       for (const r of res.rows) {
         const m = out.get(key(r.at)); if (!m) continue
-        if (r.status === "cancelled") { m.cancelled++; continue }
+        if (r.status === "cancelled") { m.cancelled++; m.cancelledValue += r.total; continue }
         m.orders++; m.sales += r.total; m.items += r.items
         if (r.status === "delivered_due" || r.status === "delivered_paid") { m.delivered++; m.deliveredValue += r.total }
-        else if (["pending_returned", "returned", "damaged"].includes(r.status)) m.returned++
+        else if (["pending_returned", "returned", "damaged"].includes(r.status)) { m.returned++; m.returnedValue += r.total }
         else m.open++
       }
       if (res.isDone) break
@@ -280,17 +280,17 @@ async function buildMonthlyFast(ctx: any, months: number): Promise<any[]> {
   const out = new Map<string, any>()
   for (let i = 0; i < months; i++) {
     const k = new Date(Date.UTC(nowBD.getUTCFullYear(), nowBD.getUTCMonth() - (months - 1) + i, 1)).toISOString().slice(0, 7)
-    out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, cancelled: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
+    out.set(k, { month: k, orders: 0, sales: 0, items: 0, delivered: 0, deliveredValue: 0, returned: 0, returnedValue: 0, cancelled: 0, cancelledValue: 0, open: 0, pathaoPaid: 0, pathaoFees: 0 })
   }
   const rows: any[] = await ctx.runQuery(internal.stats.days, { fromDay: bdDay(start), toDay: bdDay(Date.now()) })
   for (const r of rows) {
     const m = out.get(r.day.slice(0, 7)); if (!m) continue
     m.items += r.q
     for (const s of r.st) {
-      if (s.s === "cancelled") { m.cancelled += s.n; continue }
+      if (s.s === "cancelled") { m.cancelled += s.n; m.cancelledValue += s.v; continue }
       m.orders += s.n; m.sales += s.v
       if (DELIVERED.includes(s.s)) { m.delivered += s.n; m.deliveredValue += s.v }
-      else if (RETURNED.includes(s.s)) m.returned += s.n
+      else if (RETURNED.includes(s.s)) { m.returned += s.n; m.returnedValue += s.v }
       else m.open += s.n
     }
   }
