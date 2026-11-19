@@ -605,11 +605,11 @@ export const audit = action({
       const usd = r.ladder.length ? Math.max(...r.ladder.map((l) => l[2])) : r.skuPrice ?? 0
       if (usd > 0) want[String(r.id)] = priceOf(usd, b.markup)
     }
-    const res = await shopifyGql(ctx, `query($q: String!, $n: Int!, $after: String, $pub: ID!) { products(first: $n, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes {
-      id handle title status tags onlineStoreUrl publishedOnPublication(publicationId: $pub) metafield(namespace: "custom", key: "supplier") { value } seo { title description } descriptionHtml
+    const res = await shopifyGql(ctx, `query($q: String!, $n: Int!, $after: String) { products(first: $n, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes {
+      id handle title status tags onlineStoreUrl metafield(namespace: "custom", key: "supplier") { value } seo { title description } descriptionHtml
       media(first: 30) { nodes { status mediaContentType } }
       variants(first: 100) { nodes { sku price compareAtPrice inventoryPolicy inventoryItem { tracked } selectedOptions { name value } media(first: 1) { nodes { id } } } } } } }`,
-      { q: a.query, n: a.count ?? 25, after: a.after ?? null, pub: ONLINE_STORE })
+      { q: a.query, n: a.count ?? 25, after: a.after ?? null })
     const issues: any[] = []
     let checked = 0
     for (const p of res.products.nodes) {
@@ -618,7 +618,7 @@ export const audit = action({
       const tags: string[] = p.tags
       const china = tags.some((t) => t.startsWith("supplier-")) && !tags.includes("made-in-bangladesh")
       if (p.status !== "ACTIVE") bad.push(`status ${p.status}`)
-      if (!p.publishedOnPublication) bad.push("not on the website")
+      if (!p.onlineStoreUrl) bad.push("not on the website")
       if (!p.media.nodes.length) bad.push("no pictures")
       if (p.media.nodes.some((m: any) => m.status !== "READY")) bad.push(`${p.media.nodes.filter((m: any) => m.status !== "READY").length} picture(s) not ready/broken`)
       if (!p.descriptionHtml || p.descriptionHtml.length < 40) bad.push("no description")
