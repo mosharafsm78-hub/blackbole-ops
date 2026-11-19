@@ -120,11 +120,11 @@ function Report({ d }: { d: any }) {
             <Line label="Product cost" sub="purchase price of the pairs delivered" n={-o.delivered.productCost} />
             <Line label="Pathao on delivered" sub="Pathao's fee per parcel (delivery + COD)" n={-o.delivered.courier} />
             <Line label="Packaging" sub={`${taka(d.packaging)} per parcel`} n={-o.delivered.packaging} />
-            <Line label="Meta on delivered orders" sub={`${o.delivered.metaOrders} orders came from an ad`} n={-o.delivered.meta} />
+            <Line label="Meta on delivered orders" sub={`${taka(Math.round(deliveredCount ? o.delivered.meta / deliveredCount : 0))} per order`} n={-o.delivered.meta} />
             <Line label="Profit on delivered orders" n={o.delivered.profit} total />
             <Line label="Returned orders" sub={`${o.returned.orders} orders: Pathao ${taka(o.returned.courier)} + packaging ${taka(o.returned.packaging)} + Meta ${taka(o.returned.meta)}${o.returned.revenue ? ` − return charge paid ${taka(o.returned.revenue)}` : ""}`} n={lossReturns} />
             <Line label="Cancelled orders" sub={`${o.cancelled.orders} orders: Meta spent to bring them`} n={lossCancels} />
-            <Line label="Meta spend with no order" sub="ads that brought no website order in these days" n={-d.meta.unlinked} />
+            {d.meta.unlinked > 0.5 && <Line label="Meta spend on days with no orders" sub="ads ran but no order came that day" n={-d.meta.unlinked} />}
             <Line label="Profit before fixed costs" n={beforeFixed} total />
             {d.manager && d.fixed && (
               <>
@@ -142,26 +142,29 @@ function Report({ d }: { d: any }) {
           <div className="space-y-2 text-sm">
             {(["delivered", "returned", "cancelled", "open"] as Outcome[]).map((k) => (
               <div key={k} className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2"><span className={cn("size-2 rounded-full", OUTCOME[k].dot)} />{OUTCOME[k].label} orders <span className="text-xs text-muted-foreground">({o[k].metaOrders} from ads)</span></span>
+                <span className="flex items-center gap-2"><span className={cn("size-2 rounded-full", OUTCOME[k].dot)} />{OUTCOME[k].label} orders <span className="text-xs text-muted-foreground">({o[k].orders})</span></span>
                 <Money n={o[k].meta} />
               </div>
             ))}
             <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2"><span className="size-2 rounded-full bg-tone-amber" />No order linked</span>
+              <span className="flex items-center gap-2"><span className="size-2 rounded-full bg-tone-amber" />Days with no orders</span>
               <Money n={d.meta.unlinked} />
             </div>
             <div className="flex items-center justify-between gap-2 border-t pt-2 font-semibold">
               <span>Total = Meta Ads Manager</span><Money n={d.meta.total} />
             </div>
           </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg border p-2.5"><div className="text-muted-foreground">Exact campaign</div><div className="mt-0.5 text-sm font-semibold"><Money n={d.meta.onCampaign} /></div><div className="text-muted-foreground">{d.meta.campaignOrders} orders with the ad in their link</div></div>
+            <div className="rounded-lg border p-2.5"><div className="text-muted-foreground">Shared that day</div><div className="mt-0.5 text-sm font-semibold"><Money n={d.meta.onOrders - d.meta.onCampaign} /></div><div className="text-muted-foreground">{d.meta.sharedOrders} orders with no ad in their link</div></div>
+          </div>
           <div className="mt-3 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
-            <p>Website orders get the spend of the ad campaign in their link, on the day they ordered, shared equally between that campaign's orders that day. Orders the team typed in from Messenger, WhatsApp, Facebook or phone ({d.meta.chatOrders} orders) get ৳0.</p>
-            {d.meta.websiteNoCampaign > 0 && <p className="mt-1.5">{d.meta.websiteNoCampaign} website orders came without a campaign in their link, so they carry no Meta cost; their ad money shows under "No order linked".</p>}
+            <p>Every order comes from Meta. A website order with the ad campaign in its link gets that campaign's spend for the day, shared equally between that campaign's orders. The rest of the day's spend is shared equally by that day's other orders: website orders without a campaign ({d.meta.websiteNoCampaign}) and Messenger, WhatsApp, Facebook and phone orders ({d.meta.chatOrders}).</p>
             <p className="mt-1.5">Meta data updated {d.sync?.at ? dateTime(d.sync.at) : "—"}{syncAcc?.timezone ? ` · account time ${syncAcc.timezone}` : ""}.</p>
           </div>
           {d.meta.unlinkedCampaigns.length > 0 && (
             <details className="mt-3 text-xs">
-              <summary className="cursor-pointer font-medium">Campaigns with spend but no website order ({d.meta.unlinkedCampaigns.length})</summary>
+              <summary className="cursor-pointer font-medium">Spend on days with no orders ({d.meta.unlinkedCampaigns.length} campaigns)</summary>
               <ul className="mt-2 space-y-1">
                 {d.meta.unlinkedCampaigns.map((c: any) => <li key={c.id} className="flex justify-between gap-3"><span className="truncate" title={c.name}>{c.name}</span><Money n={c.spend} /></li>)}
               </ul>
@@ -274,7 +277,7 @@ function Orders({ rows }: { rows: any[] }) {
   const filtered = useMemo(() => {
     const w = q.trim().toLowerCase()
     return rows.filter((r) => (tab === "all" || r.outcome === tab)
-      && (from === "all" || (from === "ads" ? r.meta > 0 : r.source !== "Website"))
+      && (from === "all" || (from === "ads" ? !!r.campaign : !r.campaign))
       && (!w || `${r.invoice} ${r.customer} ${r.items.join(" ")} ${r.campaign ?? ""}`.toLowerCase().includes(w)))
   }, [rows, tab, from, q])
   const per = 50
@@ -285,7 +288,7 @@ function Orders({ rows }: { rows: any[] }) {
   return (
     <section className="rounded-xl border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
-        <div><h2 className="text-sm font-semibold">Order by order</h2><p className="text-xs text-muted-foreground">Real figures: Pathao's own fee, the purchase price of each size, and the Meta campaign that brought the order.</p></div>
+        <div><h2 className="text-sm font-semibold">Order by order</h2><p className="text-xs text-muted-foreground">Pathao's own fee, the purchase price of each size, and the Meta spend of the campaign that brought the order.</p></div>
         <div className="relative w-full sm:w-64">
           <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
           <input value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} placeholder="Order, customer, product, campaign" className="w-full rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm" />
@@ -298,7 +301,7 @@ function Orders({ rows }: { rows: any[] }) {
           </button>
         ))}
         <span className="mx-1 h-4 w-px bg-border" />
-        {([["all", "Any source"], ["ads", "From Meta ads"], ["chat", "Chat & phone (৳0 Meta)"]] as const).map(([k, l]) => (
+        {([["all", "Any source"], ["ads", "Exact campaign"], ["chat", "Shared from the day"]] as const).map(([k, l]) => (
           <button key={k} type="button" onClick={() => { setFrom(k); setPage(0) }} className={cn("rounded-full border px-2.5 py-0.5 text-xs", from === k ? "border-foreground bg-foreground text-background" : "text-muted-foreground hover:bg-accent")}>{l}</button>
         ))}
       </div>
@@ -324,7 +327,7 @@ function Orders({ rows }: { rows: any[] }) {
                 </td>
                 <td className="max-w-[200px] px-3 py-2 text-left text-xs">
                   {r.campaign ? <><div className="truncate font-medium" title={r.campaign}>{r.campaign}</div><div className="text-muted-foreground">Meta ad</div></>
-                    : <><div>{r.source}</div><div className="text-muted-foreground">{r.source === "Website" ? (r.campaignTag ? "link not in Meta" : "no campaign in link") : "typed in by team"}</div></>}
+                    : <><div>{r.source}</div><div className="text-muted-foreground">{r.meta > 0 ? "Meta · shared from the day" : r.source === "Website" ? "no campaign in link" : "typed in by team"}</div></>}
                 </td>
                 <td className="px-3 py-2 text-left"><StatusPill status={r.status} /></td>
                 <td className="px-3 py-2"><Money n={r.outcome === "delivered" || r.revenue ? r.revenue : null} />{r.outcome !== "delivered" && <div className="text-[11px] text-muted-foreground">order {taka(r.value)}</div>}</td>

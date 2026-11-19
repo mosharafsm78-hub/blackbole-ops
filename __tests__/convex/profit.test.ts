@@ -38,23 +38,31 @@ describe("profit page", () => {
 
     const from = Date.parse("2026-11-01T00:00:00+06:00"), to = Date.parse("2026-11-30T23:59:59+06:00")
     const r = await as.action(api.profit.report, { from, to })
-    // Meta: 1000 split over the 3 website orders of campaign 111; WhatsApp gets 0; campaign 222 had no order
+    // Meta: 1000 split over the 3 website orders of campaign 111; campaign 222 (300) traced to no order,
+    // so it is shared by the day's untraced order (the WhatsApp one). Nothing is left over.
     expect(r.meta.total).toBe(1300)
-    expect(r.meta.onOrders + r.meta.unlinked).toBeCloseTo(1300, 5)
-    expect(r.meta.unlinked).toBeCloseTo(300, 5)
-    expect(r.meta.unlinkedCampaigns[0].name).toBe("Boots test")
+    expect(r.meta.onOrders).toBeCloseTo(1300, 5)
+    expect(r.meta.unlinked).toBeCloseTo(0, 5)
     const d = r.orders.find((o: any) => o.id === delivered)
     expect(d.meta).toBeCloseTo(333.33, 1)
     // delivered: 1990 paid − 700 product − 105 Pathao − 50 packaging − 333.33 Meta
     expect(d.profit).toBeCloseTo(1990 - 700 - 105 - 50 - 333.33, 1)
     const ret = r.orders.find((o: any) => o.id === returned)
     expect(ret.profit).toBeCloseTo(-130 - 50 - 333.33, 1) // pair comes back to stock; courier, box and ads are lost
-    expect(r.orders.find((o: any) => o.source === "WhatsApp").meta).toBe(0)
+    expect(r.orders.find((o: any) => o.source === "WhatsApp").meta).toBeCloseTo(300, 5)
     expect(r.outcomes.cancelled.meta).toBeCloseTo(333.33, 1)
     expect(r.outcomes.cancelled.profit).toBeCloseTo(-333.33, 1)
     // net = finished orders − spend with no order − fixed costs (300,000 for 30 days of November)
     expect(r.fixed.period).toBe(300000)
-    expect(r.totals.netProfit).toBeCloseTo(r.totals.finishedProfit - 300 - 300000, 1)
+    expect(r.totals.netProfit).toBeCloseTo(r.totals.finishedProfit - 300000, 1)
     expect(r.products[0].name).toBe("Veyron Loafer")
+
+    // a day with ads but no orders keeps its spend as "no order"
+    await t.mutation(internal.profit.saveSpend, { days: ["2026-11-11"], info: {}, rows: [{ day: "2026-11-11", accountId: "1", campaignId: "111", campaignName: "Veyron sale", spend: 200 }] })
+    await t.mutation(internal.dashboard.writeCache, { key: `profit:${from}:${to}`, value: null })
+    const r2 = await as.action(api.profit.report, { from, to })
+    expect(r2.meta.total).toBe(1500)
+    expect(r2.meta.unlinked).toBeCloseTo(200, 5)
+    expect(r2.meta.onOrders + r2.meta.unlinked).toBeCloseTo(1500, 5)
   })
 })

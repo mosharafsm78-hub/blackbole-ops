@@ -2,8 +2,9 @@
 //
 //  • Meta spend: copied from the Meta API per campaign per day (metaSpend table). A website order gets the spend of
 //    the campaign in its link, on the day it was ordered, split equally between that campaign's orders that day.
-//    Orders the team typed in from Messenger / WhatsApp / Facebook / phone get ৳0. Spend no order can be linked to
-//    is shown as its own line, so the month's Meta total here always equals Meta Ads Manager.
+//    Every order comes from Meta (Emon), so the rest of that day's spend — campaigns whose orders can't be traced —
+//    is shared equally by the day's other orders (website orders with no campaign, Messenger, WhatsApp, phone).
+//    Only a day with no orders at all keeps its spend as "no order". The total always equals Meta Ads Manager.
 //  • Courier: Pathao's own fee for the parcel from its invoice (delivery + COD + return). Before the invoice, the fee
 //    Pathao quoted when the parcel was booked (marked "not invoiced yet").
 //  • Product cost: purchase price of each size in Ops. Packaging and monthly fixed costs: Settings → costs.
@@ -21,8 +22,8 @@ const BD = 6 * 3600000
 const bdDay = (t: number) => new Date(t + BD).toISOString().slice(0, 10)
 const DELIVERED = ["delivered_due", "delivered_paid"]
 const RETURNED = ["pending_returned", "returned", "damaged"]
-/** Orders typed in by the team from a chat or call: no Meta spend on them (Emon's rule). */
-export const metaFreeSource = (source: string) => source !== "Website"
+/** Orders typed in by the team from a chat or call (they can't carry an ad campaign link). */
+export const chatSource = (source: string) => source !== "Website"
 
 // ---------------- Meta spend sync ----------------
 export const saveSpend = internalMutation({
@@ -156,7 +157,7 @@ export async function buildProfit(ctx: any, from: number, to: number) {
     metaTotal += s.spend
   }
   const linkOf = (o: any): string | null => {
-    if (metaFreeSource(o.source) || !o.campaignId) return null
+    if (chatSource(o.source) || !o.campaignId) return null
     const day = bdDay(o.createdAt)
     if (spendKey.has(`${day}|${o.campaignId}`) || /^\d{6,}$/.test(o.campaignId)) return `${day}|${o.campaignId}`
     const id = nameToId.get(`${day}|${String(o.campaignId).trim().toLowerCase()}`)
@@ -165,6 +166,28 @@ export async function buildProfit(ctx: any, from: number, to: number) {
   const ordersPerKey = new Map<string, number>()
   for (const o of orders) { const k = linkOf(o); if (k && spendKey.has(k)) ordersPerKey.set(k, (ordersPerKey.get(k) ?? 0) + 1) }
 
+  // 1b. The rest of each day's spend (campaigns with no traceable order) is shared by that day's untraced orders;
+  //     if every order that day was traced, by all of that day's orders. Only a day with no orders keeps it unshared.
+  const dayTotal = new Map<string, number>(), dayLinked = new Map<string, number>()
+  for (const [k, e] of spendKey) {
+    dayTotal.set(e.day, (dayTotal.get(e.day) ?? 0) + e.spend)
+    if (ordersPerKey.get(k)) dayLinked.set(e.day, (dayLinked.get(e.day) ?? 0) + e.spend)
+  }
+  const traced = (o: any) => { const k = linkOf(o); return !!(k && spendKey.has(k)) }
+  const dayOrders = new Map<string, { all: number; untraced: number }>()
+  for (const o of orders) {
+    const d = bdDay(o.createdAt)
+    const x = dayOrders.get(d) ?? { all: 0, untraced: 0 }
+    x.all++; if (!traced(o)) x.untraced++
+    dayOrders.set(d, x)
+  }
+  const shareOf = (o: any) => {
+    const d = bdDay(o.createdAt), left = (dayTotal.get(d) ?? 0) - (dayLinked.get(d) ?? 0), n = dayOrders.get(d)
+    if (left <= 0.005 || !n) return 0
+    if (n.untraced) return traced(o) ? 0 : left / n.untraced
+    return left / n.all
+  }
+
   // 2. Each order
   const rows: any[] = []
   let metaOnOrders = 0
@@ -172,7 +195,9 @@ export async function buildProfit(ctx: any, from: number, to: number) {
     const outcome = outcomeOf(o.status)
     const k = linkOf(o)
     const camp = k ? spendKey.get(k) : undefined
-    const meta = camp ? camp.spend / (ordersPerKey.get(k!) ?? 1) : 0
+    const campMeta = camp ? camp.spend / (ordersPerKey.get(k!) ?? 1) : 0
+    const shared = shareOf(o)
+    const meta = campMeta + shared
     metaOnOrders += meta
     let productCost = 0, costMissing = false
     for (const i of o.items) {
@@ -192,9 +217,10 @@ export async function buildProfit(ctx: any, from: number, to: number) {
     rows.push({
       id: o.id, invoice: o.invoice, createdAt: o.createdAt, status: o.status, outcome, source: o.source, customer: o.customer,
       campaign: camp ? camp.name : null, campaignTag: o.campaignId, value: o.total,
+      metaBasis: camp ? (shared ? "campaign+day" : "campaign") : shared ? "day" : "none",
       items: o.items.map((i: any) => `${i.name}${i.attrs ? ` - ${i.attrs}` : ""}${i.qty > 1 ? ` ×${i.qty}` : ""}`),
       revenue: Math.round(revenue), productCost: Math.round(productCost), cogs: Math.round(cogs), courier: Math.round(courier), courierNote,
-      packaging: pack, meta: Math.round(meta * 100) / 100, profit: profit === null ? null : Math.round(profit * 100) / 100, costMissing,
+      packaging: pack, meta: Math.round(meta * 100) / 100, campaignMeta: Math.round(campMeta * 100) / 100, profit: profit === null ? null : Math.round(profit * 100) / 100, costMissing,
       _items: o.items,
     })
   }
@@ -214,7 +240,7 @@ export async function buildProfit(ctx: any, from: number, to: number) {
   // 4. Spend no order could be linked to, by campaign
   const unlinked = new Map<string, { name: string; spend: number }>()
   for (const [k, e] of spendKey) {
-    if (ordersPerKey.get(k)) continue
+    if (ordersPerKey.get(k) || dayOrders.get(e.day)?.all) continue
     const u = unlinked.get(e.campaignId) ?? { name: e.name, spend: 0 }
     u.spend += e.spend
     unlinked.set(e.campaignId, u)
@@ -254,9 +280,12 @@ export async function buildProfit(ctx: any, from: number, to: number) {
     meta: {
       total: r2(metaTotal), onOrders: r2(metaOnOrders), unlinked: r2(metaUnlinked),
       linkedOrders: rows.filter((r) => r.meta > 0).length,
-      websiteOrders: rows.filter((r) => !metaFreeSource(r.source)).length,
-      websiteNoCampaign: rows.filter((r) => !metaFreeSource(r.source) && !r.campaignTag).length,
-      chatOrders: rows.filter((r) => metaFreeSource(r.source)).length,
+      campaignOrders: rows.filter((r) => r.campaign).length,
+      sharedOrders: rows.filter((r) => !r.campaign && r.meta > 0).length,
+      onCampaign: r2(rows.reduce((t, r) => t + (r.campaign ? r.campaignMeta : 0), 0)),
+      websiteOrders: rows.filter((r) => !chatSource(r.source)).length,
+      websiteNoCampaign: rows.filter((r) => !chatSource(r.source) && !r.campaign).length,
+      chatOrders: rows.filter((r) => chatSource(r.source)).length,
       unlinkedCampaigns: [...unlinked.entries()].map(([id, u]) => ({ id, name: u.name, spend: r2(u.spend) })).sort((a, b) => b.spend - a.spend).slice(0, 15),
     },
     outcomes, packaging,
