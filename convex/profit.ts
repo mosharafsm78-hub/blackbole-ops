@@ -32,6 +32,10 @@ export const saveSpend = internalMutation({
     const now = Date.now()
     for (const d of days) for (const r of await ctx.db.query("metaSpend").withIndex("by_day", (q) => q.eq("day", d)).collect()) await ctx.db.delete(r._id)
     for (const r of rows) await ctx.db.insert("metaSpend", { ...r, syncedAt: now })
+    // the earliest day Ops has Meta spend for, so a date range before it is filled in from Meta first
+    const cov = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "metaSpendFrom")).unique()
+    if (!cov) await ctx.db.insert("settings", { key: "metaSpendFrom", value: days[0] })
+    else if (days[0] < cov.value) await ctx.db.patch(cov._id, { value: days[0] })
     const row = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "metaSpendSync")).unique()
     const value = { at: now, from: days[0], to: days[days.length - 1], rows: rows.length, ...info }
     if (row) await ctx.db.patch(row._id, { value }); else await ctx.db.insert("settings", { key: "metaSpendSync", value })
@@ -305,6 +309,14 @@ export const report = action({
   handler: async (ctx, { from, to }): Promise<any> => {
     const who: any = await ctx.runQuery(internal.profit.viewer, {})
     if (!who?.view) throw new ConvexError("You don't have permission to see profit.")
+    // dates earlier than anything read from Meta so far: read them from Meta now (once), so the Meta total is right
+    const have: string | null = await ctx.runQuery(internal.profit.spendFrom, {})
+    const fromDay = bdDay(from)
+    if (!have || fromDay < have) {
+      const until = have ? bdDay(Date.parse(`${have}T00:00:00+06:00`) - DAY) : bdDay(Math.min(to, Date.now()))
+      try { await ctx.runAction(internal.profit.syncSpend, { from: fromDay, to: until }) } catch { /* Meta not reachable: show what we have */ }
+      await ctx.runMutation(internal.dashboard.writeCache, { key: `profit:${from}:${to}`, value: null })
+    }
     let data: any = await cached(ctx, `profit:${from}:${to}`, 3 * 60000, () => buildProfit(ctx, from, to))
     if (!data) { // cleared by "Refresh from Meta"
       data = await buildProfit(ctx, from, to)
@@ -329,6 +341,7 @@ export const refreshSpend = action({
     return r
   },
 })
+export const spendFrom = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<string>(ctx, "metaSpendFrom")) ?? null })
 export const lastSync = internalQuery({ args: {}, handler: async (ctx) => (await getSetting<any>(ctx, "metaSpendSync")) ?? null })
 
 export const syncStatus = query({
