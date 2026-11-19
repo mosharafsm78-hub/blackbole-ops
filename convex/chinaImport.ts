@@ -578,3 +578,75 @@ export const standardizeSizes = action({
     return { out, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
   },
 })
+
+// ---------- hard check before going live ----------
+
+export const opsBySkus = internalQuery({
+  args: { skus: v.array(v.string()) },
+  handler: async (ctx, { skus }) => {
+    const out: Record<string, any> = {}
+    for (const sku of skus) {
+      const x = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (!x) continue
+      const st = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+      const prod = await ctx.db.get(x.productId)
+      out[sku] = { price: x.price, cost: x.purchasePrice, active: x.active, available: st.reduce((t, r) => t + r.available, 0), virtual: st.reduce((t, r) => t + (r.virtual ?? 0), 0), preOrder: !!prod?.preOrder, productActive: !!prod?.active && !prod?.deletedAt }
+    }
+    return out
+  },
+})
+
+export const audit = action({
+  args: { query: v.string(), after: v.optional(v.string()), count: v.optional(v.number()), batches: v.optional(v.array(v.object({ batch: v.string(), parts: v.number(), markup: v.number() }))) },
+  handler: async (ctx, a) => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    const want: Record<string, number> = {}
+    for (const b of a.batches ?? []) for (const r of await loadRaw(ctx, b.batch, b.parts)) {
+      const usd = r.ladder.length ? Math.max(...r.ladder.map((l) => l[2])) : r.skuPrice ?? 0
+      if (usd > 0) want[String(r.id)] = priceOf(usd, b.markup)
+    }
+    const res = await shopifyGql(ctx, `query($q: String!, $n: Int!, $after: String, $pub: ID!) { products(first: $n, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes {
+      id handle title status tags onlineStoreUrl publishedOnPublication(publicationId: $pub) metafield(namespace: "custom", key: "supplier") { value } seo { title description } descriptionHtml
+      media(first: 30) { nodes { status mediaContentType } }
+      variants(first: 100) { nodes { sku price compareAtPrice inventoryPolicy inventoryItem { tracked } selectedOptions { name value } media(first: 1) { nodes { id } } } } } } }`,
+      { q: a.query, n: a.count ?? 25, after: a.after ?? null, pub: ONLINE_STORE })
+    const issues: any[] = []
+    let checked = 0
+    for (const p of res.products.nodes) {
+      checked++
+      const bad: string[] = []
+      const tags: string[] = p.tags
+      const china = tags.some((t) => t.startsWith("supplier-")) && !tags.includes("made-in-bangladesh")
+      if (p.status !== "ACTIVE") bad.push(`status ${p.status}`)
+      if (!p.publishedOnPublication) bad.push("not on the website")
+      if (!p.media.nodes.length) bad.push("no pictures")
+      if (p.media.nodes.some((m: any) => m.status !== "READY")) bad.push(`${p.media.nodes.filter((m: any) => m.status !== "READY").length} picture(s) not ready/broken`)
+      if (!p.descriptionHtml || p.descriptionHtml.length < 40) bad.push("no description")
+      const vs = p.variants.nodes
+      const sizes = [...new Set(vs.map((x: any) => x.selectedOptions.find((o: any) => /size/i.test(o.name))?.value))]
+      if (sizes.join(",") !== STANDARD_SIZES.join(",") && sizes.sort().join(",") !== STANDARD_SIZES.join(",")) bad.push(`sizes ${sizes.join(",")}`)
+      const full = [...new Set(vs.map((x: any) => x.compareAtPrice))]
+      if (china) {
+        if (vs.some((x: any) => Number(x.price) !== BOOKING)) bad.push(`booking price not Tk ${BOOKING}: ${[...new Set(vs.map((x: any) => x.price))].join(",")}`)
+        if (full.length !== 1 || !(Number(full[0]) > BOOKING)) bad.push(`full price missing/mixed: ${full.join(",")}`)
+        if (!p.metafield?.value) bad.push("no supplier name")
+        if (vs.some((x: any) => x.inventoryPolicy !== "CONTINUE" || x.inventoryItem?.tracked)) bad.push("stock tracking on (could show sold out)")
+        const ali = tags.find((t) => t.startsWith("alibaba-"))?.slice(8)
+        if (ali && want[ali] && Number(full[0]) !== want[ali]) bad.push(`price ${full[0]} but formula says ${want[ali]}`)
+      }
+      if (vs.some((x: any) => !x.media.nodes.length) && p.media.nodes.length > 1) bad.push(`${vs.filter((x: any) => !x.media.nodes.length).length} size(s) without a colour picture`)
+      if (vs.some((x: any) => !x.sku)) bad.push("size(s) without SKU")
+      const ops = await ctx.runQuery(internal.chinaImport.opsBySkus, { skus: vs.map((x: any) => x.sku).filter(Boolean) })
+      const missing = vs.filter((x: any) => x.sku && !ops[x.sku])
+      if (missing.length) bad.push(`${missing.length} size(s) not in Ops`)
+      const shown = china ? Number(full[0]) : Number(vs[0]?.price)
+      const wrongOps = vs.filter((x: any) => ops[x.sku] && ops[x.sku].price !== shown)
+      if (wrongOps.length) bad.push(`Ops price differs (${ops[wrongOps[0].sku].price} vs ${shown})`)
+      if (vs.some((x: any) => ops[x.sku] && !ops[x.sku].active)) bad.push("size switched off in Ops")
+      if (vs.some((x: any) => ops[x.sku] && ops[x.sku].available <= 0)) bad.push(`${vs.filter((x: any) => ops[x.sku] && ops[x.sku].available <= 0).length} size(s) with 0 stock in Ops`)
+      if (vs.some((x: any) => ops[x.sku] && !ops[x.sku].cost)) bad.push("purchase cost missing in Ops")
+      if (bad.length) issues.push({ title: p.title, handle: p.handle, bad })
+    }
+    return { checked, issues, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
+  },
+})
