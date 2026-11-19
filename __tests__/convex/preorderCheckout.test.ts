@@ -19,7 +19,7 @@ describe("China pre-order checkout", () => {
   })
   it("Ops reads the orders right", () => {
     const booking = { price: "200", quantity: 1, properties: [{ name: "Full price", value: "Tk 3,186" }, { name: "_Delivery charge on delivery", value: "Tk 90" }] }
-    const full = { price: "2708", quantity: 1, properties: [{ name: "Full price", value: "Tk 3,186" }, { name: "Paid in full", value: "15% off · Tk 2,708" }] }
+    const full = { price: "3186", quantity: 1, total_discount: "478", properties: [{ name: "Full price", value: "Tk 3,186" }, { name: "Paid in full", value: "15% off · Tk 2,708" }] }
     expect(preOrderFullPrice(booking)).toBe(3186) // rider collects the rest of the price
     expect(deliveryDueOnDelivery([booking])).toBe(90) // ...plus the delivery charge
     expect(preOrderFullPrice(full)).toBeNull() // line price is what was paid

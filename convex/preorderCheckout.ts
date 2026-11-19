@@ -71,7 +71,11 @@ export const preorderCheckoutHttp = httpAction(async (ctx, req) => {
     const input: any = {
       lineItems: [{
         variantId: v.id, quantity: qty, customAttributes: attrs,
-        ...(mode === "full" ? { priceOverride: { amount: String(a.unit), currencyCode: "BDT" } } : {}),
+        // pay in full: the line shows the full price crossed out with a "15% off" discount, so the customer sees the saving
+        ...(mode === "full" ? {
+          priceOverride: { amount: String(a.full), currencyCode: "BDT" },
+          appliedDiscount: { title: "15% off · paid in full", description: "15% off for paying in full", valueType: "FIXED_AMOUNT", value: a.full - a.unit },
+        } : {}),
       }],
       shippingLine: { title: mode === "full" ? "Delivery" : "Delivery (pay on delivery)", priceWithCurrency: { amount: String(a.shipping), currencyCode: "BDT" } },
       tags: ["pre-order", "china-pre-order", mode === "full" ? "pre-order-paid-full" : "pre-order-booking"],
