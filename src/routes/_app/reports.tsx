@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { dateTime, errMsg, startOfDayBD, taka } from "@/lib/format"
+import { dateOnly, dateTime, errMsg, startOfDayBD, taka } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/_app/reports")({
@@ -93,7 +93,7 @@ function Overview() {
   const s = data?.summary
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end gap-2 rounded-xl border bg-card p-3">
+      <div className="sticky top-0 z-20 flex flex-wrap items-end gap-2 rounded-xl border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap gap-1.5">
           {[...PRESETS, { key: "custom", label: "Custom dates" }].map((p) => (
             <button key={p.key} type="button" onClick={() => setPreset(p.key)}
@@ -171,7 +171,7 @@ function Overview() {
             <AggTable title="By order source" rows={data.bySource} />
           </div>
 
-          <ProductsTable rows={data.products} />
+          <ProductsTable rows={data.products} period={`Orders ${basis === "delivered" ? "delivered" : "placed"} ${dateOnly(range.from)} – ${dateOnly(range.to)}`} />
 
           <div className="grid gap-5 lg:grid-cols-2">
             <AggTable title="By district / city" rows={data.byCity} limit={15} />
@@ -220,11 +220,11 @@ function saveFile(name: string, rows: Record<string, unknown>[], kind: "csv" | "
   XLSX.writeFile(wb, `${name.replace(/[^\w-]+/g, "-")}.${kind}`, { bookType: kind })
 }
 
-function Panel({ title, children, csv }: { title: string; children: React.ReactNode; csv?: () => Record<string, unknown>[] }) {
+function Panel({ title, sub, children, csv }: { title: string; sub?: string; children: React.ReactNode; csv?: () => Record<string, unknown>[] }) {
   return (
     <section className="rounded-xl border bg-card">
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <div><h2 className="text-sm font-semibold">{title}</h2>{sub && <p className="mt-0.5 text-xs font-medium text-tone-blue">{sub}</p>}</div>
         {csv && <Button size="xs" variant="ghost" onClick={() => saveFile(title, csv())}><Download className="size-3.5" /> CSV</Button>}
       </div>
       <div className="px-4 py-2">{children}</div>
@@ -267,7 +267,7 @@ function AggTable({ title, rows, limit }: { title: string; rows: AggRow[]; limit
   )
 }
 
-function ProductsTable({ rows }: { rows: { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; cancelledQty?: number; openQty?: number; orders: number }[] }) {
+function ProductsTable({ rows, period }: { period: string; rows: { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; cancelledQty?: number; openQty?: number; orders: number }[] }) {
   const [all, setAll] = useState(false)
   const [q, setQ] = useState("")
   const [sort, setSort] = useState<"qty" | "delivered" | "returned" | "cancelled">("qty")
@@ -280,7 +280,7 @@ function ProductsTable({ rows }: { rows: { name: string; sku: string; qty: numbe
   const tot = list.reduce((t, r) => ({ qty: t.qty + r.qty, d: t.d + r.deliveredQty, re: t.re + r.returnedQty, c: t.c + (r.cancelledQty ?? 0), o: t.o + (r.openQty ?? 0), amt: t.amt + r.amount }), { qty: 0, d: 0, re: 0, c: 0, o: 0, amt: 0 })
   const pct = (d: number, r: number) => (d + r ? Math.round((d / (d + r)) * 100) : null)
   return (
-    <Panel title="Products: delivered, returned, cancelled" csv={() => list.map((r) => ({ Product: r.name, SKU: r.sku, "Ordered qty (not cancelled)": r.qty, Amount: r.amount, Delivered: r.deliveredQty, Returned: r.returnedQty, Cancelled: r.cancelledQty ?? 0, "Still open": r.openQty ?? 0, "Success %": pct(r.deliveredQty, r.returnedQty) ?? "" }))}>
+    <Panel title="Products: delivered, returned, cancelled" sub={period} csv={() => list.map((r) => ({ Product: r.name, SKU: r.sku, "Ordered qty (not cancelled)": r.qty, Amount: r.amount, Delivered: r.deliveredQty, Returned: r.returnedQty, Cancelled: r.cancelledQty ?? 0, "Still open": r.openQty ?? 0, "Success %": pct(r.deliveredQty, r.returnedQty) ?? "" }))}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product or SKU" className="min-w-0 flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm" />
         <div className="flex rounded-md border p-0.5 text-xs">
