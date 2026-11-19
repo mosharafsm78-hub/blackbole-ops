@@ -25,6 +25,7 @@ describe("china import", () => {
   it("builds a spec", () => {
     const s = buildSpec({ id: 1601700105007, subject: "x", ladder: [[2, 29, 5.23], [30, 899, 4.69]], attrs: [{ name: "Size", values: [{ name: "39-44", img: null }] }, { name: "Color", values: [{ name: "Black", img: "a.jpg" }, { name: "Grey", img: "b.jpg" }] }], media: ["c.jpg", "a.jpg"], props: [["Upper Material", "Mesh"], ["Outsole Material", "PVC"]] })
     expect(s.price).toBe(2743)
+    expect(s.sizes).toEqual(["40", "41", "42", "43", "44"])
     expect(s.title).toBe("Slip-On Work Sneaker")
     expect(s.images).toEqual(["a.jpg", "b.jpg", "c.jpg"])
     expect(s.colours.map((c) => c.code)).toEqual(["BK", "GR"])

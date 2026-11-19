@@ -275,7 +275,9 @@ export function buildSpec(r: Raw, taken?: Set<string>, markup = MARKUP): Spec {
   if (!colours.length) throw new Error("no usable colour")
   const sizeAttrs = r.attrs.filter((a) => /size/i.test(a.name))
   // no size list on Alibaba at all: the standard men's run 40–44
-  const sizes = sizeAttrs.length ? cleanSizes(sizeAttrs.flatMap((a) => a.values.map((x) => x.name))) : STANDARD_SIZES
+  const listed = sizeAttrs.length ? cleanSizes(sizeAttrs.flatMap((a) => a.values.map((x) => x.name))) : STANDARD_SIZES
+  // men's China pre-orders always come in the standard EU 40–44 (sandal pair sizes like 40-41 stay as listed)
+  const sizes = listed.some((x) => x.includes("-")) ? listed : STANDARD_SIZES
   if (sizes.length < 2) throw new Error("no men's sizes")
   const images = [...new Set([...colours.map((c) => c.img).filter((x): x is string => !!x), ...r.media])].slice(0, 10)
   const t = meta.t
