@@ -230,11 +230,11 @@ const STYLES: [RegExp, string, string, boolean?][] = [
   [/slip.?on|lazy/i, "Slip-On", "Casual Shoes"],
 ]
 /** A BlackBole-style name for products with no hand-written name: "Harbor Chunky Sneaker". */
-export function autoMeta(id: string, subject: string): Meta {
+export function autoMeta(id: string, subject: string, salt = 0): Meta {
   const st = STYLES.find(([re]) => re.test(subject)) ?? [/./, "Casual Sneaker", "Sneakers"]
   let h = 0
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
-  return { t: `${ADJ[h % ADJ.length]} ${st[1]}`, type: st[2], boot: !!st[3] }
+  return { t: `${ADJ[(h + salt * 7) % ADJ.length]} ${st[1]}`, type: st[2], boot: !!st[3] }
 }
 
 export type Raw = { id: number; first?: string; store?: string; subject: string; ladder: [number, number, number][]; skuPrice?: number; attrs: { name: string; values: { name: string; img: string | null }[] }[]; media: string[]; props: [string, string][] }
@@ -252,9 +252,11 @@ const material = (s: string | null) => (s ? s.replace(/^pu$/i, "PU").replace(/^p
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
 /** Turns one Alibaba product into a BlackBole China pre-order. Throws (with a plain reason) when it can't be listed. */
-export function buildSpec(r: Raw): Spec {
+export function buildSpec(r: Raw, taken?: Set<string>): Spec {
   const id = String(r.id)
-  const meta = META[id] ?? autoMeta(id, r.subject)
+  let meta = META[id] ?? autoMeta(id, r.subject)
+  for (let salt = 1; !META[id] && taken?.has(meta.t) && salt < 40; salt++) meta = autoMeta(id, r.subject, salt)
+  taken?.add(meta.t)
   if (meta.skip) throw new Error(meta.skip)
   const usd = r.ladder.length ? Math.max(...r.ladder.map((l) => l[2])) : r.skuPrice ?? 0
   if (!(usd > 0)) throw new Error("Alibaba shows no price")
@@ -374,9 +376,10 @@ export const run = action({
     if (a.store) raws = raws.filter((r) => r.store === a.store)
     raws = raws.slice(a.from ?? 0, (a.from ?? 0) + (a.count ?? raws.length))
     const done: any[] = [], skipped: any[] = []
+    const taken = new Set<string>()
     for (const r of raws) {
       let s: Spec
-      try { s = buildSpec(r) } catch (e: any) { skipped.push({ id: r.id, why: e.message }); continue }
+      try { s = buildSpec(r, taken) } catch (e: any) { skipped.push({ id: r.id, why: e.message }); continue }
       if (a.dryRun) { done.push({ id: s.alibabaId, title: s.title, usd: s.usd, price: s.price, colours: s.colours.map((c) => `${c.name}(${c.code})`), sizes: s.sizes, images: s.images.length }); continue }
       // already uploaded (same Alibaba product) → skip; same name taken by another product → new handle
       const prev = await shopifyGql(ctx, `query($q: String!) { products(first: 5, query: $q) { nodes { id handle tags } } }`, { q: `tag:alibaba-${s.alibabaId}` })
