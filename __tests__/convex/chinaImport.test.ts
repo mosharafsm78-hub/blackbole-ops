@@ -34,3 +34,15 @@ describe("china import", () => {
     expect(() => buildSpec({ id: 1602010135873, subject: "x", ladder: [], attrs: [], media: [], props: [] })).toThrow(/no price/)
   })
 })
+
+describe("china import: other stores", () => {
+  it("reads EU sizes written next to US sizes", () => {
+    expect(cleanSizes(["6.5(EUR39)", "7(EUR40)", "9.5(EUR45)"])).toEqual(["39", "40", "45"])
+  })
+  it("names products with no hand-written name", async () => {
+    const { autoMeta } = await import("../../convex/chinaImport")
+    expect(autoMeta("1602020691638", "Men Plus Size Lace Up Business Dress Shoes Wedding Formal Shoes").type).toBe("Formal Shoes")
+    expect(autoMeta("1", "Men Slip On Loafers Driving").t).toMatch(/ Loafer$/)
+    expect(autoMeta("2", "Men Chunky Mesh Dad Sneakers").t).toMatch(/ Chunky Sneaker$/)
+  })
+})

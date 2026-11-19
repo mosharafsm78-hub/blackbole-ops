@@ -59,7 +59,9 @@ const WORDS: Record<string, number> = { "thirty-nine": 39, forty: 40, "forty-one
 export function cleanSizes(raw: string[]): string[] {
   const out: { label: string; n: number }[] = []
   const vals = raw.map((r) => r.trim().toLowerCase())
-  for (const r of vals) {
+  for (const r0 of vals) {
+    const eu = /eur?\s*(\d{2})/i.exec(r0)
+    const r = eu ? eu[1] : r0
     const word = WORDS[r]
     const m = /^(\d{2})\s*-\s*(\d{2})$/.exec(r)
     if (word) out.push({ label: String(word), n: word })
@@ -212,7 +214,30 @@ export const META: Record<string, Meta> = {
   "1601919657715": { t: "Animal Print Flat Sneaker", type: "Sneakers" },
 }
 
-export type Raw = { id: number; subject: string; ladder: [number, number, number][]; skuPrice?: number; attrs: { name: string; values: { name: string; img: string | null }[] }[]; media: string[]; props: [string, string][] }
+const ADJ = ["Nova", "Harbor", "Summit", "Metro", "Orbit", "Vale", "Ridge", "Drift", "Arlo", "Calder", "Brook", "Aspen", "Cedar", "Echo", "Flint", "Haven", "Juno", "Kenzo", "Luca", "Milo", "Nash", "Otis", "Pike", "Quill", "Rowan", "Sable", "Tate", "Ulric", "Vance", "Wren", "Axel", "Blaze", "Colt", "Dex", "Ezra", "Finn", "Gage", "Hugo", "Ivo", "Jett", "Knox", "Leo", "Mace", "Nico", "Onyx", "Pax", "Rex", "Soren", "Theo", "Vito", "Wade", "Zane", "Alden", "Beck", "Cruz", "Dane", "Elio", "Ford", "Grey", "Hale", "Ira", "Jude", "Kai", "Lane", "Marlo", "Nolan", "Oren", "Price", "Reed", "Shaw", "Troy", "Vale", "Ward", "York", "Zeno", "Atlas", "Bryn", "Cove", "Dune", "Ember"]
+const STYLES: [RegExp, string, string, boolean?][] = [
+  [/dress shoe|formal|wedding|oxford|derby|business/i, "Dress Shoe", "Formal Shoes"],
+  [/loafer|mocass?in|mocassin|penny|driving|boat shoe/i, "Loafer", "Loafers"],
+  [/snow boot|martin|\bboots?\b/i, "Boot", "Boots", true],
+  [/sandal|slipper|slides?\b|mule/i, "Sandal", "Sandals"],
+  [/canvas|vulcani[sz]ed/i, "Canvas Sneaker", "Canvas Shoes"],
+  [/safety|work shoe|labou?r|tooling|construction/i, "Work Sneaker", "Sneakers"],
+  [/hiking|trail|mountaineering|trekking|tactical/i, "Trail Runner", "Hiking Shoes"],
+  [/high.?top/i, "High-Top Sneaker", "Sneakers"],
+  [/chunky|dad shoe|platform|thick.?sol|height/i, "Chunky Sneaker", "Sneakers"],
+  [/skate|board shoe/i, "Skate Sneaker", "Sneakers"],
+  [/running|runner|jogg|athletic|tennis|trainer/i, "Runner", "Sneakers"],
+  [/slip.?on|lazy/i, "Slip-On", "Casual Shoes"],
+]
+/** A BlackBole-style name for products with no hand-written name: "Harbor Chunky Sneaker". */
+export function autoMeta(id: string, subject: string): Meta {
+  const st = STYLES.find(([re]) => re.test(subject)) ?? [/./, "Casual Sneaker", "Sneakers"]
+  let h = 0
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0
+  return { t: `${ADJ[h % ADJ.length]} ${st[1]}`, type: st[2], boot: !!st[3] }
+}
+
+export type Raw = { id: number; first?: string; store?: string; subject: string; ladder: [number, number, number][]; skuPrice?: number; attrs: { name: string; values: { name: string; img: string | null }[] }[]; media: string[]; props: [string, string][] }
 export type Spec = {
   alibabaId: string; title: string; handle: string; type: string; boot: boolean; usd: number; price: number; cost: number
   abbr: string; colours: { name: string; code: string; img: string | null }[]; sizes: string[]; images: string[]
@@ -229,8 +254,7 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 /** Turns one Alibaba product into a BlackBole China pre-order. Throws (with a plain reason) when it can't be listed. */
 export function buildSpec(r: Raw): Spec {
   const id = String(r.id)
-  const meta = META[id]
-  if (!meta) throw new Error("no BlackBole name set for this product")
+  const meta = META[id] ?? autoMeta(id, r.subject)
   if (meta.skip) throw new Error(meta.skip)
   const usd = r.ladder.length ? Math.max(...r.ladder.map((l) => l[2])) : r.skuPrice ?? 0
   if (!(usd > 0)) throw new Error("Alibaba shows no price")
@@ -246,7 +270,9 @@ export function buildSpec(r: Raw): Spec {
     colours.push({ name: cc.name, code, img: c.img })
   }
   if (!colours.length) throw new Error("no usable colour")
-  const sizes = cleanSizes(r.attrs.filter((a) => /size/i.test(a.name)).flatMap((a) => a.values.map((x) => x.name)))
+  const sizeAttrs = r.attrs.filter((a) => /size/i.test(a.name))
+  // no size list on Alibaba at all: the usual men's run 39–44
+  const sizes = sizeAttrs.length ? cleanSizes(sizeAttrs.flatMap((a) => a.values.map((x) => x.name))) : ["39", "40", "41", "42", "43", "44"]
   if (sizes.length < 2) throw new Error("no men's sizes")
   const images = [...new Set([...colours.map((c) => c.img).filter((x): x is string => !!x), ...r.media])].slice(0, 10)
   const t = meta.t
@@ -337,7 +363,7 @@ const PRODUCT_SET = `mutation($input: ProductSetInput!) { productSet(input: $inp
 const PUBLISH = `mutation($id: ID!, $input: [PublicationInput!]!) { publishablePublish(id: $id, input: $input) { userErrors { message } } }`
 
 export const run = action({
-  args: { batch: v.string(), parts: v.number(), from: v.optional(v.number()), count: v.optional(v.number()), only: v.optional(v.array(v.string())), dryRun: v.optional(v.boolean()), supplier: v.string() },
+  args: { batch: v.string(), parts: v.number(), from: v.optional(v.number()), count: v.optional(v.number()), only: v.optional(v.array(v.string())), store: v.optional(v.string()), dryRun: v.optional(v.boolean()), supplier: v.string() },
   handler: async (ctx, a) => {
     await ctx.runQuery(internal.chinaImport.allowed, {})
     const supplier = a.supplier.trim()
@@ -345,6 +371,7 @@ export const run = action({
     const first = supplier.split(/\s+/)[0]
     let raws = await loadRaw(ctx, a.batch, a.parts)
     if (a.only?.length) raws = raws.filter((r) => a.only!.includes(String(r.id)))
+    if (a.store) raws = raws.filter((r) => r.store === a.store)
     raws = raws.slice(a.from ?? 0, (a.from ?? 0) + (a.count ?? raws.length))
     const done: any[] = [], skipped: any[] = []
     for (const r of raws) {
