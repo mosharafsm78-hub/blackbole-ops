@@ -464,6 +464,17 @@ export const purgeOpsSkus = internalMutation({
     for (const sku of skus) {
       const x = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
       if (!x) continue
+      // a size with real pairs or real movement is only switched off, never deleted
+      const stock = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+      const real = stock.some((r) => r.available - (r.virtual ?? 0) > 0 || r.processing > 0 || r.inTransit > 0 || r.returning > 0 || r.damaged > 0)
+      const logs = await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+      const moved = logs.some((l: any) => l.reason !== "Fake stock added")
+      if (real || moved) {
+        await ctx.db.patch(x._id, { active: false })
+        for (const r of stock) if (r.virtual) await ctx.db.patch(r._id, { available: Math.max(0, r.available - r.virtual), virtual: 0 })
+        n++
+        continue
+      }
       for (const r of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
       for (const r of await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
       for (const r of await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
@@ -509,7 +520,9 @@ export const addOpsSizes = internalMutation({
       if (!sib) continue
       const colour = sib.title.split(" / ")[0]
       const id = await ctx.db.insert("variants", { productId: sib.productId, sku: it.sku, title: `${colour} / ${it.size}`, weightKg: sib.weightKg, price: sib.price, purchasePrice: sib.purchasePrice, active: true, createdAt: Date.now(), ...(sib.imageUrl ? { imageUrl: sib.imageUrl } : {}) })
-      add.push({ variantId: id, qty: FAKE_PAIRS })
+      const sibStock = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", sib._id)).collect()
+      const fake = sibStock.reduce((t, r) => t + (r.virtual ?? 0), 0)
+      if (fake > 0) add.push({ variantId: id, qty: Math.min(fake, FAKE_PAIRS) })
     }
     if (add.length) await applyTestStock(ctx, add, "System (standard sizes 40–44)")
     return add.length
@@ -524,18 +537,22 @@ export const standardizeSizes = action({
       variants(first: 150) { nodes { id sku price compareAtPrice selectedOptions { name value } inventoryItem { unitCost { amount } } media(first: 1) { nodes { id } } } } } } }`, { q: a.query, n: a.count ?? 15, after: a.after ?? null })
     const out: any[] = []
     for (const p of res.products.nodes) {
-      const vs = p.variants.nodes.map((x: any) => ({ ...x, color: x.selectedOptions.find((o: any) => o.name === "Color")?.value, size: x.selectedOptions.find((o: any) => o.name === "Size")?.value }))
-      if (vs.some((x: any) => !x.size || !/^\d{2}$/.test(x.size))) { out.push({ title: p.title, skipped: "sizes are not single EU sizes (e.g. sandal pairs)" }); continue }
+      const sizeName = p.variants.nodes[0]?.selectedOptions.find((o: any) => /size/i.test(o.name))?.name
+      const colorName = p.variants.nodes[0]?.selectedOptions.find((o: any) => /colou?r/i.test(o.name))?.name
+      const others = p.variants.nodes[0]?.selectedOptions.filter((o: any) => o.name !== sizeName && o.name !== colorName) ?? []
+      if (!sizeName || others.length) { out.push({ title: p.title, skipped: `options are ${p.variants.nodes[0]?.selectedOptions.map((o: any) => o.name).join(" / ")}` }); continue }
+      const vs = p.variants.nodes.map((x: any) => ({ ...x, color: colorName ? x.selectedOptions.find((o: any) => o.name === colorName)?.value : null, size: x.selectedOptions.find((o: any) => o.name === sizeName)?.value }))
       const gone = vs.filter((x: any) => !STANDARD_SIZES.includes(x.size))
       const create: any[] = [], opsAdd: any[] = []
       for (const color of [...new Set(vs.map((x: any) => x.color))]) {
         const mine = vs.filter((x: any) => x.color === color)
         for (const size of STANDARD_SIZES) {
           if (mine.some((x: any) => x.size === size)) continue
-          const sib = [...mine].sort((x: any, y: any) => Math.abs(+x.size - +size) - Math.abs(+y.size - +size))[0]
-          const sku = sib.sku.replace(/-\d{2}$/, `-${size}`)
+          const num = (z: string) => parseInt(z) || 0
+          const sib = [...mine].sort((x: any, y: any) => Math.abs(num(x.size) - +size) - Math.abs(num(y.size) - +size))[0]
+          const sku = /-\d{2}(-\d{2})?$/.test(sib.sku ?? "") ? sib.sku.replace(/-\d{2}(-\d{2})?$/, `-${size}`) : `${sib.sku || "PO"}-${size}`
           create.push({
-            optionValues: [{ optionName: "Color", name: color }, { optionName: "Size", name: size }],
+            optionValues: [...(colorName ? [{ optionName: colorName, name: color }] : []), { optionName: sizeName, name: size }],
             price: sib.price, ...(sib.compareAtPrice ? { compareAtPrice: sib.compareAtPrice } : {}), inventoryPolicy: "CONTINUE",
             inventoryItem: { sku, tracked: false, ...(sib.inventoryItem?.unitCost?.amount ? { cost: sib.inventoryItem.unitCost.amount } : {}) },
             ...(sib.media?.nodes?.[0]?.id ? { mediaId: sib.media.nodes[0].id } : {}),
