@@ -699,6 +699,17 @@ export default defineSchema({
   dayStats: defineTable({ day: v.string(), st: v.any(), src: v.any(), it: v.any(), due: v.number(), q: v.number() }).index("by_day", ["day"]),
 
   // Saved results of heavy read-only reports (dashboard), shared by everyone for a few minutes to save database reads
+  // Meta ad spend per campaign per day (account time), copied from the Meta API every 2 hours. The Profit page
+  // gives each website order the spend of the campaign that brought it, on the day it was ordered.
+  metaSpend: defineTable({
+    day: v.string(), // YYYY-MM-DD
+    accountId: v.string(),
+    campaignId: v.string(),
+    campaignName: v.string(),
+    spend: v.number(),
+    syncedAt: v.number(),
+  }).index("by_day", ["day"]),
+
   // Action Center: one row per problem the daily AI check found (key = problem + subject, e.g. "product-returns:veyron loafer").
   // Re-checked every morning; a problem that is gone from the data is closed by the AI itself.
   actionItems: defineTable({

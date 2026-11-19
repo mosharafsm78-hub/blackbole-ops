@@ -167,7 +167,7 @@ export const writeCache = internalMutation({
     else await ctx.db.insert("cache", { key, at: Date.now(), value })
   },
 })
-async function cached<T>(ctx: any, key: string, maxAgeMs: number, make: () => Promise<T>): Promise<T> {
+export async function cached<T>(ctx: any, key: string, maxAgeMs: number, make: () => Promise<T>): Promise<T> {
   const hit = await ctx.runQuery(internal.dashboard.readCache, { key })
   if (hit && Date.now() - hit.at < maxAgeMs) return hit.value as T
   // Stale: only ONE person re-works it out; everyone else gets the last numbers at once (they are a few minutes old).

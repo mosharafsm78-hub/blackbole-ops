@@ -27,6 +27,7 @@ import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
 import { Route as AppOrderRouteImport } from './routes/_app/order'
 import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
+import { Route as AppProfitRouteImport } from './routes/_app/profit'
 import { Route as AppPulseRouteImport } from './routes/_app/pulse'
 import { Route as AppPurchaseRouteImport } from './routes/_app/purchase'
 import { Route as AppPurchasesRouteImport } from './routes/_app/purchases'
@@ -155,6 +156,11 @@ const AppOrdersRoute = AppOrdersRouteImport.update({
 const AppProductsRoute = AppProductsRouteImport.update({
   id: '/products',
   path: '/products',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProfitRoute = AppProfitRouteImport.update({
+  id: '/profit',
+  path: '/profit',
   getParentRoute: () => AppRoute,
 } as any)
 const AppPulseRoute = AppPulseRouteImport.update({
@@ -376,6 +382,7 @@ export interface FileRoutesByFullPath {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/products': typeof AppProductsRouteWithChildren
+  '/profit': typeof AppProfitRoute
   '/pulse': typeof AppPulseRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
@@ -433,6 +440,7 @@ export interface FileRoutesByTo {
   '/new-order': typeof AppNewOrderRoute
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
+  '/profit': typeof AppProfitRoute
   '/pulse': typeof AppPulseRoute
   '/purchase': typeof AppPurchaseRoute
   '/purchases': typeof AppPurchasesRoute
@@ -493,6 +501,7 @@ export interface FileRoutesById {
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
   '/_app/products': typeof AppProductsRouteWithChildren
+  '/_app/profit': typeof AppProfitRoute
   '/_app/pulse': typeof AppPulseRoute
   '/_app/purchase': typeof AppPurchaseRoute
   '/_app/purchases': typeof AppPurchasesRoute
@@ -555,6 +564,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/products'
+    | '/profit'
     | '/pulse'
     | '/purchase'
     | '/purchases'
@@ -612,6 +622,7 @@ export interface FileRouteTypes {
     | '/new-order'
     | '/order'
     | '/orders'
+    | '/profit'
     | '/pulse'
     | '/purchase'
     | '/purchases'
@@ -671,6 +682,7 @@ export interface FileRouteTypes {
     | '/_app/order'
     | '/_app/orders'
     | '/_app/products'
+    | '/_app/profit'
     | '/_app/pulse'
     | '/_app/purchase'
     | '/_app/purchases'
@@ -847,6 +859,13 @@ declare module '@tanstack/react-router' {
       path: '/products'
       fullPath: '/products'
       preLoaderRoute: typeof AppProductsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/profit': {
+      id: '/_app/profit'
+      path: '/profit'
+      fullPath: '/profit'
+      preLoaderRoute: typeof AppProfitRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/pulse': {
@@ -1175,6 +1194,7 @@ interface AppRouteChildren {
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
+  AppProfitRoute: typeof AppProfitRoute
   AppPulseRoute: typeof AppPulseRoute
   AppPurchaseRoute: typeof AppPurchaseRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
@@ -1228,6 +1248,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
+  AppProfitRoute: AppProfitRoute,
   AppPulseRoute: AppPulseRoute,
   AppPurchaseRoute: AppPurchaseRoute,
   AppPurchasesRoute: AppPurchasesRoute,

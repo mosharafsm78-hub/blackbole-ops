@@ -17,6 +17,9 @@ crons.interval("shopify clearance codes", { minutes: 60 }, internal.shopifyDisco
 // COD-popup orders: fill in the ad campaign from the order attributes (Marketing OS matches orders to ads with it)
 crons.interval("shopify order campaigns", { hours: 1 }, internal.campaignBackfill.run, {})
 crons.interval("shopify order status", { minutes: 5 }, internal.shopifyOrders.tick, {})
+// Profit page: Meta spend per campaign per day — last 3 days every 2 hours, the whole of this and last month each night
+crons.interval("meta spend sync", { hours: 2 }, internal.profit.syncSpend, {})
+crons.daily("meta spend months", { hourUTC: 21, minuteUTC: 10 }, internal.profit.syncMonths, {})
 // Action Center: AI checks the business every morning at 8 am Dhaka (2 am UTC), adds new problems, closes fixed ones
 crons.daily("action center daily check", { hourUTC: 2, minuteUTC: 0 }, internal.actionCenter.run, {})
 crons.interval("auto confirmation calls", { minutes: 1 }, internal.autoCalls.tick, {})

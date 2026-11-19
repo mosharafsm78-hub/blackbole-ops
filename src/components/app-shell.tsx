@@ -5,7 +5,7 @@ import { Authenticated, AuthLoading, Unauthenticated, useAction, useConvex, useM
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  BarChart3, Wallet, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy, Flag, ClipboardCheck, Star, Inbox,
+  BarChart3, Wallet, TrendingUp, LayoutDashboard, ShoppingBag, PlusCircle, Package, Boxes, PackagePlus, Users, Settings, LogOut, KeyRound, Menu, ShoppingCart, Search, Truck, Upload, ScanLine, Lock, Globe, MessageCircle, Target, ShieldAlert, Trophy, Flag, ClipboardCheck, Star, Inbox,
 } from "lucide-react"
 import { api } from "@/convex/_generated/api"
 import { hasPerm } from "@/convex/rules"
@@ -51,6 +51,7 @@ const NAV = [
   { to: "/website", label: "Website", icon: Globe, perm: "website.manage", alt: "settings.manage", color: "bg-tone-blue-bg text-tone-blue", group: "Stock" },
   { to: "/stock-check", label: "Stock check", icon: ClipboardCheck, perm: "inventory.adjust", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
   { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
+  { to: "/profit", label: "Profit", icon: TrendingUp, perm: "reports.view", color: "bg-tone-green-bg text-tone-green", group: "Insights" },
   { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },
   { to: "/satisfaction", label: "Satisfaction", icon: Star, perm: "reports.view", color: "bg-tone-amber-bg text-tone-amber", group: "Insights" },
   { to: "/dispatch", label: "Dispatch report", icon: Truck, perm: "orders.view", color: "bg-tone-indigo-bg text-tone-indigo", group: "Insights" },
