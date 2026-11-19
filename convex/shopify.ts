@@ -124,7 +124,8 @@ export const webhook = httpAction(async (ctx, req) => {
     const address = [ship.address1, ship.address2, ship.city, ship.province, ship.zip].filter(Boolean).join(", ")
 
     const { items, unmatched, itemDiscountTotal } = await mapLines(ctx, o.line_items ?? [])
-    const deliveryFee = (o.shipping_lines ?? []).reduce((s: number, x: any) => s + num(x.price), 0)
+    // + the delivery charge a China pre-order booking pays on delivery (not charged at checkout)
+    const deliveryFee = (o.shipping_lines ?? []).reduce((s: number, x: any) => s + num(x.price), 0) + deliveryDueOnDelivery(o.line_items ?? [])
     const orderDiscount = Math.max(0, num(o.total_discounts) - itemDiscountTotal)
     const fin = String(o.financial_status ?? "")
     const paid = fin === "paid" ? num(o.total_price) : fin === "partially_paid" ? Math.max(0, num(o.total_price) - num(o.total_outstanding)) : 0
@@ -178,11 +179,26 @@ export function preOrderFullPrice(l: any): number | null {
     ? raw.map((p: any) => ({ name: String(p?.name ?? p?.key ?? ""), value: p?.value }))
     : raw && typeof raw === "object" ? Object.entries(raw).map(([name, value]) => ({ name, value })) : []
   const get = (k: string) => props.find((p) => p.name.trim().toLowerCase() === k)?.value
+  // China pre-order paid in full (15% off): the line price IS what the customer paid, nothing is due
+  if (get("paid in full")) return null
   const full = taka(get("full price"))
   if (full > 0) return full
   const due = taka(get("due on delivery"))
   if (due > 0) return num(l.price) + due / (num(l.quantity) || 1)
   return null
+}
+
+/** Delivery charge the customer pays on delivery instead of at checkout (China pre-order booking), summed over lines. */
+export function deliveryDueOnDelivery(lines: any[]): number {
+  let t = 0
+  for (const l of lines ?? []) {
+    const raw = l?.properties ?? l?.custom_attributes ?? []
+    const props: { name: string; value: unknown }[] = Array.isArray(raw)
+      ? raw.map((p: any) => ({ name: String(p?.name ?? p?.key ?? ""), value: p?.value }))
+      : raw && typeof raw === "object" ? Object.entries(raw).map(([name, value]) => ({ name, value })) : []
+    t = Math.max(t, taka(props.find((p) => p.name.trim().toLowerCase() === "delivery charge on delivery")?.value))
+  }
+  return t
 }
 
 /** Shopify line items → our order items (matched to our products by SKU). */

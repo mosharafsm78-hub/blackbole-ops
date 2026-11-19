@@ -1,3 +1,4 @@
+import { preorderCheckoutHttp } from "./preorderCheckout"
 import { httpRouter } from "convex/server"
 import { auth } from "./auth"
 import { webhook as shopifyWebhook } from "./shopify"
@@ -32,6 +33,8 @@ http.route({ path: "/migrate", method: "POST", handler: migrateHandler })
 http.route({ path: "/migrate", method: "OPTIONS", handler: migrateHandler })
 // Website COD popup: customer's number as soon as it's typed (abandoned COD form leads)
 http.route({ path: "/cod-lead", method: "POST", handler: codLeadHttp })
+http.route({ path: "/website/preorder-checkout", method: "POST", handler: preorderCheckoutHttp })
+http.route({ path: "/website/preorder-checkout", method: "OPTIONS", handler: preorderCheckoutHttp })
 http.route({ path: "/cod-lead", method: "OPTIONS", handler: codLeadHttp })
 // Read-only feed for BlackBole Marketing OS (needs MARKETING_FEED_KEY)
 http.route({ path: "/marketing/orders", method: "GET", handler: marketingOrders })
