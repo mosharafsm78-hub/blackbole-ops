@@ -58,7 +58,8 @@ export const preorderCheckoutHttp = httpAction(async (ctx, req) => {
     if (mode === "full") {
       attrs.push({ key: "Paid in full", value: `15% off · ${fmt(a.unit)}` }, { key: "Due on delivery", value: "Tk 0 (paid in full)" })
     } else {
-      attrs.push({ key: "Booking paid", value: fmt(a.unit) }, { key: "Delivery charge on delivery", value: fmt(PRE_DELIVERY) }, { key: "Due on delivery", value: fmt(a.dueOnDelivery) })
+      // "_" notes are hidden from the customer at checkout (Emon: just "book now with Tk 200, rest on delivery"); Ops still reads them
+      attrs.push({ key: "Booking paid", value: fmt(a.unit) }, { key: "_Delivery charge on delivery", value: fmt(PRE_DELIVERY) }, { key: "_Due on delivery", value: fmt(a.dueOnDelivery) })
     }
     // the shopper's ad link (utm_*, fbclid, landing page) goes on the order so Ops can match it to the Meta campaign
     const extra: { key: string; value: string }[] = []
@@ -72,7 +73,7 @@ export const preorderCheckoutHttp = httpAction(async (ctx, req) => {
         variantId: v.id, quantity: qty, customAttributes: attrs,
         ...(mode === "full" ? { priceOverride: { amount: String(a.unit), currencyCode: "BDT" } } : {}),
       }],
-      shippingLine: { title: mode === "full" ? "Delivery" : "Delivery (pay Tk 90 on delivery)", priceWithCurrency: { amount: String(a.shipping), currencyCode: "BDT" } },
+      shippingLine: { title: mode === "full" ? "Delivery" : "Delivery (pay on delivery)", priceWithCurrency: { amount: String(a.shipping), currencyCode: "BDT" } },
       tags: ["pre-order", "china-pre-order", mode === "full" ? "pre-order-paid-full" : "pre-order-booking"],
       customAttributes: [{ key: "Pre-order payment", value: mode === "full" ? "Paid in full (15% off)" : "Booking only" }, ...extra],
       note: mode === "full"

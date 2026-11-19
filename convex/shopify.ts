@@ -196,7 +196,7 @@ export function deliveryDueOnDelivery(lines: any[]): number {
     const props: { name: string; value: unknown }[] = Array.isArray(raw)
       ? raw.map((p: any) => ({ name: String(p?.name ?? p?.key ?? ""), value: p?.value }))
       : raw && typeof raw === "object" ? Object.entries(raw).map(([name, value]) => ({ name, value })) : []
-    t = Math.max(t, taka(props.find((p) => p.name.trim().toLowerCase() === "delivery charge on delivery")?.value))
+    t = Math.max(t, taka(props.find((p) => p.name.trim().replace(/^_/, "").toLowerCase() === "delivery charge on delivery")?.value))
   }
   return t
 }
