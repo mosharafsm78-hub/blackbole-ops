@@ -107,11 +107,11 @@ export const refData = internalQuery({
       const d = new Date(t).toISOString().slice(0, 10)
       for (const r of await ctx.db.query("metaSpend").withIndex("by_day", (q) => q.eq("day", d)).collect()) spend.push({ day: r.day, campaignId: r.campaignId, campaignName: r.campaignName, spend: r.spend })
     }
-    const cost: Record<string, number> = {}, costBySku: Record<string, number> = {}
-    for (const x of await ctx.db.query("variants").collect()) { cost[x._id] = x.purchasePrice; costBySku[x.sku] = x.purchasePrice }
+    // a list, not an object: Convex objects are capped at 1024 fields and there are thousands of sizes
+    const costList = (await ctx.db.query("variants").collect()).map((x) => [x._id as string, x.sku, x.purchasePrice] as [string, string, number])
     const costs = { salary: 0, rent: 0, other: 0, ...DEFAULT_COSTS, ...((await getSetting<MonthlyCosts>(ctx, "monthlyCosts")) ?? {}) }
     const sync = await getSetting<any>(ctx, "metaSpendSync")
-    return { spend, cost, costBySku, costs, sync }
+    return { spend, costList, costs, sync }
   },
 })
 
@@ -139,6 +139,8 @@ export async function buildProfit(ctx: any, from: number, to: number) {
     cursor = r.cursor
   }
   const ref: any = await ctx.runQuery(internal.profit.refData, { fromDay, toDay })
+  ref.cost = {} as Record<string, number>; ref.costBySku = {} as Record<string, number>
+  for (const [id, sku, price] of ref.costList as [string, string, number][]) { ref.cost[id] = price; ref.costBySku[sku] = price }
   const packaging = Number(ref.costs.packaging ?? 0)
 
   // 1. Meta spend per campaign-day, and which orders it belongs to
