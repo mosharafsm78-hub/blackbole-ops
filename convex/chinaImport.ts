@@ -650,3 +650,59 @@ export const audit = action({
     return { checked, issues, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
   },
 })
+
+// ---------- fix the older pre-orders found by the hard check ----------
+
+export const fixOpsPreorder = internalMutation({
+  args: { items: v.array(v.object({ sku: v.string(), price: v.number() })) },
+  handler: async (ctx, { items }) => {
+    let priced = 0
+    const add: { variantId: any; qty: number }[] = []
+    for (const it of items) {
+      const x = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", it.sku)).first()
+      if (!x) continue
+      if (x.price !== it.price) { await ctx.db.patch(x._id, { price: it.price }); priced++ }
+      const st = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()
+      if (st.reduce((t, r) => t + r.available, 0) <= 0) add.push({ variantId: x._id, qty: FAKE_PAIRS })
+    }
+    if (add.length) await applyTestStock(ctx, add, "System (pre-order go-live check)")
+    return { priced, fakeAdded: add.length }
+  },
+})
+
+export const fixOlderPreorders = action({
+  args: { query: v.string(), after: v.optional(v.string()), count: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, a) => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    const res = await shopifyGql(ctx, `query($q: String!, $n: Int!, $after: String) { products(first: $n, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes {
+      id title tags media(first: 40) { nodes { id alt } }
+      variants(first: 100) { nodes { id sku price compareAtPrice selectedOptions { name value } media(first: 1) { nodes { id } } } } } } }`, { q: a.query, n: a.count ?? 25, after: a.after ?? null })
+    const out: any[] = []
+    for (const p of res.products.nodes) {
+      const tags: string[] = p.tags
+      const china = tags.some((t) => t.startsWith("supplier-")) && !tags.includes("made-in-bangladesh")
+      const vs = p.variants.nodes
+      const full = (x: any) => Math.round(Number(china ? x.compareAtPrice || x.price : x.price))
+      // colour pictures: give each colour the photo whose description names that colour (or a sibling's photo)
+      const pics: any[] = []
+      for (const x of vs.filter((y: any) => !y.media.nodes.length)) {
+        const color = x.selectedOptions.find((o: any) => /colou?r/i.test(o.name))?.value
+        const sib = vs.find((y: any) => y.media.nodes.length && y.selectedOptions.find((o: any) => /colou?r/i.test(o.name))?.value === color)
+        const byAlt = color ? p.media.nodes.find((m: any) => (m.alt ?? "").toLowerCase().includes(String(color).toLowerCase())) : null
+        const mediaId = sib?.media.nodes[0].id ?? byAlt?.id ?? (vs.every((y: any) => !y.media.nodes.length) && new Set(vs.map((y: any) => y.selectedOptions.find((o: any) => /colou?r/i.test(o.name))?.value)).size === 1 ? p.media.nodes[0]?.id : null)
+        if (mediaId) pics.push({ id: x.id, mediaId })
+      }
+      const items = vs.filter((x: any) => x.sku).map((x: any) => ({ sku: x.sku, price: full(x) }))
+      let ops: any = null
+      if (!a.dryRun) {
+        if (pics.length) {
+          const u = await shopifyGql(ctx, `mutation($pid: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkUpdate(productId: $pid, variants: $v) { userErrors { message } } }`, { pid: p.id, v: pics })
+          if (u.productVariantsBulkUpdate.userErrors.length) out.push({ title: p.title, error: u.productVariantsBulkUpdate.userErrors[0].message })
+        }
+        ops = await ctx.runMutation(internal.chinaImport.fixOpsPreorder, { items })
+      }
+      out.push({ title: p.title, picsLinked: pics.length, picsStillMissing: vs.filter((y: any) => !y.media.nodes.length).length - pics.length, noSku: vs.filter((x: any) => !x.sku).length, ops })
+    }
+    return { out, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
+  },
+})
