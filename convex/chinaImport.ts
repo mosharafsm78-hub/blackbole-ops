@@ -19,8 +19,8 @@ export const FAKE_PAIRS = 10
 const ONLINE_STORE = "gid://shopify/Publication/133467144329"
 
 /** Our price: Alibaba price (small-order tier, the highest) × 127 = taka cost; × 3; + Tk 750 freight per pair. */
-export function priceOf(usd: number) {
-  return Math.round(usd * USD_TO_BDT * MARKUP + FREIGHT)
+export function priceOf(usd: number, markup = MARKUP) {
+  return Math.round(usd * USD_TO_BDT * markup + FREIGHT)
 }
 export function costOf(usd: number) {
   return Math.round(usd * USD_TO_BDT + FREIGHT)
@@ -252,7 +252,7 @@ const material = (s: string | null) => (s ? s.replace(/^pu$/i, "PU").replace(/^p
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
 /** Turns one Alibaba product into a BlackBole China pre-order. Throws (with a plain reason) when it can't be listed. */
-export function buildSpec(r: Raw, taken?: Set<string>): Spec {
+export function buildSpec(r: Raw, taken?: Set<string>, markup = MARKUP): Spec {
   const id = String(r.id)
   let meta = META[id] ?? autoMeta(id, r.subject)
   for (let salt = 1; !META[id] && taken?.has(meta.t) && salt < 40; salt++) meta = autoMeta(id, r.subject, salt)
@@ -297,7 +297,7 @@ export function buildSpec(r: Raw, taken?: Set<string>): Spec {
   ].filter(Boolean).join("")
   const descriptionHtml = `<p>${esc(intro)}</p><ul>${li}</ul><p><strong>Pre-order.</strong> Book your pair today with just Tk ${BOOKING}. It reaches you in 15 to 20 days, and you pay the rest on delivery.</p>`
   return {
-    alibabaId: id, title: t, handle: slug(t), type: meta.type, boot: !!meta.boot, usd, price: priceOf(usd), cost: costOf(usd), abbr, colours, sizes, images,
+    alibabaId: id, title: t, handle: slug(t), type: meta.type, boot: !!meta.boot, usd, price: priceOf(usd, markup), cost: costOf(usd), abbr, colours, sizes, images,
     descriptionHtml,
     seoTitle: `${t} for Men – Pre-Order | BlackBole`,
     seoDescription: `${t.replace(/^(\w)/, (c) => c)} in ${colourText}, ${sizeText}. Pre-order: book with Tk ${BOOKING}, pay the rest on delivery in 15–20 days.`,
@@ -359,13 +359,23 @@ export const upsertOps = internalMutation({
   },
 })
 
+export const setOpsPrice = internalMutation({
+  args: { skus: v.array(v.string()), price: v.number() },
+  handler: async (ctx, { skus, price }) => {
+    for (const sku of skus) {
+      const x = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (x && x.price !== price) await ctx.db.patch(x._id, { price })
+    }
+  },
+})
+
 // ---------- run ----------
 
 const PRODUCT_SET = `mutation($input: ProductSetInput!) { productSet(input: $input, synchronous: true) { product { id handle } userErrors { field message } } }`
 const PUBLISH = `mutation($id: ID!, $input: [PublicationInput!]!) { publishablePublish(id: $id, input: $input) { userErrors { message } } }`
 
 export const run = action({
-  args: { batch: v.string(), parts: v.number(), from: v.optional(v.number()), count: v.optional(v.number()), only: v.optional(v.array(v.string())), store: v.optional(v.string()), dryRun: v.optional(v.boolean()), supplier: v.string() },
+  args: { batch: v.string(), parts: v.number(), from: v.optional(v.number()), count: v.optional(v.number()), only: v.optional(v.array(v.string())), store: v.optional(v.string()), markup: v.optional(v.number()), dryRun: v.optional(v.boolean()), supplier: v.string() },
   handler: async (ctx, a) => {
     await ctx.runQuery(internal.chinaImport.allowed, {})
     const supplier = a.supplier.trim()
@@ -379,7 +389,7 @@ export const run = action({
     const taken = new Set<string>()
     for (const r of raws) {
       let s: Spec
-      try { s = buildSpec(r, taken) } catch (e: any) { skipped.push({ id: r.id, why: e.message }); continue }
+      try { s = buildSpec(r, taken, a.markup ?? MARKUP) } catch (e: any) { skipped.push({ id: r.id, why: e.message }); continue }
       if (a.dryRun) { done.push({ id: s.alibabaId, title: s.title, usd: s.usd, price: s.price, colours: s.colours.map((c) => `${c.name}(${c.code})`), sizes: s.sizes, images: s.images.length }); continue }
       // already uploaded (same Alibaba product) → skip; same name taken by another product → new handle
       const prev = await shopifyGql(ctx, `query($q: String!) { products(first: 5, query: $q) { nodes { id handle tags } } }`, { q: `tag:alibaba-${s.alibabaId}` })
@@ -391,6 +401,14 @@ export const run = action({
       if (prev.products.nodes.length) {
         // already on Shopify: only make sure Ops has it (sizes already in Ops are left alone)
         const n = prev.products.nodes[0]
+        // bring the price in line (e.g. after a markup change): full price is the crossed-out compare-at price
+        const vs = await shopifyGql(ctx, `query($id: ID!) { product(id: $id) { variants(first: 250) { nodes { id compareAtPrice } } } }`, { id: n.id })
+        const stale = vs.product.variants.nodes.filter((x: any) => Number(x.compareAtPrice) !== s.price)
+        if (stale.length) {
+          const up = await shopifyGql(ctx, `mutation($pid: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkUpdate(productId: $pid, variants: $v) { userErrors { message } } }`, { pid: n.id, v: stale.map((x: any) => ({ id: x.id, compareAtPrice: String(s.price) })) })
+          if (up.productVariantsBulkUpdate.userErrors.length) skipped.push({ id: r.id, why: `price: ${up.productVariantsBulkUpdate.userErrors[0].message}` })
+        }
+        await ctx.runMutation(internal.chinaImport.setOpsPrice, { skus: opsArgs(n.handle).variants.map((x) => x.sku), price: s.price })
         const ops = await ctx.runMutation(internal.chinaImport.upsertOps, opsArgs(n.handle))
         done.push({ id: s.alibabaId, title: s.title, handle: n.handle, productId: n.id, price: s.price, already: true, opsSizes: ops.added })
         continue

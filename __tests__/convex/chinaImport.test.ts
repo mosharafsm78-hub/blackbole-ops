@@ -46,3 +46,6 @@ describe("china import: other stores", () => {
     expect(autoMeta("2", "Men Chunky Mesh Dad Sneakers").t).toMatch(/ Chunky Sneaker$/)
   })
 })
+describe("markup", () => {
+  it("3.5x for the new stores", () => { expect(priceOf(5, 3.5)).toBe(Math.round(5 * 127 * 3.5 + 750)) })
+})
