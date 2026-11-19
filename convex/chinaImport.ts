@@ -340,14 +340,24 @@ export const run = action({
       if (a.dryRun) { done.push({ id: s.alibabaId, title: s.title, usd: s.usd, price: s.price, colours: s.colours.map((c) => `${c.name}(${c.code})`), sizes: s.sizes, images: s.images.length }); continue }
       // already uploaded (same Alibaba product) → skip; same name taken by another product → new handle
       const prev = await shopifyGql(ctx, `query($q: String!) { products(first: 5, query: $q) { nodes { id handle tags } } }`, { q: `tag:alibaba-${s.alibabaId}` })
-      if (prev.products.nodes.length) { skipped.push({ id: r.id, why: "already uploaded", handle: prev.products.nodes[0].handle }); continue }
+      const sku = (c: Spec["colours"][number], size: string) => `PO-${s.abbr}-${c.code}-${size}`
+      const opsArgs = (handle: string) => ({
+        handle, title: s.title, price: s.price, cost: s.cost, weightKg: s.boot ? 1.2 : 0.9, image: s.images[0],
+        variants: s.colours.flatMap((c) => s.sizes.map((size) => ({ sku: sku(c, size), title: `${c.name} / ${size}`, ...(c.img ? { image: c.img } : {}) }))),
+      })
+      if (prev.products.nodes.length) {
+        // already on Shopify: only make sure Ops has it (sizes already in Ops are left alone)
+        const n = prev.products.nodes[0]
+        const ops = await ctx.runMutation(internal.chinaImport.upsertOps, opsArgs(n.handle))
+        done.push({ id: s.alibabaId, title: s.title, handle: n.handle, productId: n.id, price: s.price, already: true, opsSizes: ops.added })
+        continue
+      }
       let handle = s.handle
       for (let k = 2; ; k++) {
         const h = await shopifyGql(ctx, `query($h: String!) { productByIdentifier(identifier: { handle: $h }) { id } }`, { h: handle })
         if (!h.productByIdentifier) break
         handle = `${s.handle}-${k}`
       }
-      const sku = (c: Spec["colours"][number], size: string) => `PO-${s.abbr}-${c.code}-${size}`
       const variants = s.colours.flatMap((c) => s.sizes.map((size) => ({
         optionValues: [{ optionName: "Color", name: c.name }, { optionName: "Size", name: size }],
         sku: sku(c, size), price: String(BOOKING), compareAtPrice: String(s.price), inventoryPolicy: "CONTINUE",
@@ -368,12 +378,11 @@ export const run = action({
         const err = res.productSet.userErrors
         if (err.length || !res.productSet.product) { skipped.push({ id: r.id, why: `Shopify: ${err.map((x: any) => x.message).join("; ")}` }); continue }
         const pid = res.productSet.product.id
-        await shopifyGql(ctx, PUBLISH, { id: pid, input: [{ publicationId: ONLINE_STORE }] })
-        const ops = await ctx.runMutation(internal.chinaImport.upsertOps, {
-          handle, title: s.title, price: s.price, cost: s.cost, weightKg: s.boot ? 1.2 : 0.9, image: s.images[0],
-          variants: s.colours.flatMap((c) => s.sizes.map((size) => ({ sku: sku(c, size), title: `${c.name} / ${size}`, ...(c.img ? { image: c.img } : {}) }))),
-        })
-        done.push({ id: s.alibabaId, title: s.title, handle, price: s.price, colours: s.colours.length, sizes: s.sizes.length, opsSizes: ops.added })
+        // the Ops app may not be allowed to publish: then it's published to the Online Store separately
+        let published = true
+        try { await shopifyGql(ctx, PUBLISH, { id: pid, input: [{ publicationId: ONLINE_STORE }] }) } catch { published = false }
+        const ops = await ctx.runMutation(internal.chinaImport.upsertOps, opsArgs(handle))
+        done.push({ id: s.alibabaId, title: s.title, handle, productId: pid, published, price: s.price, colours: s.colours.length, sizes: s.sizes.length, opsSizes: ops.added })
       } catch (e: any) {
         skipped.push({ id: r.id, why: String(e.message ?? e).slice(0, 300) })
       }
