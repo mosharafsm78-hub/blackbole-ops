@@ -12,8 +12,8 @@ export const REPORT_TYPES = [
   { key: "sales_creation", label: "Sales Report by Creation", index: "by_created", field: "createdAt" },
   { key: "sales_approved", label: "Sales Report by Approved", index: "by_approved", field: "approvedAt" },
   { key: "sales_delivered", label: "Sales Report by Delivered", index: "by_delivered", field: "deliveredAt" },
-  { key: "product_creation", label: "Sales By Base Product by Creation", index: "by_created", field: "createdAt" },
-  { key: "product_delivered", label: "Sales By Base Product by Delivered", index: "by_delivered", field: "deliveredAt" },
+  { key: "product_creation", label: "Product-wise: Delivered / Returned / Cancelled (by order date)", index: "by_created", field: "createdAt" },
+  { key: "product_delivered", label: "Product-wise sales (by delivery date)", index: "by_delivered", field: "deliveredAt" },
   { key: "daily_product_source_status", label: "Daily Product-wise Sales Report based on Order Source and Order Status", index: "by_created", field: "createdAt" },
   { key: "paid_due", label: "Orders Paid and Due Amount Report", index: "by_created", field: "createdAt" },
   { key: "payments", label: "Payment Transaction Report", index: "", field: "at" },
@@ -102,19 +102,26 @@ export function build(type: string, orders: Doc<"orders">[], _from: number, _to:
     }
     rows.push(...[...m.values()].sort((a, b) => a.Date.localeCompare(b.Date)))
   } else if (type.startsWith("product_")) {
+    // Every pair ordered in the dates, split by what happened to it: delivered, returned, cancelled or still open.
     const m = new Map<string, any>()
     for (const o of live) {
-      if (type === "product_creation" && o.status === "cancelled") continue
+      const isDel = o.status === "delivered_due" || o.status === "delivered_paid"
+      const isRet = ["returned", "pending_returned", "damaged"].includes(o.status)
+      const isCan = o.status === "cancelled"
       for (const i of o.items) {
-        const r = add(m, baseName(i.name), () => ({ "Base product": baseName(i.name), Orders: new Set<string>(), Qty: 0, "Sales amount": 0, Discount: 0, Sizes: new Map<string, number>() }))
+        const r = add(m, baseName(i.name), () => ({ "Base product": baseName(i.name), Orders: new Set<string>(), Qty: 0, "Sales amount": 0, Discount: 0, Delivered: 0, Returned: 0, Cancelled: 0, "Still open": 0, Sizes: new Map<string, number>() }))
+        if (isCan) { r.Cancelled += i.qty; continue }
         r.Orders.add(o._id); r.Qty += i.qty; r["Sales amount"] += i.price * i.qty - i.discount; r.Discount += i.discount
+        if (isDel) r.Delivered += i.qty; else if (isRet) r.Returned += i.qty; else r["Still open"] += i.qty
         r.Sizes.set(i.attrs ?? "-", (r.Sizes.get(i.attrs ?? "-") ?? 0) + i.qty)
       }
     }
     rows.push(...[...m.values()].map((r) => ({
-      "Base product": r["Base product"], Orders: r.Orders.size, Qty: r.Qty, "Sales amount": r["Sales amount"], Discount: r.Discount,
+      "Base product": r["Base product"], Orders: r.Orders.size, "Qty (not cancelled)": r.Qty, "Sales amount": r["Sales amount"], Discount: r.Discount,
+      Delivered: r.Delivered, Returned: r.Returned, Cancelled: r.Cancelled, "Still open": r["Still open"],
+      "Success %": r.Delivered + r.Returned ? Math.round((r.Delivered / (r.Delivered + r.Returned)) * 100) : "",
       "By size": [...r.Sizes.entries()].sort().map(([k, n]: [string, number]) => `${k}: ${n}`).join(", "),
-    })).sort((a, b) => b.Qty - a.Qty))
+    })).sort((a, b) => b["Qty (not cancelled)"] - a["Qty (not cancelled)"]))
   } else if (type === "daily_product_source_status") {
     const m = new Map<string, any>()
     for (const o of live) {
