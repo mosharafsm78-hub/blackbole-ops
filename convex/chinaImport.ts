@@ -16,6 +16,7 @@ export const MARKUP = 3
 export const FREIGHT = 750
 export const BOOKING = 200
 export const FAKE_PAIRS = 10
+export const STANDARD_SIZES = ["40", "41", "42", "43", "44"]
 const ONLINE_STORE = "gid://shopify/Publication/133467144329"
 
 /** Our price: Alibaba price (small-order tier, the highest) × 127 = taka cost; × 3; + Tk 750 freight per pair. */
@@ -273,8 +274,8 @@ export function buildSpec(r: Raw, taken?: Set<string>, markup = MARKUP): Spec {
   }
   if (!colours.length) throw new Error("no usable colour")
   const sizeAttrs = r.attrs.filter((a) => /size/i.test(a.name))
-  // no size list on Alibaba at all: the usual men's run 39–44
-  const sizes = sizeAttrs.length ? cleanSizes(sizeAttrs.flatMap((a) => a.values.map((x) => x.name))) : ["39", "40", "41", "42", "43", "44"]
+  // no size list on Alibaba at all: the standard men's run 40–44
+  const sizes = sizeAttrs.length ? cleanSizes(sizeAttrs.flatMap((a) => a.values.map((x) => x.name))) : STANDARD_SIZES
   if (sizes.length < 2) throw new Error("no men's sizes")
   const images = [...new Set([...colours.map((c) => c.img).filter((x): x is string => !!x), ...r.media])].slice(0, 10)
   const t = meta.t
@@ -449,5 +450,47 @@ export const run = action({
       }
     }
     return { done, skipped, total: raws.length }
+  },
+})
+
+// ---------- fix: products Alibaba gave no size list for get the standard 40–44 (size 39 removed) ----------
+
+export const purgeOpsSkus = internalMutation({
+  args: { skus: v.array(v.string()) },
+  handler: async (ctx, { skus }) => {
+    let n = 0
+    for (const sku of skus) {
+      const x = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (!x) continue
+      for (const r of await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
+      for (const r of await ctx.db.query("stockLogs").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
+      for (const r of await ctx.db.query("shopifyDirty").withIndex("by_variant", (q) => q.eq("variantId", x._id)).collect()) await ctx.db.delete(r._id)
+      await ctx.db.delete(x._id)
+      n++
+    }
+    return n
+  },
+})
+
+export const standardSizesForUnsized = action({
+  args: { batch: v.string(), parts: v.number(), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, a) => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    const raws = (await loadRaw(ctx, a.batch, a.parts)).filter((r) => !r.attrs.some((x) => /size/i.test(x.name)))
+    const out: any[] = []
+    for (const r of raws) {
+      const res = await shopifyGql(ctx, `query($q: String!) { products(first: 1, query: $q) { nodes { id title variants(first: 250) { nodes { id sku selectedOptions { name value } } } } } }`, { q: `tag:alibaba-${r.id}` })
+      const p = res.products.nodes[0]
+      if (!p) continue
+      const gone = p.variants.nodes.filter((x: any) => x.selectedOptions.some((o: any) => o.name === "Size" && !STANDARD_SIZES.includes(o.value)))
+      if (!gone.length) continue
+      if (!a.dryRun) {
+        const del = await shopifyGql(ctx, `mutation($pid: ID!, $ids: [ID!]!) { productVariantsBulkDelete(productId: $pid, variantsIds: $ids) { userErrors { message } } }`, { pid: p.id, ids: gone.map((x: any) => x.id) })
+        if (del.productVariantsBulkDelete.userErrors.length) { out.push({ title: p.title, error: del.productVariantsBulkDelete.userErrors[0].message }); continue }
+        await ctx.runMutation(internal.chinaImport.purgeOpsSkus, { skus: gone.map((x: any) => x.sku).filter(Boolean) })
+      }
+      out.push({ title: p.title, removed: gone.length })
+    }
+    return out
   },
 })
