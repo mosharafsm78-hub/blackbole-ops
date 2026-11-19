@@ -197,6 +197,19 @@ export const META: Record<string, Meta> = {
   "1601700503684": { t: "Bold Sole Fashion Sneaker", type: "Sneakers" },
   "1601845337253": { t: "Moto High-Top Boot", type: "Boots", boot: true },
   "1601758707715": { t: "Cushion Walk Dad Sneaker", type: "Sneakers" },
+  "1601823814536": { t: "Leather-Look Sport Sneaker", type: "Sneakers" },
+  "1601820288806": { t: "Grip Low-Top Casual", type: "Casual Shoes" },
+  "1601700597052": { t: "Campus Mesh Sneaker", type: "Sneakers" },
+  "1601735275872": { t: "Tokyo Pop Sneaker", type: "Sneakers" },
+  "1601933183809": { t: "High-Top Soft Walker", type: "Casual Shoes" },
+  "1601929056428": { t: "Luxe Leather Lace-Up Sneaker", type: "Sneakers" },
+  "1601929033326": { t: "Embossed Driving Slipper", type: "Sandals" },
+  "1601928805550": { t: "Retro Platform Board Shoe", type: "Sneakers" },
+  "1601700508625": { t: "Everyday Canvas Board Shoe", type: "Canvas Shoes" },
+  "1601923286492": { t: "Platform High-Top Street Shoe", type: "Sneakers" },
+  "1601922293736": { t: "Shiny British Loafer", type: "Loafers" },
+  "1601700453955": { t: "Seoul Chunky Walker", type: "Sneakers" },
+  "1601919657715": { t: "Animal Print Flat Sneaker", type: "Sneakers" },
 }
 
 export type Raw = { id: number; subject: string; ladder: [number, number, number][]; skuPrice?: number; attrs: { name: string; values: { name: string; img: string | null }[] }[]; media: string[]; props: [string, string][] }
