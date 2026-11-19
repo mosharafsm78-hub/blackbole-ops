@@ -93,7 +93,7 @@ function Overview() {
   const s = data?.summary
   return (
     <div className="space-y-5">
-      <div className="sticky top-0 z-20 flex flex-wrap items-end gap-2 rounded-xl border bg-card p-3 shadow-sm">
+      <div className="sticky top-16 z-20 flex flex-wrap items-end gap-2 rounded-xl border bg-card p-3 shadow-sm">
         <div className="flex flex-wrap gap-1.5">
           {[...PRESETS, { key: "custom", label: "Custom dates" }].map((p) => (
             <button key={p.key} type="button" onClick={() => setPreset(p.key)}
