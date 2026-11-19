@@ -494,3 +494,68 @@ export const standardSizesForUnsized = action({
     return out
   },
 })
+
+// ---------- every Alibaba China pre-order (men's) gets exactly EU 40–44 ----------
+
+export const addOpsSizes = internalMutation({
+  args: { items: v.array(v.object({ siblingSku: v.string(), sku: v.string(), size: v.string() })) },
+  handler: async (ctx, { items }) => {
+    const add: { variantId: any; qty: number }[] = []
+    for (const it of items) {
+      if (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", it.sku)).first()) continue
+      const sib = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", it.siblingSku)).first()
+      if (!sib) continue
+      const colour = sib.title.split(" / ")[0]
+      const id = await ctx.db.insert("variants", { productId: sib.productId, sku: it.sku, title: `${colour} / ${it.size}`, weightKg: sib.weightKg, price: sib.price, purchasePrice: sib.purchasePrice, active: true, createdAt: Date.now(), ...(sib.imageUrl ? { imageUrl: sib.imageUrl } : {}) })
+      add.push({ variantId: id, qty: FAKE_PAIRS })
+    }
+    if (add.length) await applyTestStock(ctx, add, "System (standard sizes 40–44)")
+    return add.length
+  },
+})
+
+export const standardizeSizes = action({
+  args: { query: v.string(), after: v.optional(v.string()), count: v.optional(v.number()), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, a) => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    const res = await shopifyGql(ctx, `query($q: String!, $n: Int!, $after: String) { products(first: $n, after: $after, query: $q) { pageInfo { hasNextPage endCursor } nodes { id title
+      variants(first: 150) { nodes { id sku price compareAtPrice selectedOptions { name value } inventoryItem { unitCost { amount } } media(first: 1) { nodes { id } } } } } } }`, { q: a.query, n: a.count ?? 15, after: a.after ?? null })
+    const out: any[] = []
+    for (const p of res.products.nodes) {
+      const vs = p.variants.nodes.map((x: any) => ({ ...x, color: x.selectedOptions.find((o: any) => o.name === "Color")?.value, size: x.selectedOptions.find((o: any) => o.name === "Size")?.value }))
+      if (vs.some((x: any) => !x.size || !/^\d{2}$/.test(x.size))) { out.push({ title: p.title, skipped: "sizes are not single EU sizes (e.g. sandal pairs)" }); continue }
+      const gone = vs.filter((x: any) => !STANDARD_SIZES.includes(x.size))
+      const create: any[] = [], opsAdd: any[] = []
+      for (const color of [...new Set(vs.map((x: any) => x.color))]) {
+        const mine = vs.filter((x: any) => x.color === color)
+        for (const size of STANDARD_SIZES) {
+          if (mine.some((x: any) => x.size === size)) continue
+          const sib = [...mine].sort((x: any, y: any) => Math.abs(+x.size - +size) - Math.abs(+y.size - +size))[0]
+          const sku = sib.sku.replace(/-\d{2}$/, `-${size}`)
+          create.push({
+            optionValues: [{ optionName: "Color", name: color }, { optionName: "Size", name: size }],
+            price: sib.price, ...(sib.compareAtPrice ? { compareAtPrice: sib.compareAtPrice } : {}), inventoryPolicy: "CONTINUE",
+            inventoryItem: { sku, tracked: false, ...(sib.inventoryItem?.unitCost?.amount ? { cost: sib.inventoryItem.unitCost.amount } : {}) },
+            ...(sib.media?.nodes?.[0]?.id ? { mediaId: sib.media.nodes[0].id } : {}),
+          })
+          opsAdd.push({ siblingSku: sib.sku, sku, size })
+        }
+      }
+      if (!gone.length && !create.length) continue
+      if (!a.dryRun) {
+        if (create.length) {
+          const c = await shopifyGql(ctx, `mutation($pid: ID!, $v: [ProductVariantsBulkInput!]!) { productVariantsBulkCreate(productId: $pid, variants: $v) { userErrors { message } } }`, { pid: p.id, v: create })
+          if (c.productVariantsBulkCreate.userErrors.length) { out.push({ title: p.title, error: `add: ${c.productVariantsBulkCreate.userErrors[0].message}` }); continue }
+          await ctx.runMutation(internal.chinaImport.addOpsSizes, { items: opsAdd })
+        }
+        if (gone.length) {
+          const d = await shopifyGql(ctx, `mutation($pid: ID!, $ids: [ID!]!) { productVariantsBulkDelete(productId: $pid, variantsIds: $ids) { userErrors { message } } }`, { pid: p.id, ids: gone.map((x: any) => x.id) })
+          if (d.productVariantsBulkDelete.userErrors.length) { out.push({ title: p.title, error: `remove: ${d.productVariantsBulkDelete.userErrors[0].message}` }); continue }
+          await ctx.runMutation(internal.chinaImport.purgeOpsSkus, { skus: gone.map((x: any) => x.sku).filter(Boolean) })
+        }
+      }
+      out.push({ title: p.title, removed: gone.map((x: any) => x.size).filter((s: string, i: number, arr: string[]) => arr.indexOf(s) === i), added: [...new Set(opsAdd.map((x) => x.size))] })
+    }
+    return { out, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
+  },
+})
