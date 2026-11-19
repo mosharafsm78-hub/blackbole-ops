@@ -77,7 +77,7 @@ export const run = action({
     const bySource = new Map<string, Agg>(), byCity = new Map<string, Agg>(), byStaff = new Map<string, Agg>()
     const byMethod = new Map<string, Agg>(), byPartner = new Map<string, Agg>()
     const byDay = new Map<string, { day: string; orders: number; value: number; delivered: number; returned: number; cancelled: number; open: number }>()
-    const products = new Map<string, { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; orders: number }>()
+    const products = new Map<string, { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; cancelledQty: number; openQty: number; orders: number }>()
     let value = 0, items = 0, delivered = 0, deliveredValue = 0, returned = 0, cancelled = 0, open = 0, collected = 0, dueOnDelivered = 0
     let discount = 0, deliveryFees = 0, profitBase = 0, cost = 0
 
@@ -101,13 +101,14 @@ export const run = action({
       else open++
       if (!isCan) { collected += r.paid; discount += r.discount; deliveryFees += r.deliveryFee }
       for (const it of r.items) {
-        if (isCan) continue
-        items += it.qty
         const key = it.name
-        const p = products.get(key) ?? { name: it.name, sku: it.sku.split("-").slice(0, -1).join("-") || it.sku, qty: 0, amount: 0, deliveredQty: 0, returnedQty: 0, orders: 0 }
+        const p = products.get(key) ?? { name: it.name, sku: it.sku.split("-").slice(0, -1).join("-") || it.sku, qty: 0, amount: 0, deliveredQty: 0, returnedQty: 0, cancelledQty: 0, openQty: 0, orders: 0 }
+        if (isCan) { p.cancelledQty += it.qty; products.set(key, p); continue } // cancelled: counted on its own, not in sold qty/amount
+        items += it.qty
         p.qty += it.qty; p.amount += it.amount; p.orders++
         if (isDel) p.deliveredQty += it.qty
-        if (isRet) p.returnedQty += it.qty
+        else if (isRet) p.returnedQty += it.qty
+        else p.openQty += it.qty
         products.set(key, p)
       }
     }

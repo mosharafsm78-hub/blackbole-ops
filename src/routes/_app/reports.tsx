@@ -267,34 +267,62 @@ function AggTable({ title, rows, limit }: { title: string; rows: AggRow[]; limit
   )
 }
 
-function ProductsTable({ rows }: { rows: { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; orders: number }[] }) {
+function ProductsTable({ rows }: { rows: { name: string; sku: string; qty: number; amount: number; deliveredQty: number; returnedQty: number; cancelledQty?: number; openQty?: number; orders: number }[] }) {
   const [all, setAll] = useState(false)
-  const shown = all ? rows : rows.slice(0, 15)
-  const max = rows[0]?.qty ?? 0
+  const [q, setQ] = useState("")
+  const [sort, setSort] = useState<"qty" | "delivered" | "returned" | "cancelled">("qty")
+  const list = useMemo(() => {
+    const w = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const key = { qty: (r: any) => r.qty, delivered: (r: any) => r.deliveredQty, returned: (r: any) => r.returnedQty, cancelled: (r: any) => r.cancelledQty ?? 0 }[sort]
+    return rows.filter((r) => w.every((x) => `${r.name} ${r.sku}`.toLowerCase().includes(x))).sort((a, b) => key(b) - key(a))
+  }, [rows, q, sort])
+  const shown = all || q ? list : list.slice(0, 15)
+  const tot = list.reduce((t, r) => ({ qty: t.qty + r.qty, d: t.d + r.deliveredQty, re: t.re + r.returnedQty, c: t.c + (r.cancelledQty ?? 0), o: t.o + (r.openQty ?? 0), amt: t.amt + r.amount }), { qty: 0, d: 0, re: 0, c: 0, o: 0, amt: 0 })
+  const pct = (d: number, r: number) => (d + r ? Math.round((d / (d + r)) * 100) : null)
   return (
-    <Panel title="Products sold (cancelled orders not counted)" csv={() => rows.map((r) => ({ Product: r.name, SKU: r.sku, Orders: r.orders, Qty: r.qty, Amount: r.amount, "Delivered qty": r.deliveredQty, "Returned qty": r.returnedQty }))}>
-      {rows.length === 0 ? <p className="py-4 text-sm text-muted-foreground">No products sold.</p> : (
+    <Panel title="Products: delivered, returned, cancelled" csv={() => list.map((r) => ({ Product: r.name, SKU: r.sku, "Ordered qty (not cancelled)": r.qty, Amount: r.amount, Delivered: r.deliveredQty, Returned: r.returnedQty, Cancelled: r.cancelledQty ?? 0, "Still open": r.openQty ?? 0, "Success %": pct(r.deliveredQty, r.returnedQty) ?? "" }))}>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product or SKU" className="min-w-0 flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm" />
+        <div className="flex rounded-md border p-0.5 text-xs">
+          {([["qty", "Most ordered"], ["delivered", "Delivered"], ["returned", "Returned"], ["cancelled", "Cancelled"]] as const).map(([k, l]) => (
+            <button key={k} type="button" onClick={() => setSort(k)} className={cn("rounded px-2 py-0.5", sort === k ? "bg-foreground text-background" : "text-muted-foreground")}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {list.length === 0 ? <p className="py-4 text-sm text-muted-foreground">No products in these dates.</p> : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-muted-foreground">
-              <tr><th className="py-2 font-medium">Product</th><th className="w-1/4 py-2" /><th className="py-2 text-right font-medium">Qty</th><th className="py-2 text-right font-medium">Amount</th><th className="py-2 text-right font-medium text-tone-green">Delivered</th><th className="py-2 text-right font-medium text-tone-red">Returned</th></tr>
+              <tr><th className="py-2 font-medium">Product</th><th className="py-2 text-right font-medium">Ordered</th><th className="py-2 text-right font-medium">Amount</th><th className="py-2 text-right font-medium text-tone-green">Delivered</th><th className="py-2 text-right font-medium text-tone-red">Returned</th><th className="py-2 text-right font-medium">Cancelled</th><th className="py-2 text-right font-medium text-tone-blue">Still open</th><th className="py-2 text-right font-medium">Success</th></tr>
             </thead>
             <tbody className="divide-y">
-              {shown.map((r) => (
-                <tr key={r.name}>
-                  <td className="py-2 pr-2"><div className="font-medium">{r.name}</div><div className="text-xs text-muted-foreground">{r.sku}</div></td>
-                  <td className="py-2 pr-3"><Meter value={r.qty} max={max} tone="bg-tone-violet" /></td>
-                  <td className="py-2 text-right font-semibold tabular-nums">{r.qty}</td>
-                  <td className="py-2 text-right tabular-nums text-muted-foreground">{taka(r.amount)}</td>
-                  <td className="py-2 text-right tabular-nums text-tone-green">{r.deliveredQty}</td>
-                  <td className="py-2 text-right tabular-nums text-tone-red">{r.returnedQty}</td>
-                </tr>
-              ))}
+              {shown.map((r) => {
+                const p = pct(r.deliveredQty, r.returnedQty)
+                return (
+                  <tr key={r.name}>
+                    <td className="py-2 pr-2"><div className="font-medium">{r.name}</div><div className="text-xs text-muted-foreground">{r.sku}</div></td>
+                    <td className="py-2 text-right font-semibold tabular-nums">{r.qty}</td>
+                    <td className="py-2 text-right tabular-nums text-muted-foreground">{taka(r.amount)}</td>
+                    <td className="py-2 text-right tabular-nums text-tone-green">{r.deliveredQty}</td>
+                    <td className="py-2 text-right tabular-nums text-tone-red">{r.returnedQty}</td>
+                    <td className="py-2 text-right tabular-nums text-muted-foreground">{r.cancelledQty ?? 0}</td>
+                    <td className="py-2 text-right tabular-nums text-tone-blue">{r.openQty ?? 0}</td>
+                    <td className="py-2 text-right">{p === null ? <span className="text-muted-foreground">—</span> : <Pill tone={p >= 80 ? "green" : p >= 60 ? "amber" : "red"}>{p}%</Pill>}</td>
+                  </tr>
+                )
+              })}
             </tbody>
+            <tfoot>
+              <tr className="border-t text-xs font-semibold">
+                <td className="py-2">{list.length} products</td><td className="py-2 text-right">{tot.qty}</td><td className="py-2 text-right">{taka(tot.amt)}</td>
+                <td className="py-2 text-right text-tone-green">{tot.d}</td><td className="py-2 text-right text-tone-red">{tot.re}</td><td className="py-2 text-right">{tot.c}</td><td className="py-2 text-right text-tone-blue">{tot.o}</td><td className="py-2 text-right">{pct(tot.d, tot.re) ?? "—"}{pct(tot.d, tot.re) !== null ? "%" : ""}</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}
-      {rows.length > 15 && <button type="button" className="py-2 text-xs text-tone-blue hover:underline" onClick={() => setAll(!all)}>{all ? "Show top 15" : `Show all ${rows.length} products`}</button>}
+      {!q && list.length > 15 && <button type="button" className="py-2 text-xs text-tone-blue hover:underline" onClick={() => setAll(!all)}>{all ? "Show top 15" : `Show all ${list.length} products`}</button>}
+      <p className="pt-1 text-[11px] text-muted-foreground">Pairs. "Ordered" and "Amount" leave out cancelled orders. Success = delivered ÷ (delivered + returned).</p>
     </Panel>
   )
 }
