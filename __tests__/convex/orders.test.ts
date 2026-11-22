@@ -609,3 +609,32 @@ describe("REVE SMS", () => {
     globalThis.fetch = real
   })
 })
+
+describe("part return (one item of a delivered order)", () => {
+  it("splits the returned units into a Pending Return order and keeps the rest Delivered", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const v42 = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-HSS-42")).unique()))!
+    await as.mutation(api.catalog.receiveStock, { locationId, updateCost: false, items: [{ variantId: v42._id, qty: 5, unitCost: 520 }] })
+    const { orderId } = await as.mutation(api.orders.create, {
+      ...baseOrder(locationId, v41._id), deliveryFee: 100,
+      items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }, { variantId: v42._id, qty: 1, price: 1480, discount: 0 }],
+    })
+    for (const st of ["approved", "processing", "ready_to_ship", "in_transit", "delivered_due"]) await as.mutation(api.orders.changeStatus, { ids: [orderId], to: st as any })
+    await expect(as.mutation(api.orders.splitReturn, { id: orderId, lines: [{ index: 0, qty: 1 }, { index: 1, qty: 1 }] })).rejects.toThrow(/every item/)
+    const res = await as.mutation(api.orders.splitReturn, { id: orderId, lines: [{ index: 1, qty: 1 }], reason: "size" })
+    const o: any = await t.run((ctx) => ctx.db.get(orderId))
+    const child: any = await t.run((ctx) => ctx.db.get(res.orderId))
+    expect(o.status).toBe("delivered_due")
+    expect(o.items).toHaveLength(1)
+    expect(o.total).toBe(1580)
+    expect(child).toMatchObject({ status: "pending_returned", partReturnOfId: orderId, total: 1480, courier: "manual" })
+    expect(child.items[0].variantId).toBe(v42._id)
+    const s42: any = await stockOf(t, v42._id, locationId)
+    expect(s42.returning).toBe(1)
+    // warehouse receives it back
+    await as.mutation(api.orders.changeStatus, { ids: [res.orderId], to: "returned" as any })
+    const s42b: any = await stockOf(t, v42._id, locationId)
+    expect(s42b.returning).toBe(0)
+    expect(s42b.available).toBe(5)
+  })
+})

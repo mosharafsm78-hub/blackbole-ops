@@ -195,6 +195,7 @@ function OrderPage() {
   const [payOpen, setPayOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [exchangeOpen, setExchangeOpen] = useState(false)
+  const [partOpen, setPartOpen] = useState(false)
   const [reasonOpen, setReasonOpen] = useState(false)
   const [csatOpen, setCsatOpen] = useState(false)
   const [returnCsatOpen, setReturnCsatOpen] = useState(false)
@@ -265,6 +266,9 @@ function OrderPage() {
             <Perm perm="orders.print">
               <Button variant="outline" size="sm" onClick={() => window.open(`/print?ids=${o._id}`, "_blank")}><Printer className="size-4" /> Invoice</Button>
             </Perm>
+            {["delivered_due", "delivered_paid"].includes(status) && can("orders.edit") && (o.items.length > 1 || (o.items[0]?.qty ?? 0) > 1) && (
+              <Button variant="outline" size="sm" onClick={() => setPartOpen(true)}><Repeat className="size-4" /> Return one item</Button>
+            )}
             {canExchange && (
               <Button variant="outline" size="sm" onClick={() => setExchangeOpen(true)}><Repeat className="size-4" /> Request exchange</Button>
             )}
@@ -619,6 +623,7 @@ function OrderPage() {
       <PaymentDialog orderId={o._id} due={o.due} deliveryFee={o.deliveryFee} consignmentId={o.consignmentId} open={payOpen} onOpenChange={setPayOpen} />
       {editOpen && <EditDialog order={o} onClose={() => setEditOpen(false)} />}
       {exchangeOpen && <ExchangeDialog order={o} onClose={() => setExchangeOpen(false)} />}
+      {partOpen && <PartReturnDialog order={o} onClose={() => setPartOpen(false)} />}
       <ReasonDialog orderId={o._id} status={status} current={o.reason} currentNote={o.reasonNote} loggedBy={o.reasonBy} loggedAt={o.reasonAt} isSuperAdmin={can("*")} open={reasonOpen} onOpenChange={setReasonOpen} />
       <CsatDialog orderId={o._id} current={o.csat} isSuperAdmin={can("*")} open={csatOpen} onOpenChange={setCsatOpen} kind="delivery" />
       <CsatDialog orderId={o._id} current={(o as any).returnCsat} isSuperAdmin={can("*")} open={returnCsatOpen} onOpenChange={setReturnCsatOpen} kind="return" />
@@ -787,6 +792,66 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
 
 /** One-click exchange: pick the reason + replacement item(s) against the already-delivered order, and it creates
  *  the linked exchange order in one shot (same backend action that used to have no button wired to it). */
+function PartReturnDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => void }) {
+  const router = useRouter()
+  const splitReturn = useMutation(api.orders.splitReturn)
+  const [qty, setQty] = useState<Record<number, number>>({})
+  const [reason, setReason] = useState("")
+  const [busy, setBusy] = useState(false)
+  const picked = order.items.reduce((s, it, i) => s + Math.min(qty[i] ?? 0, it.qty), 0)
+  const total = order.items.reduce((s, i) => s + i.qty, 0)
+  const value = order.items.reduce((s, it, i) => s + Math.min(qty[i] ?? 0, it.qty) * it.price, 0)
+  const submit = async () => {
+    if (picked === 0) { toast.error("Tick the item that came back"); return }
+    if (picked >= total) { toast.error("That is every item — use Change status → Pending Return instead"); return }
+    setBusy(true)
+    try {
+      const res = await splitReturn({ id: order._id, lines: order.items.map((_, i) => ({ index: i, qty: qty[i] ?? 0 })).filter((l) => l.qty > 0), reason: reason.trim() || undefined })
+      toast.success(`Return order ${invoice(res.invoiceNo)} created — the rest stays Delivered`)
+      onClose()
+      void router.navigate({ to: "/order", search: { id: res.orderId } })
+    } catch (e) {
+      toast.error(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader><DialogTitle>Return one item</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">Only the item(s) you pick go to a new Pending Return order. The rest of this order stays Delivered.</p>
+        <div className="space-y-2">
+          {order.items.map((it, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-md border p-2">
+              {it.imageUrl ? <img src={it.imageUrl} alt="" className="size-12 rounded object-cover" /> : <div className="size-12 rounded bg-muted" />}
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="truncate font-medium">{it.name}</div>
+                <div className="text-xs text-muted-foreground">{it.attrs ? `${it.attrs} · ` : ""}{taka(it.price)} × {it.qty}</div>
+              </div>
+              <Select value={String(qty[i] ?? 0)} onValueChange={(x) => setQty({ ...qty, [i]: Number(x) })}>
+                <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: it.qty + 1 }, (_, n) => <SelectItem key={n} value={String(n)}>{n === 0 ? "Keep" : `Return ${n}`}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-1.5">
+          <Label>Reason (optional)</Label>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. size didn't fit" />
+        </div>
+        {picked > 0 && <p className="text-sm">Returning {picked} item{picked > 1 ? "s" : ""} worth {taka(value)}. This order's total becomes {taka(Math.max(0, order.total - value))}.</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={busy || picked === 0}>Create return order</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ExchangeDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => void }) {
   const router = useRouter()
   const createExchange = useMutation(api.orders.createExchange)

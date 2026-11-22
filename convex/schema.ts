@@ -407,6 +407,7 @@ export default defineSchema({
     deliveredAt: v.optional(v.number()),
     isExchange: v.optional(v.boolean()),
     exchangeOfId: v.optional(v.id("orders")),
+    partReturnOfId: v.optional(v.id("orders")), // a separate return order made from one item of a delivered order
     ipAddress: v.optional(v.string()),
     origin: v.optional(v.string()),
     campaignId: v.optional(v.string()),

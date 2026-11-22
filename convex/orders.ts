@@ -1313,6 +1313,79 @@ export const createExchange = mutation({
   },
 })
 
+/** Return ONE item (or some units) of a delivered / partially delivered order. The returned units are split off into
+ *  their own "Pending Return" order (so the warehouse and the customer's record see a real return); the original keeps
+ *  only what the customer kept and stays Delivered. Never returns the whole order — that is the normal Pending Return move. */
+export const splitReturn = mutation({
+  args: {
+    id: v.id("orders"),
+    lines: v.array(v.object({ index: v.number(), qty: v.number() })),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    const me = await requirePerm(ctx, "orders.edit")
+    const o = await ctx.db.get(a.id)
+    if (!o || o.deletedAt) throw new ConvexError("Order not found")
+    if (!isDelivered(o.status)) throw new ConvexError("Only a delivered (or partly delivered) order can return one item")
+    const want = new Map<number, number>()
+    for (const l of a.lines) {
+      if (!Number.isInteger(l.qty) || l.qty <= 0) continue
+      want.set(l.index, (want.get(l.index) ?? 0) + l.qty)
+    }
+    if (want.size === 0) throw new ConvexError("Pick the item to return")
+    for (const [idx, q] of want) {
+      const it = o.items[idx]
+      if (!it) throw new ConvexError("That item is not on this order")
+      if (q > it.qty) throw new ConvexError(`Only ${it.qty} of ${it.name} on this order`)
+    }
+    const kept: Doc<"orders">["items"] = []
+    const back: Doc<"orders">["items"] = []
+    o.items.forEach((it, idx) => {
+      const q = want.get(idx) ?? 0
+      if (q <= 0) { kept.push(it); return }
+      const share = it.qty > 0 ? (it.discount ?? 0) * (q / it.qty) : 0
+      back.push({ ...it, qty: q, discount: share })
+      if (q < it.qty) kept.push({ ...it, qty: it.qty - q, discount: Math.max(0, (it.discount ?? 0) - share) })
+    })
+    if (kept.length === 0) throw new ConvexError("That is every item — use Change status → Pending Return for the whole order")
+    const now = Date.now()
+    const label = invoiceLabel(o)
+    const reason = a.reason?.trim()
+    const what = back.map((i) => `${i.name}${i.attrs ? ` / ${i.attrs}` : ""} ×${i.qty}`).join(", ")
+
+    // the returned part, as its own order waiting to come back
+    const rt = orderTotals(back, 0, 0, 0)
+    const invoiceNo = await nextCounter(ctx, "invoice", (await getSetting<number>(ctx, "invoiceStart")) ?? 20001)
+    const childId = await ctx.db.insert("orders", {
+      invoiceNo, status: "pending_returned", source: o.source, customerId: o.customerId, customerName: o.customerName, phone: o.phone, email: o.email,
+      address: o.address, cityName: o.cityName, zoneName: o.zoneName, areaName: o.areaName, locationId: o.locationId, deliveryType: o.deliveryType,
+      items: back, subtotal: rt.subtotal, discount: 0, deliveryFee: 0, paidAmount: 0, total: rt.total, due: 0,
+      paymentMethod: o.paymentMethod, courier: "manual", callCount: 0, createdByName: me.staff.name, createdAt: now, updatedAt: now, statusChangedAt: now,
+      noteCount: 0, itemCount: back.reduce((s, i) => s + i.qty, 0), hasUpsell: false, partReturnOfId: o._id,
+      reason: reason || undefined,
+      additionalInfo: `PART-RETURN of ${label}${o.consignmentId ? ` — Pathao ID ${o.consignmentId}` : ""}`,
+      purchaseCost: await computePurchaseCost(ctx, back),
+    })
+    await bumpStatusCount(ctx, "pending_returned", 1)
+    const child = (await ctx.db.get(childId))!
+    await moveOrderStock(ctx, child, o.status, "pending_returned", me.staff.name) // sold → returning
+    await logOrder(ctx, childId, `Part-return of ${label} — ${what}${reason ? ` — ${reason}` : ""}`, me.staff.name)
+
+    // the original keeps only what the customer kept
+    const t = orderTotals(kept, o.discount, o.deliveryFee, 0)
+    const paidAmount = Math.min(o.paidAmount ?? 0, t.total)
+    await ctx.db.patch(o._id, {
+      items: kept, subtotal: t.subtotal, total: t.total, paidAmount, due: Math.max(0, t.total - paidAmount),
+      itemCount: kept.reduce((s, i) => s + i.qty, 0), purchaseCost: await computePurchaseCost(ctx, kept), updatedAt: now,
+    })
+    await logOrder(ctx, o._id, `Part-return: ${what} sent to return order BB-${invoiceNo}${reason ? ` — ${reason}` : ""}. Total ৳${o.total} → ৳${t.total}`, me.staff.name)
+
+    const c = await ctx.db.get(o.customerId)
+    if (c) await ctx.db.patch(c._id, { returnedCount: c.returnedCount + 1, totalSpent: Math.max(0, c.totalSpent - (o.total - t.total)) })
+    return { orderId: childId, invoiceNo }
+  },
+})
+
 /** Recovery: an at-fault return (wrong/damaged item etc.) where the customer agreed to order again. Unlike an
  *  exchange, the old item is already back in our hands — courier isn't collecting anything — so this ships as a
  *  normal fresh sale (its own Pathao booking), not an exchange parcel. Logs the recovery call and creates the
