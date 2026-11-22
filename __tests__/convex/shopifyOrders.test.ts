@@ -104,3 +104,15 @@ describe("Pathao return undone", () => {
     expect((await t.run(async (ctx: any) => ctx.db.get(id))).status).toBe("pending_returned")
   })
 })
+
+import { canUndoReturn } from "../../convex/pathao"
+describe("canUndoReturn", () => {
+  it("undoes a return only on a real Delivered", () => {
+    expect(canUndoReturn("Pathao: delivered")).toBe(true)
+    expect(canUndoReturn("Pathao: Delivered")).toBe(true)
+    expect(canUndoReturn("Pathao: paid")).toBe(false)
+    expect(canUndoReturn("Pathao: payment_invoice")).toBe(false)
+    expect(canUndoReturn("Pathao: payment Paid (invoice 201126BPCMZAB)")).toBe(false)
+    expect(canUndoReturn("Pathao: paid_return")).toBe(false)
+  })
+})

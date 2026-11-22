@@ -309,10 +309,18 @@ export function targetFor(pathaoStatus: string): OrderStatus | null {
 
 const PATH: OrderStatus[] = ["ready_to_ship", "in_transit", "delivered_due", "delivered_paid"]
 
+/** True only for a real "Delivered" from Pathao. "paid" / "payment invoice" is the settled money of a RETURNED parcel and proves no delivery. */
+export function canUndoReturn(note: string): boolean {
+  return /delivered/i.test(note) && !/return|paid|payment|invoice/i.test(note)
+}
+
 async function moveTo(ctx: any, id: Id<"orders">, current: OrderStatus, target: OrderStatus, note: string) {
   if (target === current) return false
   // Pathao says Delivered but the order is on Pending Return: systemStatus undoes it only if Pathao itself set the return
   if (current === "pending_returned" && (target === "delivered_due" || target === "delivered_paid")) {
+    // Only a real "Delivered" from Pathao can undo a return. A bare "paid" / "payment invoice" is what Pathao shows once the money for a
+    // RETURNED parcel is settled (the customer only paid the delivery charge) — it says nothing about delivery, so the return must stay.
+    if (!canUndoReturn(note)) return false
     return await ctx.runMutation(internal.orders.systemStatus, { id, to: "delivered_due", note: `${note} (return undone: Pathao shows it delivered)` })
   }
   if (canTransition(current, target)) {

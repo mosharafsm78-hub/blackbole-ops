@@ -1857,3 +1857,33 @@ export const fixItemPhotos = internalMutation({
     return { orders, lines }
   },
 })
+
+
+/** One-time: returned orders that show the WHOLE amount as paid. Pathao's settled-return status once flipped them to Delivered · Paid and the
+ *  automatic "Pathao sync" Cash On Delivery payment stayed on the order after the return came back. Takes that payment back; the customer
+ *  only paid the delivery charge on the return (what Pathao collected), so Paid now shows just that. */
+export const fixReturnPayments = internalMutation({
+  args: { days: v.number() },
+  handler: async (ctx, a) => {
+    const since = Date.now() - a.days * 86400000
+    let fixed = 0
+    for (const st of ["pending_returned", "returned", "damaged"] as const) {
+      const rows = await ctx.db.query("orders").withIndex("by_status_changed", (q) => q.eq("status", st).gte("statusChangedAt", since)).order("desc").take(300)
+      for (const o of rows) {
+        if (o.deletedAt || !o.paidAmount) continue
+        const auto = (await ctx.db.query("payments").withIndex("by_order", (q) => q.eq("orderId", o._id)).collect())
+          .filter((p) => p.byName === "Pathao sync" && p.method === "Cash On Delivery" && (!o.consignmentId || p.reference === o.consignmentId))
+        if (!auto.length) continue
+        const taken = auto.reduce((s, p) => s + p.amount, 0)
+        for (const p of auto) await ctx.db.delete(p._id)
+        const returnPaid = Math.max(0, Math.round(o.courierCollected ?? 0))
+        if (returnPaid > 0) await ctx.db.insert("payments", { orderId: o._id, method: "Cash On Delivery", amount: returnPaid, reference: o.consignmentId, byName: "Pathao sync", at: Date.now() })
+        const paid = Math.max(0, o.paidAmount - taken) + returnPaid
+        await ctx.db.patch(o._id, { paidAmount: paid, due: Math.max(0, o.total - paid), updatedAt: Date.now() })
+        await logOrder(ctx, o._id, `Payment of ৳${taken} taken back: this order came back as a return, so the customer did not pay the full amount${returnPaid ? ` — Pathao collected only ৳${returnPaid} (delivery charge) on the return` : ""}`, "System")
+        fixed++
+      }
+    }
+    return { fixed }
+  },
+})
