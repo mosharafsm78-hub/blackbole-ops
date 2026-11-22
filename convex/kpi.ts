@@ -44,7 +44,7 @@ import { bdDay, dayStart } from "./stats"
 const DAY = 86400000
 
 export type KpiRuleKey =
-  | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
+  | "cx.order_taken" | "cx.recovered_checkout" | "cx.advance_secured" | "cx.order_confirmed" | "cx.recovery_win" | "cx.feedback_logged"
   | "cx.bad_confirmation" | "cx.overdue_confirmation_call" | "cx.overdue_feedback_call" | "cx.overdue_return_call"
   | "cx.return_after_confirm" | "cx.overdue_hold" | "cx.delivery_failed"
   | "fulfillment.same_day_dispatch" | "fulfillment.exchange_dispatched" | "fulfillment.full_batch_dispatch"
@@ -64,6 +64,7 @@ export type KpiRuleKey =
 // not a per-order one: the ops head's job is the aggregate, the same way marketing.roas_hit is Marketing lead's.
 export const DEFAULT_RULES: { key: KpiRuleKey; label: string; points: number; team: string; auto: boolean }[] = [
   // ---------------------------------------------------------------------------------------------------------- CX
+  { key: "cx.order_taken", label: "Took a new order from a chat (Messenger, WhatsApp, Instagram, TikTok, Live Chat) and created it in Ops", points: 5, team: "Customer Care", auto: true },
   { key: "cx.recovered_checkout", label: "Recovered an abandoned checkout into an approved order", points: 20, team: "Customer Care", auto: true },
   { key: "cx.advance_secured", label: "Advance payment actually cleared on a held order", points: 15, team: "Customer Care", auto: true },
   { key: "cx.order_confirmed", label: "Confirmed a new order over the phone (Pending → Approved)", points: 5, team: "Customer Care", auto: true },

@@ -223,6 +223,8 @@ const addressFields = {
   areaName: v.optional(v.string()),
 }
 
+const CHAT_SOURCES = ["Messenger", "WhatsApp", "Instagram", "TikTok", "Live Chat"]
+
 export const create = mutation({
   args: {
     source: v.string(),
@@ -248,11 +250,17 @@ export const create = mutation({
     if (a.approve && !hasPerm(me.perms, moveKey("pending", "approved"))) throw new ConvexError("You can't create approved orders")
     const items = await buildItems(ctx, a.items)
     const { advanceAmount, advanceMethod, advanceReference, advanceKind, approve, ...rest } = a
-    return await insertOrder(ctx, {
+    const res = await insertOrder(ctx, {
       ...rest, items,
       advance: advanceAmount > 0 ? { amount: advanceAmount, method: advanceMethod, reference: advanceReference?.trim() || undefined, kind: advanceKind } : undefined,
       status: approve ? "approved" : "pending",
     }, me.staff.name)
+    // whoever takes an order from a chat and keys it in earns points for it (once per order; blocked/auto-cancelled orders earn nothing)
+    if (CHAT_SOURCES.includes(a.source)) {
+      const made = await ctx.db.get(res.orderId)
+      if (made && made.status !== "cancelled") await awardPoints(ctx, { staffName: me.staff.name, ruleKey: "cx.order_taken", label: `Took ${invoiceLabel(made)} from ${a.source}`, orderId: res.orderId })
+    }
+    return res
   },
 })
 

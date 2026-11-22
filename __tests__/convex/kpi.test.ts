@@ -466,3 +466,26 @@ describe("monthly payout", () => {
     expect(afterRefinalize.status).toBe("paid")
   })
 })
+
+describe("order taken from a chat", () => {
+  it("credits the person who creates a Messenger order, once, and not other sources", async () => {
+    const { t, as, locationId, v41 } = await (async () => {
+      const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
+      const userId = await t.run((ctx) => ctx.db.insert("users", { email: "emon@blackbole.com" }))
+      const as = t.withIdentity({ subject: `${userId}|s1` })
+      await as.mutation(api.team.claim, { name: "Emon" })
+      const locationId = (await as.query(api.team.listLocations, {})).find((l) => l.isDefault)!._id
+      await as.mutation(api.catalog.saveProduct, { name: "X", active: true, variants: [{ sku: "BB-X-41", title: "41", weightKg: 0.4, price: 1480, purchasePrice: 500, active: true }] })
+      const v41 = (await t.run((ctx) => ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", "BB-X-41")).unique()))!
+      await as.mutation(api.catalog.receiveStock, { locationId, updateCost: true, items: [{ variantId: v41._id, qty: 10, unitCost: 500 }] })
+      return { t, as, locationId, v41 }
+    })()
+    const mk = (source: string) => as.mutation(api.orders.create, { source, customerName: "C", phone: "+8801711000000", address: "House 1, Road 2, Lalmatia", locationId, deliveryType: "pickup", items: [{ variantId: v41._id, qty: 1, price: 1480, discount: 0 }], discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false })
+    await mk("Facebook")
+    expect(await t.run((ctx) => ctx.db.query("kpiEvents").collect())).toHaveLength(0)
+    await mk("Messenger")
+    const ev: any[] = await t.run((ctx) => ctx.db.query("kpiEvents").collect())
+    expect(ev).toHaveLength(1)
+    expect(ev[0]).toMatchObject({ ruleKey: "cx.order_taken", points: 5, staffName: "Emon" })
+  })
+})
