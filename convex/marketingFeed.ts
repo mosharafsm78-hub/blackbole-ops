@@ -99,6 +99,38 @@ export const stockBySku = internalQuery({
   },
 })
 
+
+/** The whole catalog's stock, one page of sizes at a time. A single query is limited to 4,096 index reads and 32,000
+ *  documents; the standard EU 40–44 sizes added to every men's pre-order (20 Nov 2026) pushed the one-query version past
+ *  that, so the feed failed with HTTP 500 and Marketing OS lost its stock numbers. */
+export const stockPage = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()), size: v.optional(v.number()) },
+  handler: async (ctx, { cursor, size }) => {
+    const locations = await ctx.db.query("locations").collect()
+    const active = new Set(locations.filter((l) => l.active && !l.noCourier).map((l) => l._id as string))
+    const page = await ctx.db.query("variants").paginate({ cursor, numItems: size ?? 700 })
+    const products = new Map<string, Doc<"products"> | null>()
+    const out: StockRow[] = []
+    for (const vr of page.page) {
+      if (!vr.active) continue
+      const pid = vr.productId as string
+      if (!products.has(pid)) products.set(pid, await ctx.db.get(vr.productId))
+      const p = products.get(pid)
+      if (!p || !p.active || p.deletedAt) continue
+      const rows = await ctx.db.query("stock").withIndex("by_variant", (q) => q.eq("variantId", vr._id)).collect()
+      out.push(stockRow(vr, p, rows.filter((r) => active.has(r.locationId as string)).reduce((s, r) => s + r.available, 0)))
+    }
+    return { rows: out, cursor: page.continueCursor, done: page.isDone }
+  },
+})
+
+type StockRow = { sku: string; product: string; variant: string; price: number; webPrice: number; cost: number; available: number; preOrder: boolean; imageUrl: string | null; handle: string | null }
+function stockRow(vr: Doc<"variants">, p: Doc<"products">, available: number): StockRow {
+  // price = the Ops selling price (what the team edits on Products). webPrice = the price saved for the website,
+  // sent so Marketing OS can flag a mismatch (pre-orders: that is only the booking money, so not sent).
+  return { sku: vr.sku, product: p.name, variant: variantLabel(vr), price: Math.round(vr.price), webPrice: p.preOrder ? Math.round(vr.price) : webPrice(vr), cost: vr.purchasePrice ?? 0, available, preOrder: !!p.preOrder || /^PO-/i.test(vr.sku), imageUrl: vr.imageUrl ?? p.imageUrl ?? (p as any).web?.images?.[0]?.url ?? null, handle: p.handle ?? null }
+}
+
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } })
 
 /** SHA-256 of a Bangladeshi number in the format Meta and TikTok expect (8801XXXXXXXXX). */
@@ -134,7 +166,18 @@ async function cachedStock(ctx: any, product?: string) {
     const hit = await ctx.runQuery(internal.dashboard.readCacheSystem, { key })
     if (hit && Date.now() - hit.at < STOCK_CACHE_MS) return hit.value
   } catch { /* fall through and work it out */ }
-  const value = await ctx.runQuery(internal.marketingFeed.stockBySku, product === undefined ? {} : { product })
+  let value: any[]
+  if (product !== undefined) value = await ctx.runQuery(internal.marketingFeed.stockBySku, { product })
+  else {
+    value = []
+    let cursor: string | null = null
+    for (let i = 0; i < 200; i++) {
+      const r: { rows: any[]; cursor: string; done: boolean } = await ctx.runQuery(internal.marketingFeed.stockPage, { cursor })
+      value.push(...r.rows)
+      if (r.done) break
+      cursor = r.cursor
+    }
+  }
   try { await ctx.runMutation(internal.dashboard.writeCache, { key, value }) } catch { /* too big to cache: just serve it */ }
   return value
 }

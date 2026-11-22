@@ -173,3 +173,17 @@ describe("clearance discount for Marketing OS", () => {
     expect((await t.fetch("/marketing/discount", { method: "POST", body: "{}" })).status).toBe(401)
   })
 })
+
+describe("stock feed for a big catalog (22 Nov 2026: HTTP 500 after the pre-order sizes were added)", () => {
+  it("reads the catalog page by page and returns every size once", async () => {
+    const t = await setup()
+    vi.stubEnv("MARKETING_FEED_KEY", FEED_KEY)
+    await t.run(async (ctx) => {
+      const p = (await ctx.db.query("products").collect())[0]
+      for (let i = 0; i < 1600; i++) await ctx.db.insert("variants", { productId: p._id, sku: `BB-BIG-${i}`, title: String(i), weightKg: 0.4, price: 1000, purchasePrice: 400, active: true } as any)
+    })
+    const data = await (await t.fetch("/marketing/stock", { headers: { "X-Feed-Key": FEED_KEY } })).json()
+    expect(data.stock).toHaveLength(1601)
+    expect(new Set(data.stock.map((r: any) => r.sku)).size).toBe(1601)
+  }, 60_000)
+})
