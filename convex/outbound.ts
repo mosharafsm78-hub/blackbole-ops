@@ -91,6 +91,7 @@ export const DEFAULT_SMS: Record<string, string> = {
   approved: "Dear {name}, your BlackBole order {invoice} is confirmed. Amount: {amount} Tk.",
   ready_to_ship: "Your BlackBole order {invoice} is packed and ready to ship.",
   in_transit: "Your BlackBole order {invoice} is on the way with {courier}. Tracking: {tracking}. Please keep {amount} Tk ready.",
+  in_transit_paid: "Your BlackBole order {invoice} is on the way with {courier}. Tracking: {tracking}. Your order is fully paid, nothing to pay on delivery.",
   delivered_paid: "Thank you {name}! Your BlackBole order {invoice} was delivered. Enjoy your purchase.",
   out_for_delivery_paid: "Your BlackBole order {invoice} is out for delivery today. Please keep your phone on. Hotline {hotline}",
   out_for_delivery: "Your BlackBole order {invoice} is out for delivery today. Please keep {amount} Tk ready and your phone on. Hotline {hotline}",
@@ -185,7 +186,7 @@ export const sendOrderSms = internalAction({
     if ((status === "out_for_delivery" || status === "failed_delivery") && order.status !== "in_transit") return // only while the parcel is with the courier
     const amount = sms.valuePreference === "due" ? order.due : order.total
     // Nothing to collect (already paid): the "keep Tk … ready" version would be wrong.
-    const key = status === "out_for_delivery" && !(order.due > 0) && !sms.templates?.[status] ? "out_for_delivery_paid" : status
+    const key = (status === "out_for_delivery" || status === "in_transit") && !(order.due > 0) && !sms.templates?.[status] ? `${status}_paid` : status
     const tpl = sms.templates?.[status] || DEFAULT_SMS[key]
     if (!tpl) return
     const logId = await ctx.runMutation(internal.outbound.claimSms, { orderId, kind: status })

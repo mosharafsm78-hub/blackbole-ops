@@ -307,7 +307,7 @@ export const claimAuto = internalMutation({
       return null
     }
     await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_pending", out: [preview], at: Date.now() })
-    return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: tk(o.due > 0 ? o.due : o.total), id: o._id }
+    return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: o.due > 0 ? tk(o.due) : "Tk 0 (already paid in full)", id: o._id }
   },
 })
 export const finishAuto = internalMutation({
