@@ -307,7 +307,7 @@ export const claimAuto = internalMutation({
       return null
     }
     await ctx.db.insert("waVerifyEvents", { wamid, waId, orderId, result: "auto_pending", out: [preview], at: Date.now() })
-    return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: o.due > 0 ? tk(o.due) : "Tk 0 (already paid in full)", id: o._id }
+    return { waId, first: first(o.customerName), invoice: invoiceLabel(o), amount: o.due > 0 ? tk(o.due) : "Tk 0 (already paid in full)", paid: !(o.due > 0), id: o._id }
   },
 })
 export const finishAuto = internalMutation({
@@ -355,16 +355,20 @@ export const sendConfirmation = internalAction({
     const m = await ctx.runMutation(internal.whatsappVerify.claimAuto, { orderId, preview: `Template “${name}”` })
     if (!m) return
     if (c.mode !== "live" || !c.phoneNumberId || !sec.token) { await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_test", note: `Would send to ${m.waId}: ${m.first}, ${m.invoice}, ${m.amount}` }); return }
-    const payload = {
+    const build = (tpl: string, params: string[]) => ({
       messaging_product: "whatsapp", to: m.waId, type: "template",
-      template: { name, language: { code: c.templateLang || "en" }, components: [
-        { type: "body", parameters: [m.first, m.invoice, m.amount].map((text) => ({ type: "text", text })) },
+      template: { name: tpl, language: { code: c.templateLang || "en" }, components: [
+        { type: "body", parameters: params.map((text) => ({ type: "text", text })) },
         { type: "button", sub_type: "quick_reply", index: "0", parameters: [{ type: "payload", payload: `wv:c:${m.id}` }] },
         { type: "button", sub_type: "quick_reply", index: "1", parameters: [{ type: "payload", payload: `wv:x:${m.id}` }] },
       ] },
-    }
+    })
+    const post = (payload: unknown) => fetch(graph(c), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sec.token}` }, body: JSON.stringify(payload) })
     try {
-      const r = await fetch(graph(c), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${sec.token}` }, body: JSON.stringify(payload) })
+      // A fully paid order gets the "already paid, nothing to pay" template; if Meta hasn't approved it yet (or it fails), the normal one goes out with "Tk 0 (already paid in full)".
+      let r: Response | null = null
+      if (m.paid) { r = await post(build(`${name}_paid`, [m.first, m.invoice])); if (!r.ok) r = null }
+      if (!r) r = await post(build(name, [m.first, m.invoice, m.amount]))
       if (r.ok) await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_sent" })
       else { const t = (await r.text()).slice(0, 200); console.error("WhatsApp template send failed", r.status, t); await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_failed", note: `${r.status} ${t}` }) }
     } catch (e: any) { await ctx.runMutation(internal.whatsappVerify.finishAuto, { orderId, result: "auto_failed", note: String(e?.message ?? e).slice(0, 200) }) }
