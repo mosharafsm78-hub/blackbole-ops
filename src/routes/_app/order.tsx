@@ -188,6 +188,10 @@ function OrderPage() {
   const addNote = useMutation(api.orders.addNote)
   const retryBook = useAction(api.pathao.retryBook)
   const cancelParcel = useAction(api.pathao.cancelParcel)
+  const outletStock = useQuery(
+    api.outlets.outletAvailability,
+    data && !data.missing && ["pending", "on_hold", "approved", "pre_order", "pre_order_bd"].includes(data.order.status) ? { variantIds: [...new Set(data.order.items.filter((i) => i.variantId).map((i) => i.variantId as Id<"variants">))] } : "skip",
+  )
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const [initialStatus, setInitialStatus] = useState<OrderStatus | undefined>()
@@ -405,6 +409,7 @@ function OrderPage() {
                     })()}
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       {i.attrs && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{i.attrs}</span>}
+                      {i.variantId && outletStock?.[i.variantId as string] && <span className="rounded bg-tone-violet/15 px-1.5 py-0.5 font-medium text-tone-violet">At outlet: {outletStock[i.variantId as string].map((x) => `${x.name} ${x.available}`).join(" · ")}</span>}
                       {links?.[k]?.id ? (
                         <Link
                           to="/products/$productId"
@@ -733,7 +738,7 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
               <Label>Warehouse</Label>
               <Select value={locationId} onValueChange={(v) => setLocationId(v as Id<"locations">)}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>{locations?.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{locations?.filter((l) => !l.isOutlet || l._id === locationId).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5"><Label>Note</Label><Input value={note} onChange={(e) => setNote(e.target.value)} /></div>

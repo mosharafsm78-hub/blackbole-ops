@@ -76,7 +76,7 @@ function Editor({ data }: { data: Data | null }) {
   const [dlg, setDlg] = useState<null | "search" | "builder" | "upload" | "supplier" | "editSupplier" | "receive" | "pay" | "ship" | "correct">(null)
   const [preset, setPreset] = useState<Parameters<typeof ProductBuilder>[0]["preset"]>()
 
-  useEffect(() => { if (!locationId && locations.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id) }, [locations, locationId])
+  useEffect(() => { if (!locationId && locations.length) setLocationId((locations.find((l) => l.isDefault) ?? locations.find((l) => !l.isOutlet) ?? locations[0])._id) }, [locations, locationId])
 
   const status = po?.status ?? "draft"
   const locked = status === "cancelled"
@@ -194,7 +194,7 @@ function Editor({ data }: { data: Data | null }) {
               <Label>Receive into</Label>
               <Select value={locationId} onValueChange={(v) => { setLocationId(v); touch() }} disabled={!editable || anyReceived}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Warehouse" /></SelectTrigger>
-                <SelectContent>{locations.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{locations.filter((l) => !l.isOutlet).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5"><Label>Supplier invoice / PI no. <span className="text-tone-red">*</span></Label><Input value={supplierRef} disabled={!editable} onChange={(e) => { setSupplierRef(e.target.value); touch() }} />
@@ -518,8 +518,11 @@ function ReceiveDialog({ po, open, onOpenChange }: { po: Data["po"]; open: boole
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<{ code: number; receiptId: string } | null>(null)
+  const outlets = (useQuery(api.team.listLocations) ?? []).filter((l) => l.isOutlet && l.active)
+  const [split, setSplit] = useState<Record<string, Record<string, number>>>({}) // variantId → outletId → pairs
   useEffect(() => {
     if (open) {
+      setSplit({})
       setQty(Object.fromEntries(pending.map((i) => [i.variantId, i.orderedQty - i.receivedQty - i.damagedQty])))
       setDmg({}); setNote(""); setDone(null)
     }
@@ -555,6 +558,21 @@ function ReceiveDialog({ po, open, onOpenChange }: { po: Data["po"]; open: boole
                 )
               })}
             </div>
+            {outlets.length > 0 && (
+              <div className="space-y-1.5 text-sm">
+                <Label>Send some pairs to outlets (the rest stays here for online)</Label>
+                <div className="divide-y rounded-md border">
+                  {pending.filter((i) => (qty[i.variantId] ?? 0) > 0).map((i) => (
+                    <div key={i.variantId} className="flex flex-wrap items-center gap-2 p-2">
+                      <div className="min-w-0 flex-1 truncate text-xs">{i.name} · {i.title} <span className="text-muted-foreground">({qty[i.variantId]} good)</span></div>
+                      {outlets.map((o) => (
+                        <label key={o._id} className="flex items-center gap-1 text-xs">{o.name}<Input type="number" className="h-8 w-16 text-right" value={split[i.variantId]?.[o._id] ?? 0} onChange={(e) => setSplit({ ...split, [i.variantId]: { ...split[i.variantId], [o._id]: Math.max(0, Math.floor(Number(e.target.value) || 0)) } })} /></label>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button size="xs" variant="outline" onClick={() => setQty(Object.fromEntries(pending.map((i) => [i.variantId, i.orderedQty - i.receivedQty - i.damagedQty])))}>All arrived</Button>
               <Button size="xs" variant="outline" onClick={() => setQty({})}>Clear</Button>
@@ -577,7 +595,8 @@ function ReceiveDialog({ po, open, onOpenChange }: { po: Data["po"]; open: boole
               setBusy(true)
               try {
                 const lines = pending.map((i) => ({ variantId: i.variantId, qty: qty[i.variantId] ?? 0, damaged: dmg[i.variantId] ?? 0 }))
-                const r = await receive({ id: po._id, lines, costMode, note: note || undefined })
+                const splits = Object.entries(split).flatMap(([variantId, m]) => Object.entries(m).filter(([, n]) => n > 0).map(([locationId, n]) => ({ variantId: variantId as Id<"variants">, locationId: locationId as Id<"locations">, qty: Math.min(n, qty[variantId] ?? 0) })))
+                const r = await receive({ id: po._id, lines, costMode, note: note || undefined, splits: splits.length ? splits : undefined })
                 setDone({ code: r.code, receiptId: r.receiptId })
                 toast.success(`Received ${total} pcs into stock`)
               } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }

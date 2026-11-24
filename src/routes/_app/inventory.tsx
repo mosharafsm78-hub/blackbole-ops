@@ -35,6 +35,7 @@ function InventoryPage() {
   const [q, setQ] = useState("")
   const [only, setOnly] = useState<"all" | "low" | "short">("all")
   const [adjust, setAdjust] = useState<{ variantId: Id<"variants">; label: string } | null>(null)
+  const [move, setMove] = useState<{ variantId: Id<"variants">; label: string; fromId?: Id<"locations"> } | null>(null)
 
   const rows = useMemo(() => {
     if (!data) return []
@@ -50,7 +51,7 @@ function InventoryPage() {
         <Select value={loc} onValueChange={setLoc}>
           <SelectTrigger size="sm" className="w-52"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All warehouses</SelectItem>
+            <SelectItem value="all">All warehouses &amp; outlets</SelectItem>
             {locations?.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -60,6 +61,7 @@ function InventoryPage() {
         <TabsList className="mb-3">
           <TabsTrigger value="stock">Stock</TabsTrigger>
           <TabsTrigger value="report">Report</TabsTrigger>
+          <TabsTrigger value="where">Where is it?</TabsTrigger>
           <TabsTrigger value="logs">Movements</TabsTrigger>
         </TabsList>
         <TabsContent value="stock">
@@ -114,6 +116,9 @@ function InventoryPage() {
                             {can("inventory.adjust") && loc !== "all" && (
                               <Button variant="ghost" size="xs" onClick={() => setAdjust({ variantId: r._id, label: `${r.sku} — ${r.productName} ${r.title}` })}>Adjust</Button>
                             )}
+                            {can("inventory.receive") && (
+                              <Button variant="ghost" size="xs" onClick={() => setMove({ variantId: r._id, label: `${r.sku} — ${r.productName} ${r.title}`, fromId: loc === "all" ? undefined : (loc as Id<"locations">) })}>Move</Button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -125,6 +130,7 @@ function InventoryPage() {
             </>
           )}
         </TabsContent>
+        <TabsContent value="where"><WhereIsIt onMove={(variantId, label, fromId) => setMove({ variantId, label, fromId })} canMove={can("inventory.receive")} /></TabsContent>
         <TabsContent value="report">
           <InventoryReport />
         </TabsContent>
@@ -153,7 +159,76 @@ function InventoryPage() {
           )}
         </TabsContent>
       </Tabs>
+      {move && <MoveDialog target={move} onClose={() => setMove(null)} />}
       {adjust && loc !== "all" && <AdjustDialog target={adjust} locationId={loc as Id<"locations">} onClose={() => setAdjust(null)} />}
+    </div>
+  )
+}
+
+function MoveDialog({ target, onClose }: { target: { variantId: Id<"variants">; label: string; fromId?: Id<"locations"> }; onClose: () => void }) {
+  const moveStock = useMutation(api.outlets.moveStock)
+  const locations = (useQuery(api.team.listLocations) ?? []).filter((l) => l.active)
+  const [fromId, setFrom] = useState<string>(target.fromId ?? "")
+  const [toId, setTo] = useState<string>("")
+  const [qty, setQty] = useState(1)
+  const [note, setNote] = useState("")
+  const [busy, setBusy] = useState(false)
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Move stock</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">{target.label}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5"><Label>From</Label>
+            <Select value={fromId} onValueChange={setFrom}><SelectTrigger className="w-full"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>{locations.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-1.5"><Label>To</Label>
+            <Select value={toId} onValueChange={setTo}><SelectTrigger className="w-full"><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectContent>{locations.filter((l) => l._id !== fromId).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-1.5"><Label>Pairs</Label><Input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, Math.floor(Number(e.target.value) || 1)))} /></div>
+          <div className="space-y-1.5"><Label>Note (optional)</Label><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Brought back for online order" /></div>
+        </div>
+        <DialogFooter>
+          <Button disabled={busy || !fromId || !toId} onClick={async () => {
+            setBusy(true)
+            try { await moveStock({ variantId: target.variantId, fromId: fromId as Id<"locations">, toId: toId as Id<"locations">, qty, note: note || undefined }); toast.success(`${qty} pair${qty > 1 ? "s" : ""} moved`); onClose() } catch (e) { toast.error(errMsg(e)) } finally { setBusy(false) }
+          }}>Move</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Search a shoe and see how many pairs sit at every warehouse and outlet. */
+function WhereIsIt({ onMove, canMove }: { onMove: (variantId: Id<"variants">, label: string, fromId?: Id<"locations">) => void; canMove: boolean }) {
+  const [q, setQ] = useState("")
+  const rows = useQuery(api.outlets.whereIs, { q })
+  const grouped = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof rows>>()
+    for (const r of rows ?? []) m.set(r.product, [...(m.get(r.product) ?? []), r])
+    return [...m.entries()]
+  }, [rows])
+  return (
+    <div className="space-y-3">
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type a shoe name or SKU, e.g. Cap-Toe Boot" className="max-w-md" data-testid="whereis-search" />
+      {q.trim().length < 2 ? <p className="text-sm text-muted-foreground">Shows every size and how many pairs are at each warehouse and outlet.</p>
+        : rows === undefined ? <Loading /> : grouped.length === 0 ? <Empty title="No shoe found" /> : grouped.map(([name, list]) => (
+          <div key={name} className="overflow-x-auto rounded-lg border bg-card">
+            <div className="border-b bg-muted/40 p-2.5 text-sm font-semibold">{name}</div>
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-muted-foreground"><tr><th className="p-2 font-medium">Size</th>{list[0].at.map((l) => <th key={l.locationId} className="p-2 text-right font-medium">{l.name}{l.outlet ? " (outlet)" : ""}</th>)}<th className="p-2" /></tr></thead>
+              <tbody className="divide-y">
+                {list.map((r) => (
+                  <tr key={r.variantId}>
+                    <td className="p-2 font-medium">{r.size}<div className="font-mono text-[11px] text-muted-foreground">{r.sku}</div></td>
+                    {r.at.map((l) => <td key={l.locationId} className={cn("p-2 text-right tabular-nums", l.available ? "font-semibold" : "text-muted-foreground")}>{l.available}</td>)}
+                    <td className="p-2 text-right">{canMove && <Button variant="ghost" size="xs" onClick={() => onMove(r.variantId, `${r.sku} — ${r.product} ${r.size}`)}>Move</Button>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
     </div>
   )
 }

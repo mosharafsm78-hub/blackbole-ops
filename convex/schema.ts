@@ -79,7 +79,30 @@ export default defineSchema({
     // Exchange warehouse: internal stock + exchange parcels only — orders here are NEVER sent to Pathao
     noCourier: v.optional(v.boolean()),
     shopifyLocationId: v.optional(v.string()), // received stock here is also added to this Shopify location
+    // Third-party outlet (shop that stocks our shoes). Always also noCourier, so it never reaches Pathao, the website,
+    // Shopify or the marketing feed. Stock moves in/out by "Move stock"; sales are typed in by hand (outletSales).
+    isOutlet: v.optional(v.boolean()),
   }),
+
+  // One manual outlet sale line: shoes sold at an outlet (no customer data). Undo puts the pair back.
+  outletSales: defineTable({
+    locationId: v.id("locations"),
+    variantId: v.id("variants"),
+    sku: v.string(),
+    productName: v.string(),
+    title: v.string(),
+    qty: v.number(),
+    unitPrice: v.number(),
+    unitCost: v.number(),
+    soldAt: v.number(),
+    note: v.optional(v.string()),
+    byName: v.string(),
+    at: v.number(),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.string()),
+  })
+    .index("by_location_sold", ["locationId", "soldAt"])
+    .index("by_sold", ["soldAt"]),
 
   products: defineTable({
     name: v.string(),

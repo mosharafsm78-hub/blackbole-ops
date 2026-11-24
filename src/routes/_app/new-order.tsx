@@ -56,7 +56,7 @@ function NewOrder() {
   const existing = useQuery(api.customers.byPhone, validPhone ? { phone: normalized } : "skip")
 
   useEffect(() => {
-    if (!locationId && locations?.length) setLocationId((locations.find((l) => l.isDefault && l.active) ?? locations[0])._id)
+    if (!locationId && locations?.length) setLocationId((locations.find((l) => l.isDefault && l.active) ?? locations.find((l) => !l.isOutlet) ?? locations[0])._id)
   }, [locations, locationId])
 
   useEffect(() => {
@@ -151,7 +151,7 @@ function NewOrder() {
               <Label>Warehouse</Label>
               <Select value={locationId} onValueChange={(v) => setLocationId(v as Id<"locations">)}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>{locations?.filter((l) => l.active).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{locations?.filter((l) => l.active && !l.isOutlet).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>

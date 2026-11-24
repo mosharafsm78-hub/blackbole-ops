@@ -1,3 +1,4 @@
+import { moveOne } from "./outlets"
 import { variantLabel } from "./catalog"
 import { v, ConvexError } from "convex/values"
 import { query, type MutationCtx } from "./_generated/server"
@@ -494,6 +495,8 @@ export const receivePO = mutation({
     lines: v.array(v.object({ variantId: v.id("variants"), qty: v.number(), damaged: v.number() })),
     costMode: v.union(v.literal("average"), v.literal("latest"), v.literal("keep")),
     note: v.optional(v.string()),
+    // Pairs to send on to outlets right after receiving (the rest stays in the purchase's warehouse for online)
+    splits: v.optional(v.array(v.object({ variantId: v.id("variants"), locationId: v.id("locations"), qty: v.number() }))),
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "inventory.receive")
@@ -502,6 +505,11 @@ export const receivePO = mutation({
     if (po.status === "cancelled" || po.status === "draft") throw new ConvexError("Mark the purchase as Ordered before receiving")
     const lines = a.lines.filter((l) => l.qty > 0 || l.damaged > 0)
     if (lines.length === 0) throw new ConvexError("Enter a received quantity for at least one product")
+    for (const s of a.splits ?? []) {
+      const got = lines.filter((l) => l.variantId === s.variantId).reduce((n, l) => n + l.qty, 0)
+      const planned = (a.splits ?? []).filter((x) => x.variantId === s.variantId).reduce((n, x) => n + x.qty, 0)
+      if (!Number.isInteger(s.qty) || s.qty < 0 || planned > got) throw new ConvexError("The pairs sent to outlets can't be more than the good pairs received")
+    }
 
     // landed cost factor: extra costs spread over the order value
     const extra = po.shippingCost + po.otherCost - po.discount
@@ -541,6 +549,9 @@ export const receivePO = mutation({
       }
       if (g.qty > 0) await receiveAvailable(ctx, { variantId: g.variantId, locationId: po.locationId, qty: g.qty, reason: `Received ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
       if (g.damaged) await bumpStock(ctx, { variantId: g.variantId, locationId: po.locationId, bucket: "damaged", change: g.damaged, reason: `Arrived damaged ${poLabel} (GRN-${code})`, byName: me.staff.name, receiptId })
+    }
+    for (const sp of (a.splits ?? []).filter((x) => x.qty > 0 && x.locationId !== po.locationId)) {
+      await moveOne(ctx, { variantId: sp.variantId, fromId: po.locationId, toId: sp.locationId, qty: sp.qty, note: `GRN-${code} split` }, me.staff.name)
     }
     const done = items.every((i) => i.receivedQty + i.damagedQty >= i.orderedQty)
     await ctx.db.patch(po._id, { items, status: done ? "received" : "partial", updatedAt: Date.now(), ...(done ? { receivedAt: Date.now() } : {}) })

@@ -37,9 +37,11 @@ function StockIn() {
   const [lines, setLines] = useState<Line[]>([])
   const [busy, setBusy] = useState(false)
   const [builder, setBuilder] = useState(false)
+  const outlets = (locations ?? []).filter((l) => l.isOutlet && l.active)
+  const [split, setSplit] = useState<Record<string, Record<string, number>>>({}) // variantId → outletId → pairs
 
   useEffect(() => {
-    if (!locationId && locations?.length) setLocationId((locations.find((l) => l.isDefault) ?? locations[0])._id)
+    if (!locationId && locations?.length) setLocationId((locations.find((l) => l.isDefault) ?? locations.find((l) => !l.isOutlet) ?? locations[0])._id)
   }, [locations, locationId])
 
   const set = (i: number, patch: Partial<Line>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)))
@@ -78,7 +80,7 @@ function StockIn() {
               <Label>Into warehouse</Label>
               <Select value={locationId} onValueChange={(v) => setLocationId(v as Id<"locations">)}>
                 <SelectTrigger className="w-full"><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>{locations?.map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{locations?.filter((l) => !l.isOutlet).map((l) => <SelectItem key={l._id} value={l._id}>{l.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5"><Label>Supplier / factory</Label><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="e.g. Own factory, Batch 14" /></div>
@@ -94,6 +96,9 @@ function StockIn() {
                   <label className="flex items-center gap-1 text-xs">Qty<Input type="number" className="h-8 w-20" value={l.qty} onChange={(e) => set(i, { qty: Math.max(0, Number(e.target.value) || 0) })} /></label>
                   <label className="flex items-center gap-1 text-xs">Unit cost<Input type="number" className="h-8 w-24" value={l.unitCost} onChange={(e) => set(i, { unitCost: Number(e.target.value) || 0 })} /></label>
                   <Button variant="ghost" size="icon-sm" onClick={() => setLines(lines.filter((_, j) => j !== i))} aria-label="Remove"><Trash2 className="size-4" /></Button>
+                  {outlets.map((o) => (
+                    <label key={o._id} className="flex basis-full items-center justify-end gap-1 text-xs text-muted-foreground">Send to {o.name}<Input type="number" className="h-8 w-20" value={split[l.variantId]?.[o._id] ?? 0} onChange={(e) => setSplit({ ...split, [l.variantId]: { ...split[l.variantId], [o._id]: Math.max(0, Math.min(l.qty, Math.floor(Number(e.target.value) || 0))) } })} /></label>
+                  ))}
                 </div>
               ))}
             </div>
@@ -108,9 +113,9 @@ function StockIn() {
               if (!locationId) return
               setBusy(true)
               try {
-                const code = await receive({ locationId, supplier: supplier || undefined, note: note || undefined, updateCost, items: lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitCost: l.unitCost })) })
+                const code = await receive({ locationId, supplier: supplier || undefined, note: note || undefined, updateCost, items: lines.map((l) => ({ variantId: l.variantId, qty: l.qty, unitCost: l.unitCost })), splits: Object.entries(split).flatMap(([variantId, m]) => Object.entries(m).filter(([, n]) => n > 0).map(([lid, n]) => ({ variantId: variantId as Id<"variants">, locationId: lid as Id<"locations">, qty: n }))) })
                 toast.success(`Saved GRN-${code}: ${totalQty} units added`)
-                setLines([]); setNote(""); setSupplier("")
+                setLines([]); setNote(""); setSupplier(""); setSplit({})
               } catch (e) {
                 toast.error(errMsg(e))
               } finally {

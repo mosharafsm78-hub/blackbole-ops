@@ -180,6 +180,7 @@ export function ProductSearch({ locationId, onAdd }: { locationId?: Id<"location
     return () => clearTimeout(t)
   }, [q])
   const results = useQuery(api.catalog.searchVariants, { q: debounced, locationId })
+  const atOutlets = useQuery(api.outlets.outletAvailability, results?.length ? { variantIds: results.map((r) => r._id) } : "skip")
   return (
     <div className="flex h-full flex-col gap-2">
       <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search product name or SKU" />
@@ -199,6 +200,7 @@ export function ProductSearch({ locationId, onAdd }: { locationId?: Id<"location
                 {r.sku} · {taka(r.price)} ·{" "}
                 <span className={r.available > 0 ? "text-tone-green" : "text-tone-red"}>{r.available} in stock</span>
               </div>
+              {atOutlets?.[r._id] && <div className="text-xs font-medium text-tone-violet">At outlet: {atOutlets[r._id].map((o) => `${o.name} ${o.available}`).join(" · ")}</div>}
             </div>
             <Button
               size="sm" variant="outline"

@@ -25,7 +25,7 @@ export const status = query({
       hasSecret: !!(await getSetting<string>(ctx, "shopifyApiSecret")),
       lastError: (await getSetting<any>(ctx, "shopifyApiError")) ?? null,
       last: (await getSetting<{ at: number; count: number }>(ctx, "shopifyStockLast")) ?? null,
-      warehouses: locs.map((l) => ({ _id: l._id, name: l.name, exchange: !!l.noCourier, shopifyLocationId: l.shopifyLocationId ?? "" })),
+      warehouses: locs.map((l) => ({ _id: l._id, name: l.name, exchange: !!l.noCourier && !l.isOutlet, shopifyLocationId: l.shopifyLocationId ?? "" })),
     }
   },
 })

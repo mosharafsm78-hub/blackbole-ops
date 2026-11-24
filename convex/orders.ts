@@ -138,6 +138,7 @@ export async function insertOrder(ctx: MutationCtx, o: NewOrder, byName: string,
     dob: dob || customer.dob,
   })
 
+  if (location.isOutlet) throw new ConvexError(`${location.name} is an outlet — orders can't be shipped from it. Move the pair to a warehouse first (Inventory → Move stock).`)
   const noCourier = !!location.noCourier // exchange warehouse: never sent to Pathao
   const partner = noCourier ? null : o.deliveryPartnerId ? await ctx.db.get(o.deliveryPartnerId) : o.deliveryType === "pickup" ? null : await defaultPartner(ctx, location._id)
   const start = (await getSetting<number>(ctx, "invoiceStart")) ?? 20001
@@ -1043,6 +1044,7 @@ export const update = mutation({
     if (reserved) await moveOrderStock(ctx, order, order.status as OrderStatus, "pending", me.staff.name)
 
     const newLoc = await ctx.db.get(a.locationId)
+    if (newLoc?.isOutlet) throw new ConvexError(`${newLoc.name} is an outlet — orders can't be shipped from it. Move the pair to a warehouse first.`)
     const noCourier = !!newLoc?.noCourier // exchange warehouse: never Pathao
     // Warehouse changed and no courier picked: use the courier linked to the new warehouse (was: kept the old warehouse's Pathao store)
     const partner = noCourier ? null : a.deliveryPartnerId ? await ctx.db.get(a.deliveryPartnerId)
@@ -1304,7 +1306,7 @@ export const createExchange = mutation({
     const locs = await ctx.db.query("locations").collect()
     const origLoc = locs.find((l) => l._id === o.locationId)
     const dhaka = /dhaka/i.test(origLoc?.name ?? "")
-    const exWh = locs.find((l) => l.noCourier && l.active && /dhaka/i.test(l.name) === dhaka) ?? locs.find((l) => l.noCourier && l.active)
+    const exWh = locs.find((l) => l.noCourier && !l.isOutlet && l.active && /dhaka/i.test(l.name) === dhaka) ?? locs.find((l) => l.noCourier && !l.isOutlet && l.active)
     const partners = (await ctx.db.query("deliveryPartners").collect()).filter((p) => p.active && p.isExchange && !p.deletedAt)
     const partner = exWh ? null : partners.find((p) => p.locationId === o.locationId) ?? partners[0]
     const items = await buildItems(ctx, a.items)

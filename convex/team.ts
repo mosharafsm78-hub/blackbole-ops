@@ -178,16 +178,19 @@ export const saveLocation = mutation({
     isDefault: v.boolean(),
     active: v.boolean(),
     noCourier: v.optional(v.boolean()),
+    isOutlet: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     await requirePerm(ctx, "settings.manage")
+    if (a.isOutlet && a.isDefault) throw new ConvexError("An outlet can't be the default warehouse")
+    if (a.isOutlet) a = { ...a, noCourier: true }
     if (a.noCourier && a.isDefault) throw new ConvexError("An exchange warehouse can't be the default warehouse")
     if (a.isDefault) {
       for (const l of await ctx.db.query("locations").collect()) {
         if (l.isDefault && l._id !== a.id) await ctx.db.patch(l._id, { isDefault: false })
       }
     }
-    const data = { name: a.name, address: a.address, phone: a.phone, pathaoStoreId: a.noCourier ? undefined : a.pathaoStoreId, isDefault: a.isDefault, active: a.active, noCourier: a.noCourier || undefined }
+    const data = { name: a.name, address: a.address, phone: a.phone, pathaoStoreId: a.noCourier ? undefined : a.pathaoStoreId, isDefault: a.isDefault, active: a.active, noCourier: a.noCourier || undefined, isOutlet: a.isOutlet || undefined }
     if (a.id) {
       await ctx.db.patch(a.id, data)
       return a.id

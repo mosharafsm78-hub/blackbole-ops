@@ -7,6 +7,7 @@ import { bumpStock, currentStaff, invoiceLabel, nextCounter, receiveAvailable, r
 import { COMMITTED_STATUSES } from "./rules"
 import { marketingChanged } from "./marketingPush"
 import { applyTestStock } from "./stockCheck"
+import { moveOne } from "./outlets"
 
 const variantInput = v.object({
   id: v.optional(v.id("variants")),
@@ -300,10 +301,17 @@ export const receiveStock = mutation({
     note: v.optional(v.string()),
     updateCost: v.boolean(),
     items: v.array(v.object({ variantId: v.id("variants"), qty: v.number(), unitCost: v.number() })),
+    // After receiving into `locationId`, send some pairs on to other places (e.g. outlets): the rest stays for online.
+    splits: v.optional(v.array(v.object({ variantId: v.id("variants"), locationId: v.id("locations"), qty: v.number() }))),
   },
   handler: async (ctx, a) => {
     const me = await requirePerm(ctx, "inventory.receive")
     const items = a.items.filter((i) => i.qty > 0)
+    for (const s of a.splits ?? []) {
+      const got = items.filter((i) => i.variantId === s.variantId).reduce((n, i) => n + i.qty, 0)
+      const planned = (a.splits ?? []).filter((x) => x.variantId === s.variantId).reduce((n, x) => n + x.qty, 0)
+      if (!Number.isInteger(s.qty) || s.qty < 0 || planned > got) throw new ConvexError("The pairs sent to outlets can't be more than the pairs received")
+    }
     if (items.length === 0) throw new ConvexError("Add at least one item with a quantity")
     const code = await nextCounter(ctx, "receipt", 1)
     const full: { variantId: Id<"variants">; sku: string; name: string; qty: number; unitCost: number }[] = []
@@ -322,6 +330,9 @@ export const receiveStock = mutation({
     for (const i of full) {
       await receiveAvailable(ctx, { variantId: i.variantId, locationId: a.locationId, qty: i.qty, reason: `Stock in GRN-${code}`, byName: me.staff.name, receiptId })
       if (a.updateCost && i.unitCost > 0) await ctx.db.patch(i.variantId, { purchasePrice: i.unitCost })
+    }
+    for (const s of (a.splits ?? []).filter((x) => x.qty > 0 && x.locationId !== a.locationId)) {
+      await moveOne(ctx, { variantId: s.variantId, fromId: a.locationId, toId: s.locationId, qty: s.qty, note: `GRN-${code} split` }, me.staff.name)
     }
     return code
   },
