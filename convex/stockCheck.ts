@@ -357,3 +357,22 @@ export const setColorBySku = internalMutation({
     return { changed }
   },
 })
+
+/** One-time: creates a product with sizes and fake (not-in-hand) stock in the default warehouse. Safe to re-run: skips if the product name already exists. */
+export const createProductWithFakeStock = internalMutation({
+  args: { name: v.string(), imageUrl: v.optional(v.string()), color: v.string(), skuPrefix: v.string(), sizes: v.array(v.string()), price: v.number(), weightKg: v.number(), fakeQty: v.number() },
+  handler: async (ctx, a) => {
+    const exists = (await ctx.db.query("products").collect()).find((p) => !p.deletedAt && p.name.trim().toLowerCase() === a.name.trim().toLowerCase())
+    if (exists) return { skipped: true }
+    const productId = await ctx.db.insert("products", { name: a.name.trim(), imageUrl: a.imageUrl, active: true, createdAt: Date.now() })
+    const items: { variantId: Id<"variants">; qty: number }[] = []
+    for (const size of a.sizes) {
+      const sku = `${a.skuPrefix}-${size}`.toUpperCase()
+      if (await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()) throw new ConvexError(`SKU ${sku} already exists`)
+      const id = await ctx.db.insert("variants", { productId, sku, title: `${a.color} / ${size}`, attrs: `${a.color} / ${size}`, weightKg: a.weightKg, price: a.price, purchasePrice: 0, active: true, createdAt: Date.now() })
+      items.push({ variantId: id, qty: a.fakeQty })
+    }
+    await applyTestStock(ctx, items, "Import")
+    return { skipped: false, variants: items.length }
+  },
+})
