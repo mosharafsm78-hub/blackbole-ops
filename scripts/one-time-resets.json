@@ -2486,5 +2486,21 @@
       "weightKg": 0.8,
       "fakeQty": 10
     }
+  },
+  {
+    "id": "2026-11-24-veyron-black-copy",
+    "fn": "stockCheck:setProductCopy",
+    "args": {
+      "name": "BlackBole Veyron Casual Loafer - Black",
+      "description": "The BlackBole Veyron Casual Loafer in black. A clean slip-on moc-toe loafer with grey contrast stitching and a translucent gum-style sole for a light, easy everyday feel. Sizes 39–44.",
+      "features": [
+        "Slip-on style with side elastic panels, easy to wear",
+        "Classic moc-toe stitching with grey contrast cross-stitch detail",
+        "Translucent gum-style sole, light and flexible",
+        "Soft tan lining and cushioned footbed",
+        "Black colour that matches casual and smart-casual outfits",
+        "Sizes 39 to 44"
+      ]
+    }
   }
 ]

@@ -376,3 +376,14 @@ export const createProductWithFakeStock = internalMutation({
     return { skipped: false, variants: items.length }
   },
 })
+
+/** One-time: fills description + key features of a product found by exact name. */
+export const setProductCopy = internalMutation({
+  args: { name: v.string(), description: v.string(), features: v.array(v.string()) },
+  handler: async (ctx, a) => {
+    const p = (await ctx.db.query("products").collect()).find((x) => !x.deletedAt && x.name.trim().toLowerCase() === a.name.trim().toLowerCase())
+    if (!p) throw new ConvexError("Product not found")
+    await ctx.db.patch(p._id, { description: a.description, features: a.features })
+    return { ok: true }
+  },
+})
