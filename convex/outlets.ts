@@ -183,6 +183,7 @@ export const importOutletStock = internalMutation({
     const loc = (await ctx.db.query("locations").collect()).find((l) => l.isOutlet && l.name === a.outletName)
     if (!loc) throw new ConvexError(`Outlet ${a.outletName} not found`)
     const out = { matchedSku: 0, matchedName: 0, createdVariants: 0, createdProducts: 0, pairs: 0 }
+    const target = new Map<Id<"variants">, number>() // two sheet rows can resolve to one Ops size: their pairs add up
     const prodCache = new Map<string, Doc<"products"> | null>()
     for (const r of a.rows) {
       const sku = r.sku.trim().toUpperCase()
@@ -214,10 +215,13 @@ export const importOutletStock = internalMutation({
         vr = (await ctx.db.get(id))!
         out.createdVariants++
       }
-      const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", vr!._id).eq("locationId", loc._id)).unique()
-      const delta = r.qty - (row?.available ?? 0)
-      if (delta !== 0) await bumpStock(ctx, { variantId: vr._id, locationId: loc._id, bucket: "available", change: delta, reason: "Opening stock (outlet sheet)", byName: "Import" })
+      target.set(vr._id, (target.get(vr._id) ?? 0) + r.qty)
       out.pairs += r.qty
+    }
+    for (const [variantId, qty] of target) {
+      const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", variantId).eq("locationId", loc._id)).unique()
+      const delta = qty - (row?.available ?? 0)
+      if (delta !== 0) await bumpStock(ctx, { variantId, locationId: loc._id, bucket: "available", change: delta, reason: "Opening stock (outlet sheet)", byName: "Import" })
     }
     return out
   },
