@@ -97,4 +97,13 @@ describe("outlets", () => {
     const ov = (await as.query(api.outlets.salesOverview, { from: 0, to: Date.now() }))!
     expect(ov.outletStockLeft).toBe(6)
   })
+
+  it("lists everything the outlets hold, grouped by shoe, without searching", async () => {
+    const { as, wh, outlet, variantId } = await setup()
+    await as.mutation(api.catalog.receiveStock, { locationId: wh, updateCost: false, items: [{ variantId, qty: 5, unitCost: 500 }], splits: [{ variantId, locationId: outlet, qty: 2 }] })
+    const r = (await as.query(api.outlets.outletStockList, {}))!
+    expect(r.totalPairs).toBe(2)
+    expect(r.products).toHaveLength(1)
+    expect(r.products[0].sizes[0]).toMatchObject({ sku: "BB-HSS-41", total: 2, at: { "Dhaka Eye Catch": 2 } })
+  })
 })

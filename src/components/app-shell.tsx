@@ -51,6 +51,7 @@ const NAV = [
   { to: "/website", label: "Website", icon: Globe, perm: "website.manage", alt: "settings.manage", color: "bg-tone-blue-bg text-tone-blue", group: "Stock" },
   { to: "/stock-check", label: "Stock check", icon: ClipboardCheck, perm: "inventory.adjust", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
   { to: "/purchases", label: "Purchases & stock in", icon: PackagePlus, perm: "inventory.receive", color: "bg-tone-orange-bg text-tone-orange", group: "Stock" },
+  { to: "/outlet-stock", label: "Outlet stock", icon: Store, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
   { to: "/outlet-sales", label: "Sales · outlets", icon: Store, perm: "orders.view", color: "bg-tone-violet-bg text-tone-violet", group: "Stock" },
   { to: "/profit", label: "Profit", icon: TrendingUp, perm: "reports.view", color: "bg-tone-green-bg text-tone-green", group: "Insights" },
   { to: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view", color: "bg-tone-cyan-bg text-tone-cyan", group: "Insights" },

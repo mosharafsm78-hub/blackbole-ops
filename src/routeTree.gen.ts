@@ -27,6 +27,7 @@ import { Route as AppNewOrderRouteImport } from './routes/_app/new-order'
 import { Route as AppOrderRouteImport } from './routes/_app/order'
 import { Route as AppOrdersRouteImport } from './routes/_app/orders'
 import { Route as AppOutletSalesRouteImport } from './routes/_app/outlet-sales'
+import { Route as AppOutletStockRouteImport } from './routes/_app/outlet-stock'
 import { Route as AppProductsRouteImport } from './routes/_app/products'
 import { Route as AppProfitRouteImport } from './routes/_app/profit'
 import { Route as AppPulseRouteImport } from './routes/_app/pulse'
@@ -157,6 +158,11 @@ const AppOrdersRoute = AppOrdersRouteImport.update({
 const AppOutletSalesRoute = AppOutletSalesRouteImport.update({
   id: '/outlet-sales',
   path: '/outlet-sales',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppOutletStockRoute = AppOutletStockRouteImport.update({
+  id: '/outlet-stock',
+  path: '/outlet-stock',
   getParentRoute: () => AppRoute,
 } as any)
 const AppProductsRoute = AppProductsRouteImport.update({
@@ -388,6 +394,7 @@ export interface FileRoutesByFullPath {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/outlet-sales': typeof AppOutletSalesRoute
+  '/outlet-stock': typeof AppOutletStockRoute
   '/products': typeof AppProductsRouteWithChildren
   '/profit': typeof AppProfitRoute
   '/pulse': typeof AppPulseRoute
@@ -448,6 +455,7 @@ export interface FileRoutesByTo {
   '/order': typeof AppOrderRoute
   '/orders': typeof AppOrdersRoute
   '/outlet-sales': typeof AppOutletSalesRoute
+  '/outlet-stock': typeof AppOutletStockRoute
   '/profit': typeof AppProfitRoute
   '/pulse': typeof AppPulseRoute
   '/purchase': typeof AppPurchaseRoute
@@ -509,6 +517,7 @@ export interface FileRoutesById {
   '/_app/order': typeof AppOrderRoute
   '/_app/orders': typeof AppOrdersRoute
   '/_app/outlet-sales': typeof AppOutletSalesRoute
+  '/_app/outlet-stock': typeof AppOutletStockRoute
   '/_app/products': typeof AppProductsRouteWithChildren
   '/_app/profit': typeof AppProfitRoute
   '/_app/pulse': typeof AppPulseRoute
@@ -573,6 +582,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/outlet-sales'
+    | '/outlet-stock'
     | '/products'
     | '/profit'
     | '/pulse'
@@ -633,6 +643,7 @@ export interface FileRouteTypes {
     | '/order'
     | '/orders'
     | '/outlet-sales'
+    | '/outlet-stock'
     | '/profit'
     | '/pulse'
     | '/purchase'
@@ -693,6 +704,7 @@ export interface FileRouteTypes {
     | '/_app/order'
     | '/_app/orders'
     | '/_app/outlet-sales'
+    | '/_app/outlet-stock'
     | '/_app/products'
     | '/_app/profit'
     | '/_app/pulse'
@@ -871,6 +883,13 @@ declare module '@tanstack/react-router' {
       path: '/outlet-sales'
       fullPath: '/outlet-sales'
       preLoaderRoute: typeof AppOutletSalesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/outlet-stock': {
+      id: '/_app/outlet-stock'
+      path: '/outlet-stock'
+      fullPath: '/outlet-stock'
+      preLoaderRoute: typeof AppOutletStockRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/products': {
@@ -1213,6 +1232,7 @@ interface AppRouteChildren {
   AppOrderRoute: typeof AppOrderRoute
   AppOrdersRoute: typeof AppOrdersRoute
   AppOutletSalesRoute: typeof AppOutletSalesRoute
+  AppOutletStockRoute: typeof AppOutletStockRoute
   AppProductsRoute: typeof AppProductsRouteWithChildren
   AppProfitRoute: typeof AppProfitRoute
   AppPulseRoute: typeof AppPulseRoute
@@ -1268,6 +1288,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppOrderRoute: AppOrderRoute,
   AppOrdersRoute: AppOrdersRoute,
   AppOutletSalesRoute: AppOutletSalesRoute,
+  AppOutletStockRoute: AppOutletStockRoute,
   AppProductsRoute: AppProductsRouteWithChildren,
   AppProfitRoute: AppProfitRoute,
   AppPulseRoute: AppPulseRoute,
