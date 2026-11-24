@@ -638,3 +638,15 @@ describe("part return (one item of a delivered order)", () => {
     expect(s42b.available).toBe(5)
   })
 })
+
+describe("repair of wrongly undone returns", () => {
+  it("puts a returned parcel that was flipped to Delivered by Pathao's 'paid' status back to Pending Return", async () => {
+    const { t, as, locationId, v41 } = await setup()
+    const { orderId } = await as.mutation(api.orders.create, { ...baseOrder(locationId, v41._id) })
+    for (const st of ["approved", "processing", "ready_to_ship", "in_transit", "delivered_paid"]) await as.mutation(api.orders.changeStatus, { ids: [orderId], to: st as any })
+    await t.run((ctx) => ctx.db.insert("orderEvents", { orderId, type: "log", text: "Status changed Pending Return → Delivered · Payment Due — Pathao: paid (return undone: Pathao shows it delivered)", byName: "Pathao sync", at: Date.now() }))
+    await t.mutation(internal.orders.repairWrongUndo, { days: 30 })
+    const o: any = await t.run((ctx) => ctx.db.get(orderId))
+    expect(o.status).toBe("pending_returned")
+  })
+})

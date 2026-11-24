@@ -1943,6 +1943,37 @@ export const fixItemPhotos = internalMutation({
 /** One-time: returned orders that show the WHOLE amount as paid. Pathao's settled-return status once flipped them to Delivered · Paid and the
  *  automatic "Pathao sync" Cash On Delivery payment stayed on the order after the return came back. Takes that payment back; the customer
  *  only paid the delivery charge on the return (what Pathao collected), so Paid now shows just that. */
+/** Repair for orders my earlier "undo return" rule wrongly flipped back to Delivered: Pathao's settled status ("paid") on a RETURNED parcel
+ *  was read as "delivered". Puts them back to Pending Return (the team marks Returned when the parcel is received), then takes back the
+ *  wrong full payment. Pages through recent delivered orders and re-schedules itself. */
+export const repairWrongUndo = internalMutation({
+  args: { days: v.number(), cursor: v.optional(v.string()), fixed: v.optional(v.number()) },
+  handler: async (ctx, a) => {
+    const since = Date.now() - a.days * 86400000
+    const page = await ctx.db.query("orders").withIndex("by_created").order("desc").paginate({ numItems: 80, cursor: a.cursor ?? null })
+    let fixed = a.fixed ?? 0
+    let reachedOld = false
+    for (const o of page.page) {
+      if (o.createdAt < since) { reachedOld = true; continue }
+      if (o.deletedAt || (o.status !== "delivered_due" && o.status !== "delivered_paid")) continue
+      const events = await ctx.db.query("orderEvents").withIndex("by_order", (q) => q.eq("orderId", o._id)).order("desc").take(40)
+      const bad = events.find((e) => /return undone: Pathao shows it delivered/.test(e.text) && /Pathao: (paid|payment|invoice)/i.test(e.text))
+      if (!bad) continue
+      // only if nobody has changed the status by hand since the wrong flip
+      const later = events.filter((e) => e.at > bad.at && e.text.startsWith("Status changed") && !/^pathao/i.test(e.byName))
+      if (later.length) continue
+      await applyStatus(ctx, o, "pending_returned", "Pathao sync", "Put back to Pending Return — Pathao's \"paid\" status on a returned parcel was wrongly read as delivered", { systemReason: true, force: true })
+      fixed++
+    }
+    if (!page.isDone && !reachedOld) await ctx.scheduler.runAfter(0, internal.orders.repairWrongUndo, { days: a.days, cursor: page.continueCursor, fixed })
+    else {
+      console.log(`repairWrongUndo: ${fixed} orders put back to Pending Return`)
+      if (fixed) await ctx.scheduler.runAfter(0, internal.orders.fixReturnPayments, { days: a.days })
+    }
+    return { fixed, done: page.isDone || reachedOld }
+  },
+})
+
 export const fixReturnPayments = internalMutation({
   args: { days: v.number() },
   handler: async (ctx, a) => {
