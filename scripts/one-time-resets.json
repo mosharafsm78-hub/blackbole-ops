@@ -122,7 +122,7 @@
       "fromCode": "BCSM-BRN",
       "toCode": "BCSM-MRN",
       "handle": "blackbole-calder-slide-mule-maroon",
-      "html": "<h3>Key features</h3>\n<ul>\n<li>\n<strong>Doctor insole.</strong> A soft, cushioned footbed that supports the arch and eases pressure on the heel, so it stays comfortable through long hours on your feet.</li>\n<li>\n<strong>Backless slip-on.</strong> On and off in a second, with no heel to press down.</li>\n<li>\n<strong>Rich maroon, suede-feel upper.</strong> A deep wine-red finish that looks smart with everyday colours.</li>\n<li>\n<strong>Hand-stitched moc toe</strong> with rust contrast stitching for a classic loafer look.</li>\n<li>\n<strong>Twin elastic side gores</strong> for a snug fit across the instep.</li>\n<li>\n<strong>Durable rubber outsole</strong> in brown, with grip pattern and stitched welt detail.</li>\n<li>\n<strong>Lightweight</strong> for daily wear, office, travel and jummah.</li>\n</ul>\n<h3>Description</h3>\n<p>The BlackBole Calder Slide Mule in Maroon brings loafer polish to the ease of a slipper, built on a soft <strong>doctor insole</strong> that cushions every step. The insole supports your arch and eases pressure on the heel, so your feet stay comfortable from morning to night.</p>\n<p>A hand-stitched moc toe with rust contrast stitching gives it a smart, put-together look on a deep maroon, suede-feel upper, while the open back lets you slip in and out in seconds. Twin elastic side panels hold your foot snugly, and the brown rubber outsole adds grip and durability for everyday streets.</p>\n<p>Wear it with chinos, jeans or a panjabi. It’s equally at home at the office, at Friday prayers, on errands or on a weekend out. Available in sizes 39 to 44.</p>",
+      "html": "<h3>Key features</h3>\n<ul>\n<li>\n<strong>Doctor insole.</strong> A soft, cushioned footbed that supports the arch and eases pressure on the heel, so it stays comfortable through long hours on your feet.</li>\n<li>\n<strong>Backless slip-on.</strong> On and off in a second, with no heel to press down.</li>\n<li>\n<strong>Rich maroon, suede-feel upper.</strong> A deep wine-red finish that looks smart with everyday colours.</li>\n<li>\n<strong>Hand-stitched moc toe</strong> with rust contrast stitching for a classic loafer look.</li>\n<li>\n<strong>Twin elastic side gores</strong> for a snug fit across the instep.</li>\n<li>\n<strong>Durable rubber outsole</strong> in brown, with grip pattern and stitched welt detail.</li>\n<li>\n<strong>Lightweight</strong> for daily wear, office, travel and jummah.</li>\n</ul>\n<h3>Description</h3>\n<p>The BlackBole Calder Slide Mule in Maroon brings loafer polish to the ease of a slipper, built on a soft <strong>doctor insole</strong> that cushions every step. The insole supports your arch and eases pressure on the heel, so your feet stay comfortable from morning to night.</p>\n<p>A hand-stitched moc toe with rust contrast stitching gives it a smart, put-together look on a deep maroon, suede-feel upper, while the open back lets you slip in and out in seconds. Twin elastic side panels hold your foot snugly, and the brown rubber outsole adds grip and durability for everyday streets.</p>\n<p>Wear it with chinos, jeans or a panjabi. It\u2019s equally at home at the office, at Friday prayers, on errands or on a weekend out. Available in sizes 39 to 44.</p>",
       "imageUrls": [
         "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-1.jpg?v=1793804826",
         "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/calder-maroon-2.jpg?v=1793804826",
@@ -131,7 +131,7 @@
       ],
       "fakeQty": 10,
       "seoTitle": "BlackBole Calder Slide Mule - Maroon | Men's Backless Loafer with Doctor Insole",
-      "seoDescription": "Men's backless moc-toe mule in maroon with a soft doctor insole, rust contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
+      "seoDescription": "Men's backless moc-toe mule in maroon with a soft doctor insole, rust contrast stitching and a durable rubber outsole. Sizes 39\u201344. Cash on delivery across Bangladesh."
     }
   },
   {
@@ -203,7 +203,7 @@
         "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/khl-3.jpg?v=1793984632"
       ],
       "seoTitle": "BlackBole Khaki Half Loafer | Men's Backless Loafer with Cushioned Insole",
-      "seoDescription": "Men's backless moc-toe half loafer in khaki with a cushioned dotted insole, contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
+      "seoDescription": "Men's backless moc-toe half loafer in khaki with a cushioned dotted insole, contrast stitching and a durable rubber outsole. Sizes 39\u201344. Cash on delivery across Bangladesh."
     }
   },
   {
@@ -270,7 +270,7 @@
         "https://cdn.shopify.com/s/files/1/0648/0507/7129/files/earth-4.jpg?v=1794146283"
       ],
       "seoTitle": "BlackBole Calder Half Loafer - Earth | Men's Olive Green Backless Loafer",
-      "seoDescription": "Men's backless moc-toe half loafer in earthy olive green with a cushioned doctor insole, contrast stitching and a durable rubber outsole. Sizes 39–44. Cash on delivery across Bangladesh."
+      "seoDescription": "Men's backless moc-toe half loafer in earthy olive green with a cushioned doctor insole, contrast stitching and a durable rubber outsole. Sizes 39\u201344. Cash on delivery across Bangladesh."
     }
   },
   {
@@ -290,7 +290,7 @@
     "fn": "catalog:skuAndFakeStock",
     "args": {
       "handle": "blackbole-kazimir-sandal-earth-version",
-      "title": "BlackBole Kazimir Sandal – Earth Version",
+      "title": "BlackBole Kazimir Sandal \u2013 Earth Version",
       "skuPrefix": "BB-SN-BKSN-EV",
       "sizes": [
         "39",
@@ -414,6 +414,1031 @@
     "fn": "orders:repairWrongUndo",
     "args": {
       "days": 30
+    }
+  },
+  {
+    "id": "2026-11-24-outlet-opening-stock-ctg",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Chittagong Prelegant Mall Outlet",
+      "rows": [
+        {
+          "sku": "BB-SH-BCSM-BRN-44",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "44",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BCSM-BRN-43",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "43",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BCSM-BRN-42",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "42",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BCSM-BRN-41",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "41",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BCSM-BRN-40",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "40",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BCSM-BRN-39",
+          "name": "BlackBole Calder Slide Mule",
+          "color": "Beige",
+          "size": "39",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-BELT-BRN-GIFT",
+          "name": "Mens genuine leather west belt Gift",
+          "color": "brown",
+          "size": "N/A",
+          "price": 0.0,
+          "qty": 15
+        },
+        {
+          "sku": "BB-SH-MMGH-BLACK-41",
+          "name": "Mens Moonsoon Glide Hiking Shoe",
+          "color": "Black",
+          "size": "41",
+          "price": 1980.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SH-BVCL-OLIVE-43",
+          "name": "BlackBole Veyron Casual Loafer",
+          "color": "Olive",
+          "size": "43",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BVCL-OLIVE-42",
+          "name": "BlackBole Veyron Casual Loafer",
+          "color": "Olive",
+          "size": "42",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BVCL-OLIVE-40",
+          "name": "BlackBole Veyron Casual Loafer",
+          "color": "Olive",
+          "size": "40",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BVCL-GREY-43",
+          "name": "BlackBole Veyron Casual Loafer",
+          "color": "Grey",
+          "size": "43",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-CS-BVCL-BLK-39",
+          "name": "BlackBole Veyron Casual Loafer",
+          "color": "Blue",
+          "size": "39",
+          "price": 1980.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-LSH-CLGL-BLK-39",
+          "name": "Black Chunky Loafer Genuine Leather",
+          "color": "black",
+          "size": "39",
+          "price": 1990.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-LSN-JQBLK-41",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "black",
+          "size": "41",
+          "price": 1990.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-LSN-JQBLK-40",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1990.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SN-BBSFN-KG-44",
+          "name": "Brinkley Breeze Sandal",
+          "color": "khaki -green",
+          "size": "44",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SN-BBSFN-KG-43",
+          "name": "Brinkley Breeze Sandal",
+          "color": "khaki -green",
+          "size": "43",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SN-BBSFN-KG-40",
+          "name": "Brinkley Breeze Sandal",
+          "color": "khaki -green",
+          "size": "40",
+          "price": 1580.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SH-BHSS-BLACK-44",
+          "name": "BlackBole Harbor Shore Sandal",
+          "color": "black",
+          "size": "44",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BHSS-BLACK-42",
+          "name": "BlackBole Harbor Shore Sandal",
+          "color": "black",
+          "size": "42",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SN-BWS-CHOC-BROWN-43",
+          "name": "BlackBole Wesley Shore Sandal",
+          "color": "Chocolate Brown",
+          "size": "43",
+          "price": 1580.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SN-BMMS-BLK-40",
+          "name": "Meare Mens Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1090.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SAN-BSNSM-BROWN-43",
+          "name": "Solsbury New Strep Sandal",
+          "color": "brown",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SAN-BSNSM-BROWN-40",
+          "name": "Solsbury New Strep Sandal",
+          "color": "brown",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SAN-BSNSM-BROWN-39",
+          "name": "Solsbury New Strep Sandal",
+          "color": "brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-44",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "44",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-43",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-42",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "42",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-41",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "41",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-40",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-MOC-39",
+          "name": "Torford Sidmouth Sandal",
+          "color": "mocha brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-TAN-43",
+          "name": "Torford Sidmouth Sandal",
+          "color": "tan",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-TAN-41",
+          "name": "Torford Sidmouth Sandal",
+          "color": "tan",
+          "size": "41",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-TAN-40",
+          "name": "Torford Sidmouth Sandal",
+          "color": "tan",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-BMMS-BR-41",
+          "name": "Meare Mens Sandal",
+          "color": "brown",
+          "size": "41",
+          "price": 1090.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-BMMS-BR-40",
+          "name": "Meare Mens Sandal",
+          "color": "brown",
+          "size": "40",
+          "price": 1090.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-BMMS-41",
+          "name": "Meare Mens Sandal",
+          "color": "black",
+          "size": "41",
+          "price": 1090.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-BWS-CHOC-42",
+          "name": "Wesley Shore Sandal",
+          "color": "Chocolate Brown",
+          "size": "42",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-BWS-CHOC-40",
+          "name": "Wesley Shore Sandal",
+          "color": "Chocolate Brown",
+          "size": "40",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-FB-OLV-43",
+          "name": "Chunky Loafer BlackBole New Edition Olive",
+          "color": "olive",
+          "size": "43",
+          "price": 2880.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SNK-BFS-BRN-41",
+          "name": "Flex SnekaersBrown",
+          "color": "Brown",
+          "size": "41",
+          "price": 1990.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BHSS-BLACK-43",
+          "name": "BlackBole Harbor Shore Sandal",
+          "color": "black",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SH-BHSS-BLACK-40",
+          "name": "BlackBole Harbor Shore Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SH-BHSS-BLACK-39",
+          "name": "BlackBole Harbor Shore Sandal",
+          "color": "black",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BHSS-BROWN-42",
+          "name": "Harbor Shore Sandal",
+          "color": "brown",
+          "size": "42",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BHSS-BROWN-41",
+          "name": "Harbor Shore Sandal",
+          "color": "brown",
+          "size": "41",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-BHSS-BROWN-39",
+          "name": "Harbor Shore Sandal",
+          "color": "brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-LSH-PT-BLK-43",
+          "name": "Handcrafted Leather SlipOn Moccasins Black",
+          "color": "black",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-LSH-PT-BLK-42",
+          "name": "Handcrafted Leather SlipOn Moccasins Black",
+          "color": "black",
+          "size": "42",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-LSH-PT-BLK-41",
+          "name": "Handcrafted Leather SlipOn Moccasins Black",
+          "color": "black",
+          "size": "41",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-LSH-PT-BLK-40",
+          "name": "Handcrafted Leather SlipOn Moccasins Black",
+          "color": "black",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-LSH-PT-BLK-39",
+          "name": "Handcrafted Leather SlipOn Moccasins Black",
+          "color": "black",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 2
+        },
+        {
+          "sku": "BB-SH-CL-CP-43",
+          "name": "Penny Chunky Loafer",
+          "color": "brown",
+          "size": "43",
+          "price": 2880.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-CL-CP-42",
+          "name": "Penny Chunky Loafer",
+          "color": "brown",
+          "size": "42",
+          "price": 1490.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-SH-CL-CP-40",
+          "name": "Penny Chunky Loafer",
+          "color": "brown",
+          "size": "40",
+          "price": 2880.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-W-CCQW-BRW",
+          "name": "DRAEVON Iron Pulse Skeleton Gear Watch",
+          "color": "brown",
+          "size": "N/A",
+          "price": 2280.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-W-VSW-BLK",
+          "name": "Mens Vintage Sports Wrist Waterproof Watch",
+          "color": "black",
+          "size": "N/A",
+          "price": 2880.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-W-VSW-SILV",
+          "name": "Mens Vintage Sports Wrist Waterproof Watch",
+          "color": "silver",
+          "size": "N/A",
+          "price": 2880.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-W-VSW-BRW",
+          "name": "Mens Vintage Sports Wrist Waterproof Watch",
+          "color": "brown",
+          "size": "N/A",
+          "price": 2880.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-BLS-BB10181-42",
+          "name": "ESTRO Ciabattine Black Leather Mule",
+          "color": "black",
+          "size": "42",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-BLS-BB10181-41",
+          "name": "ESTRO Ciabattine Black Leather Mule",
+          "color": "black",
+          "size": "41",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-BLS-BB10181-40",
+          "name": "ESTRO Ciabattine Black Leather Mule",
+          "color": "black",
+          "size": "40",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-TCSD-44",
+          "name": "Tuscan Crosby Square Leather Sandal BlackBole Edition",
+          "color": "brown",
+          "size": "44",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-TCSD-43",
+          "name": "Tuscan Crosby Square Leather Sandal BlackBole Edition",
+          "color": "brown",
+          "size": "43",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-TCSD-42",
+          "name": "Tuscan Crosby Square Leather Sandal BlackBole Edition",
+          "color": "brown",
+          "size": "42",
+          "price": 2380.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SAN-TCSD-41",
+          "name": "Tuscan Crosby Square Leather Sandal BlackBole Edition",
+          "color": "brown",
+          "size": "41",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-TCSD-39",
+          "name": "Tuscan Crosby Square Leather Sandal BlackBole Edition",
+          "color": "brown",
+          "size": "39",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BDL-DT-43",
+          "name": "DualTone Leather Mule BlackBole Edition",
+          "color": "brown",
+          "size": "43",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BDL-DT-42",
+          "name": "DualTone Leather Mule BlackBole Edition",
+          "color": "brown",
+          "size": "42",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BDL-DT-41",
+          "name": "DualTone Leather Mule BlackBole Edition",
+          "color": "brown",
+          "size": "41",
+          "price": 2380.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SAN-BDL-DT-40",
+          "name": "DualTone Leather Mule BlackBole Edition",
+          "color": "brown",
+          "size": "40",
+          "price": 2380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-FB-OLV-41",
+          "name": "Chunky Loafer BlackBole New Edition Olive",
+          "color": "olive",
+          "size": "41",
+          "price": 2880.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-FB-OLV-40",
+          "name": "Chunky Loafer BlackBole New Edition Olive",
+          "color": "olive",
+          "size": "40",
+          "price": 2880.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-MSH-BKB-BLK-42",
+          "name": "Mens Genuine Leather Biking Boot Black",
+          "color": "black",
+          "size": "42",
+          "price": 3380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-MSH-BKB-BLK-41",
+          "name": "Mens Genuine Leather Biking Boot Black",
+          "color": "black",
+          "size": "41",
+          "price": 3380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-MSH-BKB-BLK-40",
+          "name": "Mens Genuine Leather Biking Boot Black",
+          "color": "black",
+          "size": "40",
+          "price": 3380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-MSH-BKB-BLK-39",
+          "name": "Mens Genuine Leather Biking Boot Black",
+          "color": "black",
+          "size": "39",
+          "price": 3380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-NEON-43",
+          "name": "Neon Wave Lightweight Sneakers",
+          "color": "pink",
+          "size": "43",
+          "price": 980.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SH-NEON-40",
+          "name": "Neon Wave Lightweight Sneakers",
+          "color": "pink",
+          "size": "40",
+          "price": 980.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-US-GYM-40",
+          "name": "Morning Running Shoe Unisex",
+          "color": "black",
+          "size": "40",
+          "price": 1580.0,
+          "qty": 5
+        },
+        {
+          "sku": "BB-WSH-CNL-TAN-36",
+          "name": "Cozy ChunkyHeeled Boots with Lace",
+          "color": "brown",
+          "size": "36",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "BB-WSH-CN-TAN-38",
+          "name": "Cozy ChunkyHeeled BooT",
+          "color": "brown",
+          "size": "38",
+          "price": 1580.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-WSH-CN-BLK-38",
+          "name": "Cozy ChunkyHeeled Boot",
+          "color": "black",
+          "size": "38",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-WSH-CN-BLK-36",
+          "name": "Cozy ChunkyHeeled Boot",
+          "color": "black",
+          "size": "36",
+          "price": 1580.0,
+          "qty": 3
+        },
+        {
+          "sku": "PR-BB-WSH-CNS-DBR-38",
+          "name": "Cozy ChunkyHeeled Boot",
+          "color": "dark brown",
+          "size": "38",
+          "price": 1580.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-WSH-CN-BWH-36",
+          "name": "Cozy ChunkyHeeled Boot",
+          "color": "brown white",
+          "size": "36",
+          "price": 1580.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-EASYFLEXPRO-NAVY-44",
+          "name": "Mens Skechers Sneakers",
+          "color": "blue",
+          "size": "44",
+          "price": 1780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-EASYFLEXPRO-NAVY-43",
+          "name": "Mens Skechers Sneakers",
+          "color": "blue",
+          "size": "43",
+          "price": 1780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-SKDG-GRAY-43",
+          "name": "Mens Skechers Sneakers",
+          "color": "gray",
+          "size": "43",
+          "price": 1780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-KPC-40",
+          "name": "Artisan Reserve Kolapuri Chappal",
+          "color": "brown",
+          "size": "40",
+          "price": 1080.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SAN-CDS-43",
+          "name": "Brinkley Breeze Sandal",
+          "color": "black",
+          "size": "43",
+          "price": 1690.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-CDS-42",
+          "name": "Brinkley Breeze Sandal",
+          "color": "black",
+          "size": "42",
+          "price": 1690.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-CDS-40",
+          "name": "Brinkley Breeze Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1690.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-BROWN-41",
+          "name": "Torford Sidmouth Sandal",
+          "color": "brown",
+          "size": "41",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-BROWN-39",
+          "name": "Torford Sidmouth Sandal",
+          "color": "brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-44",
+          "name": "Torford Sidmouth Sandal",
+          "color": "black",
+          "size": "44",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-43",
+          "name": "Torford Sidmouth Sandal",
+          "color": "black",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-40",
+          "name": "Torford Sidmouth Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-BTSS-39",
+          "name": "Torford Sidmouth Sandal",
+          "color": "black",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSSS-BROWN-43",
+          "name": "Solsbury Strap Sandal",
+          "color": "brown",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSSS-BROWN-42",
+          "name": "BlackBole Solsbury Strap Sandal",
+          "color": "brown",
+          "size": "42",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSSS-BROWN-40",
+          "name": "Solsbury Strap Sandal",
+          "color": "brown",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSSS-BROWN-39",
+          "name": "Solsbury Strap Sandal",
+          "color": "brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSES-BROWN-40",
+          "name": "Saltway Edge Sandal",
+          "color": "brown",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSES-BROWN-39",
+          "name": "Saltway Edge Sandal",
+          "color": "brown",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSES-BLACK-43",
+          "name": "Saltway Edge Sandal",
+          "color": "black",
+          "size": "43",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSES-BLACK-40",
+          "name": "Saltway Edge Sandal",
+          "color": "black",
+          "size": "40",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-BSES-BLACK-39",
+          "name": "Saltway Edge Sandal",
+          "color": "black",
+          "size": "39",
+          "price": 1380.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-CON-BLK-39",
+          "name": "High Neck Converse Sports Sneaker",
+          "color": "black",
+          "size": "39",
+          "price": 2180.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-44",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "44",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-43",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "43",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-42",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "42",
+          "price": 2780.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-41",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "41",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-40",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "40",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SN-GRTS-39",
+          "name": "GreyRock Urban Trek Sneaker",
+          "color": "grey",
+          "size": "39",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-BBL001-BRN-42",
+          "name": "Mens Moccasin BBL0001",
+          "color": "brown",
+          "size": "42",
+          "price": 1480.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-BBL001-BRN-41",
+          "name": "Mens Moccasin BBL0001",
+          "color": "brown",
+          "size": "41",
+          "price": 1480.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-BBL001-BRN-40",
+          "name": "Mens Moccasin BBL0001",
+          "color": "brown",
+          "size": "40",
+          "price": 1480.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-LSH-BBL001-BRN-39",
+          "name": "Mens Moccasin BBL0001",
+          "color": "brown",
+          "size": "39",
+          "price": 1480.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-NPP-BLK-43",
+          "name": "Nawabi Pakistani Punjabi Shoe",
+          "color": "black",
+          "size": "43",
+          "price": 1780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-NPP-BLK-42",
+          "name": "Nawabi Pakistani Punjabi Shoe",
+          "color": "black",
+          "size": "42",
+          "price": 1780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SH-NPP-BLK-41",
+          "name": "Nawabi Pakistani Punjabi Shoe",
+          "color": "black",
+          "size": "41",
+          "price": 1780.0,
+          "qty": 2
+        },
+        {
+          "sku": "PR-BB-SAN-JSBHS-44",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "Blue",
+          "size": "44",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-JSBHS-43",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "Blue",
+          "size": "43",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-JSBHS-40",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "Blue",
+          "size": "40",
+          "price": 2780.0,
+          "qty": 1
+        },
+        {
+          "sku": "PR-BB-SAN-JSBHS-39",
+          "name": "Jacques Soloviere Biarritz Handcrafted Sandal",
+          "color": "Blue",
+          "size": "39",
+          "price": 2780.0,
+          "qty": 1
+        }
+      ]
     }
   }
 ]

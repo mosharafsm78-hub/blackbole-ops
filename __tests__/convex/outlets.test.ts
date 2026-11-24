@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test"
 import { describe, expect, it } from "vitest"
 import schema from "../../convex/schema"
-import { api } from "../../convex/_generated/api"
+import { api, internal } from "../../convex/_generated/api"
 
 async function setup() {
   const t = convexTest(schema, import.meta.glob("../../convex/**/*.*s"))
@@ -81,5 +81,20 @@ describe("outlets", () => {
       source: "Facebook", customerName: "Test", phone: "01711000001", address: "House 1, Road 2, Lalmatia", locationId: outlet, deliveryType: "pickup",
       items: [{ variantId, qty: 1, price: 1480, discount: 0 }], discount: 0, deliveryFee: 0, advanceAmount: 0, advanceMethod: "bKash", approve: false,
     })).rejects.toThrow(/outlet/i)
+  })
+
+  it("opening-stock import sets pairs by SKU, matches by name, creates missing, and is safe to run twice", async () => {
+    const { t, as, outlet, variantId } = await setup()
+    const rows = [
+      { sku: "BB-HSS-41", name: "Harbor Shore Sandal", color: "Black", size: "41", price: 1480, qty: 3 },
+      { sku: "NEW-SKU-42", name: "Harbor Shore Sandal", color: "black", size: "42", price: 1480, qty: 2 },
+      { sku: "NEW-9-40", name: "Brand New Boot", color: "Tan", size: "40", price: 2000, qty: 1 },
+    ]
+    const r1 = await t.mutation(internal.outlets.importOutletStock, { outletName: "Dhaka Eye Catch", rows })
+    expect(r1).toMatchObject({ matchedSku: 1, createdVariants: 2, createdProducts: 1, pairs: 6 })
+    await t.mutation(internal.outlets.importOutletStock, { outletName: "Dhaka Eye Catch", rows })
+    expect(await avail(t, variantId, outlet)).toBe(3)
+    const ov = (await as.query(api.outlets.salesOverview, { from: 0, to: Date.now() }))!
+    expect(ov.outletStockLeft).toBe(6)
   })
 })

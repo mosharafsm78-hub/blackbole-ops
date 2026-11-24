@@ -2,7 +2,7 @@
 // Outlets are `locations` rows with isOutlet (+ noCourier), so they never reach Pathao, the website, Shopify or the feed.
 import { v, ConvexError } from "convex/values"
 import { query } from "./_generated/server"
-import { mutation } from "./functions"
+import { internalMutation, mutation } from "./functions"
 import type { Doc, Id } from "./_generated/dataModel"
 import { bumpStock, currentStaff, requirePerm } from "./lib"
 import { variantLabel } from "./catalog"
@@ -165,6 +165,59 @@ export const outletAvailability = query({
         const r = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", id).eq("locationId", l._id)).unique()
         if (r && r.available > 0) (out[id] ??= []).push({ name: l.name, available: r.available })
       }
+    }
+    return out
+  },
+})
+
+const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+
+/** One-time opening stock for an outlet from a stock sheet. SETS the outlet's pairs to `qty` per SKU (safe to run twice).
+ *  Matches an existing size by SKU, else by product name + colour + size; creates what is missing (never published to the website). */
+export const importOutletStock = internalMutation({
+  args: {
+    outletName: v.string(),
+    rows: v.array(v.object({ sku: v.string(), name: v.string(), color: v.string(), size: v.string(), price: v.number(), qty: v.number() })),
+  },
+  handler: async (ctx, a) => {
+    const loc = (await ctx.db.query("locations").collect()).find((l) => l.isOutlet && l.name === a.outletName)
+    if (!loc) throw new ConvexError(`Outlet ${a.outletName} not found`)
+    const out = { matchedSku: 0, matchedName: 0, createdVariants: 0, createdProducts: 0, pairs: 0 }
+    const prodCache = new Map<string, Doc<"products"> | null>()
+    for (const r of a.rows) {
+      const sku = r.sku.trim().toUpperCase()
+      const hasSize = !!r.size && r.size.toUpperCase() !== "N/A"
+      const title = hasSize ? `${r.color.trim() ? r.color.trim()[0].toUpperCase() + r.color.trim().slice(1) : "Default"} / ${r.size}` : (r.color.trim() || "Default")
+      let vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", sku)).first()
+      if (vr) out.matchedSku++
+      const key = norm(r.name)
+      if (!vr || true) {
+        if (!prodCache.has(key)) {
+          const hits = await ctx.db.query("products").withSearchIndex("search_name", (q) => q.search("name", r.name)).take(10)
+          prodCache.set(key, hits.find((p) => !p.deletedAt && norm(p.name) === key) ?? null)
+        }
+      }
+      let product = prodCache.get(key) ?? null
+      if (!vr && product) {
+        const vs = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", product!._id)).take(200)
+        vr = vs.find((x) => norm(x.title) === norm(title) || (hasSize && norm(x.title).split(" ").pop() === norm(r.size) && norm(x.title).includes(norm(r.color)))) ?? null
+        if (vr) out.matchedName++
+      }
+      if (!vr) {
+        if (!product) {
+          const id = await ctx.db.insert("products", { name: r.name.trim(), active: true, createdAt: Date.now() })
+          product = (await ctx.db.get(id))!
+          prodCache.set(key, product)
+          out.createdProducts++
+        }
+        const id = await ctx.db.insert("variants", { productId: product._id, sku, title, weightKg: 0.4, price: r.price, purchasePrice: 0, active: true, createdAt: Date.now() })
+        vr = (await ctx.db.get(id))!
+        out.createdVariants++
+      }
+      const row = await ctx.db.query("stock").withIndex("by_variant_location", (q) => q.eq("variantId", vr!._id).eq("locationId", loc._id)).unique()
+      const delta = r.qty - (row?.available ?? 0)
+      if (delta !== 0) await bumpStock(ctx, { variantId: vr._id, locationId: loc._id, bucket: "available", change: delta, reason: "Opening stock (outlet sheet)", byName: "Import" })
+      out.pairs += r.qty
     }
     return out
   },
