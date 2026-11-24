@@ -387,3 +387,15 @@ export const setProductCopy = internalMutation({
     return { ok: true }
   },
 })
+
+/** One-time: sets the weight of every size of a product found by exact name. */
+export const setProductWeight = internalMutation({
+  args: { name: v.string(), weightKg: v.number() },
+  handler: async (ctx, a) => {
+    const p = (await ctx.db.query("products").collect()).find((x) => !x.deletedAt && x.name.trim().toLowerCase() === a.name.trim().toLowerCase())
+    if (!p) throw new ConvexError("Product not found")
+    const vs = await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()
+    for (const x of vs) await ctx.db.patch(x._id, { weightKg: a.weightKg })
+    return { updated: vs.length }
+  },
+})

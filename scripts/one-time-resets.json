@@ -2502,5 +2502,13 @@
         "Sizes 39 to 44"
       ]
     }
+  },
+  {
+    "id": "2026-11-24-veyron-black-weight",
+    "fn": "stockCheck:setProductWeight",
+    "args": {
+      "name": "BlackBole Veyron Casual Loafer - Black",
+      "weightKg": 0.3
+    }
   }
 ]
