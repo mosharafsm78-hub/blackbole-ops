@@ -1280,7 +1280,9 @@ export const logRecovery = mutation({
 export const addPayment = mutation({
   args: { id: v.id("orders"), amount: v.number(), method: v.string(), reference: v.optional(v.string()) },
   handler: async (ctx, a) => {
-    const me = await requirePerm(ctx, "orders.payments")
+    // Customer Care (can edit orders) records the advance a customer sends; Fulfillment keeps its own "Add payments" right.
+    const me = await requirePerm(ctx)
+    if (!hasPerm(me.perms, "orders.payments") && !hasPerm(me.perms, "orders.edit")) throw new ConvexError("You don't have permission for this action.")
     const order = await ctx.db.get(a.id)
     if (!order) throw new ConvexError("Order not found")
     if (a.amount <= 0) throw new ConvexError("Amount must be more than 0")

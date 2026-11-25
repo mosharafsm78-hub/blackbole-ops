@@ -443,7 +443,7 @@ function OrderPage() {
             </dl>
           </Card>
 
-          <Card title="Payments" action={<Perm perm="orders.payments"><Button size="xs" variant="outline" onClick={() => setPayOpen(true)}>Add payment</Button></Perm>}>
+          <Card title="Payments" action={(can("orders.payments") || can("orders.edit")) ? <Button size="xs" variant="outline" onClick={() => setPayOpen(true)}>Add payment</Button> : undefined}>
             {payments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No payments yet. Due {taka(o.due)} will be collected on delivery.</p>
             ) : (
@@ -676,6 +676,10 @@ function PaymentDialog({ orderId, due, deliveryFee, consignmentId, open, onOpenC
 
 function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => void }) {
   const update = useMutation(api.orders.update)
+  const addPayment = useMutation(api.orders.addPayment)
+  const [advAmount, setAdvAmount] = useState(0)
+  const [advMethod, setAdvMethod] = useState("bKash")
+  const [advRef, setAdvRef] = useState("")
   const locations = useQuery(api.team.listLocations)
   const [name, setName] = useState(order.customerName)
   const [phone, setPhone] = useState(order.phone)
@@ -764,6 +768,21 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
             <div className="h-72"><ProductSearch locationId={locationId} onAdd={(l) => setCart((c) => addToCart(c, l))} /></div>
           </div>
         </div>
+        <div className="rounded-md border p-3" data-testid="edit-advance">
+          <p className="mb-2 text-sm font-medium">Advance received{order.paidAmount > 0 ? ` (already paid ${taka(order.paidAmount)})` : ""}</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5"><Label>Amount</Label><Input type="number" value={advAmount || ""} placeholder="0" onChange={(e) => setAdvAmount(Number(e.target.value) || 0)} /></div>
+            <div className="space-y-1.5">
+              <Label>Paid via</Label>
+              <Select value={advMethod} onValueChange={setAdvMethod}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{PAYMENT_METHODS.filter((m) => m !== "Cash On Delivery").map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5"><Label>Transaction ID</Label><Input value={advRef} onChange={(e) => setAdvRef(e.target.value)} placeholder="e.g. 9JK3LM2X" /></div>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">Leave the amount empty if no advance came. It is saved together with the changes.</p>
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
@@ -777,7 +796,8 @@ function EditDialog({ order, onClose }: { order: Doc<"orders">; onClose: () => v
                   items: cart.map((c) => ({ variantId: c.variantId, qty: c.qty, price: c.price, discount: c.discount })),
                   keepUnmatched: keep, discount, deliveryFee: fee, customerNote: note || undefined,
                 })
-                toast.success("Order updated")
+                if (advAmount > 0) await addPayment({ id: order._id, amount: advAmount, method: advMethod, reference: advRef || undefined })
+                toast.success(advAmount > 0 ? `Order updated, advance ${taka(advAmount)} added` : "Order updated")
                 onClose()
               } catch (e) {
                 toast.error(errMsg(e))
