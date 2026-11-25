@@ -728,3 +728,29 @@ export const opsFromShopify = action({
     return out
   },
 })
+
+export const mergeOpsProductsInternal = internalMutation({
+  args: { fromHandles: v.array(v.string()), toHandle: v.string(), newHandle: v.string(), title: v.string() },
+  handler: async (ctx, a) => {
+    const to = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", a.toHandle)).first()
+    if (!to) throw new ConvexError("Target product not in Ops")
+    let moved = 0
+    for (const h of a.fromHandles) {
+      const p = await ctx.db.query("products").withIndex("by_handle", (q) => q.eq("handle", h)).first()
+      if (!p || p._id === to._id) continue
+      for (const x of await ctx.db.query("variants").withIndex("by_product", (q) => q.eq("productId", p._id)).collect()) { await ctx.db.patch(x._id, { productId: to._id }); moved++ }
+      await ctx.db.patch(p._id, { deletedAt: Date.now(), active: false })
+    }
+    await ctx.db.patch(to._id, { handle: a.newHandle, name: a.title })
+    return { moved }
+  },
+})
+
+/** One product with several colours instead of one product per colour (Ops side). */
+export const mergeOpsProducts = action({
+  args: { fromHandles: v.array(v.string()), toHandle: v.string(), newHandle: v.string(), title: v.string() },
+  handler: async (ctx, a): Promise<any> => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    return await ctx.runMutation(internal.chinaImport.mergeOpsProductsInternal, a)
+  },
+})
