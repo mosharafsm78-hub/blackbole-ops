@@ -706,3 +706,25 @@ export const fixOlderPreorders = action({
     return { out, next: res.products.pageInfo.hasNextPage ? res.products.pageInfo.endCursor : null }
   },
 })
+
+/** Adds pre-order products that were made straight on Shopify (e.g. from the merchant's own photos) to Ops, with fake pairs. */
+export const opsFromShopify = action({
+  args: { handles: v.array(v.string()) },
+  handler: async (ctx, { handles }) => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    const out: any[] = []
+    for (const handle of handles) {
+      const r = await shopifyGql(ctx, `query($h: String!) { productByIdentifier(identifier: { handle: $h }) { title tags media(first: 1) { nodes { preview { image { url } } } } variants(first: 100) { nodes { sku price compareAtPrice title } } } }`, { h: handle })
+      const p = r.productByIdentifier
+      if (!p) { out.push({ handle, error: "not on Shopify" }); continue }
+      const china = p.tags.includes("made-in-china") || p.tags.some((t: string) => t.startsWith("supplier-"))
+      const full = Math.round(Number(china ? p.variants.nodes[0].compareAtPrice : p.variants.nodes[0].price))
+      const ops = await ctx.runMutation(internal.chinaImport.upsertOps, {
+        handle, title: p.title, price: full, cost: 0, weightKg: 0.9, image: p.media.nodes[0]?.preview?.image?.url,
+        variants: p.variants.nodes.filter((x: any) => x.sku).map((x: any) => ({ sku: x.sku, title: x.title })),
+      })
+      out.push({ handle, price: full, added: ops.added })
+    }
+    return out
+  },
+})
