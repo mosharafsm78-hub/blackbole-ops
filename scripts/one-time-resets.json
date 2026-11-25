@@ -2512,7 +2512,7 @@
     }
   },
   {
-    "id": "2026-11-25-outlet-opening-stock-eyecatch",
+    "id": "2026-11-25-outlet-opening-stock-eyecatch-p1",
     "fn": "outlets:importOutletStock",
     "args": {
       "outletName": "Dhaka Eye Catch Outlet",
@@ -2796,7 +2796,16 @@
           "size": "39",
           "price": 5250.0,
           "qty": 1
-        },
+        }
+      ]
+    }
+  },
+  {
+    "id": "2026-11-25-outlet-opening-stock-eyecatch-p2",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Dhaka Eye Catch Outlet",
+      "rows": [
         {
           "sku": "BB-CS-BVCL-BLK-39",
           "name": "BlackBole Veyron Casual Loafer",
@@ -3108,7 +3117,16 @@
           "size": "44",
           "price": 4250.0,
           "qty": 1
-        },
+        }
+      ]
+    }
+  },
+  {
+    "id": "2026-11-25-outlet-opening-stock-eyecatch-p3",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Dhaka Eye Catch Outlet",
+      "rows": [
         {
           "sku": "EC-63896758",
           "name": "Brougue oxford formal shoe-Black",
@@ -3428,7 +3446,16 @@
           "size": "40",
           "price": 3850.0,
           "qty": 1
-        },
+        }
+      ]
+    }
+  },
+  {
+    "id": "2026-11-25-outlet-opening-stock-eyecatch-p4",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Dhaka Eye Catch Outlet",
+      "rows": [
         {
           "sku": "BB-SH-GYM-BLK-39",
           "name": "Men's Breathable Waterproof Gym Shoe",
@@ -3740,7 +3767,16 @@
           "size": "44",
           "price": 2850.0,
           "qty": 1
-        },
+        }
+      ]
+    }
+  },
+  {
+    "id": "2026-11-25-outlet-opening-stock-eyecatch-p5",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Dhaka Eye Catch Outlet",
+      "rows": [
         {
           "sku": "BB-SAN-CDS-43",
           "name": "Brinkley Breeze Sandal for Men",
