@@ -192,7 +192,7 @@ export const DEFAULT_ROLES: { name: string; permissions: string[] }[] = [
   {
     name: "Team CX",
     permissions: [
-      "dashboard.view", "orders.view", "orders.create", "orders.edit", "orders.print",
+      "dashboard.view", "orders.view", "orders.create", "orders.edit", "orders.print", "orders.payments",
       "customers.manage", ...cxMoves.map(([f, t]) => moveKey(f, t)),
     ],
   },

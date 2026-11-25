@@ -316,3 +316,14 @@ export const addExchangeWarehouses = internalMutation({
     return out
   },
 })
+
+/** One-time: gives an existing role one more permission (kept as-is if it already has it). */
+export const grantRolePerm = internalMutation({
+  args: { role: v.string(), perm: v.string() },
+  handler: async (ctx, a) => {
+    const r = (await ctx.db.query("roles").collect()).find((x) => x.name === a.role)
+    if (!r) throw new ConvexError(`Role ${a.role} not found`)
+    if (!r.permissions.includes(a.perm)) await ctx.db.patch(r._id, { permissions: [...r.permissions, a.perm] })
+    return { ok: true, had: r.permissions.includes(a.perm) }
+  },
+})

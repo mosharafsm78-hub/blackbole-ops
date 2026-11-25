@@ -3795,5 +3795,13 @@
         }
       ]
     }
+  },
+  {
+    "id": "2026-11-25-cx-add-payments-perm",
+    "fn": "team:grantRolePerm",
+    "args": {
+      "role": "Team CX",
+      "perm": "orders.payments"
+    }
   }
 ]
