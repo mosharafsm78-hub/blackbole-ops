@@ -3896,7 +3896,7 @@
           "color": "Black",
           "size": "42",
           "price": 1980.0,
-          "qty": 1
+          "qty": 0
         },
         {
           "sku": "BB-SH-MMGH-BLACK-41",
@@ -4890,7 +4890,7 @@
           "color": "brown",
           "size": "44",
           "price": 1080.0,
-          "qty": 1
+          "qty": 0
         },
         {
           "sku": "PR-BB-SAN-KPC-41",
@@ -5144,6 +5144,31 @@
         "PR-BB-SAN-KPC-44"
       ],
       "active": false
+    }
+  },
+  {
+    "id": "2026-11-26-ctg-outlet-zero-inactive",
+    "fn": "outlets:importOutletStock",
+    "args": {
+      "outletName": "Chittagong Prelegant Mall Outlet",
+      "rows": [
+        {
+          "sku": "BB-SH-MMGH-BLACK-42",
+          "name": "Mens Moonsoon Glide Hiking Shoe",
+          "color": "Black",
+          "size": "42",
+          "price": 1980.0,
+          "qty": 0
+        },
+        {
+          "sku": "PR-BB-SAN-KPC-44",
+          "name": "Artisan Reserve Kolapuri Chappal",
+          "color": "brown",
+          "size": "44",
+          "price": 1080.0,
+          "qty": 0
+        }
+      ]
     }
   }
 ]
