@@ -5134,5 +5134,16 @@
         }
       ]
     }
+  },
+  {
+    "id": "2026-11-26-outlet-inactive-sizes",
+    "fn": "outlets:setVariantsActive",
+    "args": {
+      "skus": [
+        "BB-SH-MMGH-BLACK-42",
+        "PR-BB-SAN-KPC-44"
+      ],
+      "active": false
+    }
   }
 ]

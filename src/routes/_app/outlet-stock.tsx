@@ -53,6 +53,7 @@ function OutletStockPage() {
                       return (
                         <span key={s.variantId} title={Object.entries(s.at).map(([k, v]) => `${k}: ${v}`).join(" · ")} className="rounded-md border bg-muted/40 px-2 py-1 text-xs">
                           <span className="font-medium">{s.title}</span> <span className="text-tone-violet font-semibold">×{n}</span>
+                          {s.inactive && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-800" data-testid="outlet-inactive">Inactive</span>}
                           {outlet === "all" && data.outlets.length > 1 && <span className="ml-1 text-[10px] text-muted-foreground">{Object.entries(s.at).map(([k, v]) => `${k.split(" ")[0]} ${v}`).join(", ")}</span>}
                         </span>
                       )

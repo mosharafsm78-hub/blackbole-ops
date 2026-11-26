@@ -233,7 +233,7 @@ export const outletStockList = query({
   handler: async (ctx) => {
     if (!(await currentStaff(ctx))) return null
     const outlets = (await ctx.db.query("locations").collect()).filter((l) => l.isOutlet && l.active)
-    const products = new Map<string, { productId: Id<"products">; name: string; imageUrl?: string; price: number; total: number; sizes: { variantId: Id<"variants">; sku: string; title: string; at: Record<string, number>; total: number }[] }>()
+    const products = new Map<string, { productId: Id<"products">; name: string; imageUrl?: string; price: number; total: number; sizes: { variantId: Id<"variants">; sku: string; title: string; inactive: boolean; at: Record<string, number>; total: number }[] }>()
     const pcache = new Map<string, Doc<"products"> | null>()
     for (const l of outlets) {
       for (const r of await ctx.db.query("stock").withIndex("by_location", (q) => q.eq("locationId", l._id)).collect()) {
@@ -245,7 +245,7 @@ export const outletStockList = query({
         if (!p || p.deletedAt) continue
         const g = products.get(p._id) ?? { productId: p._id, name: p.name, imageUrl: p.imageUrl, price: vr.price, total: 0, sizes: [] }
         let sz = g.sizes.find((x) => x.variantId === vr._id)
-        if (!sz) { sz = { variantId: vr._id, sku: vr.sku, title: variantLabel(vr), at: {}, total: 0 }; g.sizes.push(sz) }
+        if (!sz) { sz = { variantId: vr._id, sku: vr.sku, title: variantLabel(vr), inactive: vr.active === false, at: {}, total: 0 }; g.sizes.push(sz) }
         sz.at[l.name] = r.available
         sz.total += r.available
         g.total += r.available
@@ -254,5 +254,20 @@ export const outletStockList = query({
     }
     const list = [...products.values()].map((g) => ({ ...g, sizes: g.sizes.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true })) })).sort((a, b) => a.name.localeCompare(b.name))
     return { outlets: outlets.map((l) => l.name), products: list, totalPairs: list.reduce((n, g) => n + g.total, 0) }
+  },
+})
+
+/** One-time: mark sizes inactive (or active) by SKU, as the old panel shows them. Stock is not touched. */
+export const setVariantsActive = internalMutation({
+  args: { skus: v.array(v.string()), active: v.boolean() },
+  handler: async (ctx, a) => {
+    const done: string[] = [], missing: string[] = []
+    for (const raw of a.skus) {
+      const vr = await ctx.db.query("variants").withIndex("by_sku", (q) => q.eq("sku", raw.trim().toUpperCase())).first()
+      if (!vr) { missing.push(raw); continue }
+      await ctx.db.patch(vr._id, { active: a.active })
+      done.push(raw)
+    }
+    return { done, missing }
   },
 })
