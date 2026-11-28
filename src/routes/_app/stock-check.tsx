@@ -194,6 +194,23 @@ function ProductCard({ p }: { p: Product }) {
               )
             })}
           </tbody>
+          {(() => {
+            // Total pairs for the product, live as the count is typed in
+            const sys = p.lines.reduce((t, l) => t + l.available, 0)
+            const inHand = p.lines.reduce((t, l) => { const r = Number(val(l)); return t + (Number.isFinite(r) ? r : l.available - l.fake) }, 0)
+            const fakeT = p.lines.reduce((t, l) => { const r = Number(val(l)); return t + (Number.isFinite(r) ? Math.max(0, l.available - r) : l.fake) }, 0)
+            return (
+              <tfoot className="border-t-2 bg-muted/50 text-sm font-semibold" data-testid="stock-total">
+                <tr>
+                  <td className="px-3 py-2" colSpan={hasColor ? 3 : 2}>Total pairs</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{sys}</td>
+                  <td className="px-3 py-2 text-right tabular-nums"><span className="mr-3">{inHand}</span></td>
+                  <td className={cn("px-3 py-2 text-right tabular-nums", fakeT > 0 && "text-tone-amber")}>{fakeT}</td>
+                  <td colSpan={2}></td>
+                </tr>
+              </tfoot>
+            )
+          })()}
         </table>
       </div>
       <div className="mt-3 flex flex-wrap justify-end gap-2">
