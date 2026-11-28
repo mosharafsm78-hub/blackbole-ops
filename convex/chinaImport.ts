@@ -3,7 +3,7 @@
  *  2. A signed-in manager runs `run` from Ops: it builds each product (BlackBole name, price, colours, sizes, pictures),
  *     creates it on Shopify as a China pre-order (booking Tk 200, full price crossed out) and adds it to Ops with fake pairs. */
 import { v, ConvexError } from "convex/values"
-import { action, httpAction, internalMutation, internalQuery } from "./_generated/server"
+import { action, httpAction, internalMutation, internalQuery, query } from "./_generated/server"
 import { internal } from "./_generated/api"
 import { shopifyGql } from "./shopifyStock"
 import { requirePerm } from "./lib"
@@ -794,5 +794,18 @@ export const renameOpsProduct = action({
       cursor = p.cursor
     } while (cursor)
     return { ...r, orders }
+  },
+})
+
+/** Orders with these products that are not delivered, returned or cancelled yet ("Still open" in Reports). */
+export const openOrdersFor = query({
+  args: { skuPrefixes: v.array(v.string()), from: v.number() },
+  handler: async (ctx, { skuPrefixes, from }) => {
+    await requirePerm(ctx, "reports.view")
+    const done = new Set(["delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
+    const rows = await ctx.db.query("orders").withIndex("by_created", (x) => x.gte("createdAt", from)).collect()
+    return rows.filter((o) => !o.deletedAt && !done.has(o.status) && o.items.some((i: any) => skuPrefixes.some((p) => i.sku?.startsWith(p))))
+      .map((o) => ({ invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, status: o.status, createdAt: o.createdAt, shippedAt: (o as any).shippedAt ?? null, consignment: (o as any).consignmentId ?? (o as any).trackingCode ?? null,
+        items: o.items.filter((i: any) => skuPrefixes.some((p) => i.sku?.startsWith(p))).map((i: any) => `${i.sku} x${i.qty}`).join(", ") }))
   },
 })
