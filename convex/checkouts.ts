@@ -281,6 +281,9 @@ export const codLeadHttp = httpAction(async (ctx, req) => {
 
 type Row = Doc<"checkouts"> & { laterOrder: { id: Id<"orders">; invoice: string } | null; orderInvoice: string | null }
 
+/** Only carts with a phone number count as abandoned checkouts (the team can't call the others). */
+export const hasPhone = (c: { phone?: string | null }) => !!(c.phone && c.phone.trim())
+
 export async function laterOrderFor(ctx: any, c: Doc<"checkouts">) {
   if (!c.phone) return null
   const orders: Doc<"orders">[] = await ctx.db.query("orders").withIndex("by_phone", (q: any) => q.eq("phone", c.phone)).collect()
@@ -313,6 +316,7 @@ export const list = query({
     for (const c of rows) {
       if (c.isArchived) continue // legacy rows have no field at all, so this is false for them
       if (status === "open") {
+        if (!hasPhone(c)) continue // no phone = nobody can call it, so it is not an abandoned cart for the team
         if (now - c.shopUpdatedAt < ABANDON_AFTER) continue // customer may still be paying
         const isFollow = c.callCount > 0
         if (tab === "new" && isFollow) continue
@@ -337,7 +341,7 @@ export const badge = query({
     const now = Date.now()
     const open = (await ctx.db.query("checkouts")
       .withIndex("by_status", (q) => q.eq("status", "open").lte("shopUpdatedAt", now - ABANDON_AFTER))
-      .take(1000)).filter((c) => !c.isArchived)
+      .take(1000)).filter((c) => !c.isArchived && hasPhone(c))
     return open.filter((c) => c.callCount === 0).length + open.filter((c) => c.followUpAt && c.followUpAt <= now).length
   },
 })
@@ -349,7 +353,7 @@ export const counts = query({
     if (!s) return null
     const now = Date.now()
     const open = (await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "open")).take(1000))
-      .filter((c) => !c.isArchived && now - c.shopUpdatedAt >= ABANDON_AFTER)
+      .filter((c) => !c.isArchived && hasPhone(c) && now - c.shopUpdatedAt >= ABANDON_AFTER)
     const since = now - 30 * 86400000
     const convertedAll = await ctx.db.query("checkouts").withIndex("by_status", (q) => q.eq("status", "converted")).take(2000)
     const converted = convertedAll.filter((c) => !c.isArchived && (c.closedAt ?? 0) >= since)
