@@ -754,3 +754,45 @@ export const mergeOpsProducts = action({
     return await ctx.runMutation(internal.chinaImport.mergeOpsProductsInternal, a)
   },
 })
+
+// ---------- rename a product in Ops (also on past orders, so reports group it under the new name) ----------
+
+export const renameOpsProductInternal = internalMutation({
+  args: { skuPrefix: v.string(), name: v.string() },
+  handler: async (ctx, { skuPrefix, name }) => {
+    const vs = (await ctx.db.query("variants").collect()).filter((x) => x.sku.startsWith(skuPrefix))
+    const pids = [...new Set(vs.map((x) => x.productId))]
+    for (const id of pids) await ctx.db.patch(id, { name })
+    return { products: pids.length, sizes: vs.length }
+  },
+})
+
+export const renameOrderItemsPage = internalMutation({
+  args: { skuPrefix: v.string(), name: v.string(), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { skuPrefix, name, cursor }) => {
+    const page = await ctx.db.query("orders").paginate({ cursor, numItems: 300 })
+    let changed = 0
+    for (const o of page.page) {
+      if (!o.items.some((i: any) => i.sku?.startsWith(skuPrefix) && i.name !== name)) continue
+      await ctx.db.patch(o._id, { items: o.items.map((i: any) => (i.sku?.startsWith(skuPrefix) ? { ...i, name } : i)) })
+      changed++
+    }
+    return { changed, cursor: page.isDone ? null : page.continueCursor }
+  },
+})
+
+export const renameOpsProduct = action({
+  args: { skuPrefix: v.string(), name: v.string() },
+  handler: async (ctx, a): Promise<any> => {
+    await ctx.runQuery(internal.chinaImport.allowed, {})
+    if (a.skuPrefix.length < 6) throw new ConvexError("SKU start too short")
+    const r = await ctx.runMutation(internal.chinaImport.renameOpsProductInternal, a)
+    let cursor: string | null = null, orders = 0
+    do {
+      const p: any = await ctx.runMutation(internal.chinaImport.renameOrderItemsPage, { ...a, cursor })
+      orders += p.changed
+      cursor = p.cursor
+    } while (cursor)
+    return { ...r, orders }
+  },
+})
