@@ -56,6 +56,8 @@ export function summaryText(o: Doc<"orders">): string {
 export const confirmedText = (o: Doc<"orders">, preOrder: boolean, preOrderDays = "15–20") => preOrder
   ? `Thank you, ${first(o.customerName)}! ✅ Your pre-order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: about ${preOrderDays} days, because your pair is made for you\n• We will message you as soon as it is ready to ship\n• Please keep your phone on and pick up the call from our courier\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay the remaining amount only when you receive your order\n\nThank you for waiting for something special.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
   : `Thank you, ${first(o.customerName)}! ✅ Your order ${invoiceLabel(o)} is confirmed.\n\n• Arrival: within 2–3 days\n• Please keep your phone on and pick up the call from our courier, so your parcel reaches you the first time\n• When it arrives, check the size and fit. If anything is not right, we offer free exchange, so there is nothing to worry about\n• You pay only when you receive your order\n\nWe hope you love it.\n\n💬 From now on, every update about your order will come to you right here on WhatsApp from BlackBole. Please keep an eye on our messages. — BlackBole`
+/** "Black / 42" → "Black"; a size-only title ("42") has no colour. */
+export const colourOfTitle = (t?: string) => { const parts = String(t ?? "").split(" / ").map((x) => x.trim()); return parts.length >= 2 && parts[0] ? parts[0] : null }
 /** Short product video(s) for the items in this order (set on the product), sent right after the confirmation text. At most 3. */
 async function confirmVideos(ctx: any, o: Doc<"orders">): Promise<Out[]> {
   const out: Out[] = []
@@ -64,7 +66,9 @@ async function confirmVideos(ctx: any, o: Doc<"orders">): Promise<Out[]> {
     if (!i.variantId) continue
     const vr = await ctx.db.get(i.variantId)
     const pr: any = vr ? await ctx.db.get(vr.productId) : null
-    const url = String(pr?.waVideoUrl ?? "").trim()
+    // the ordered colour's own video first (Black / 42 → "Black"), else the product's video
+    const colour = colourOfTitle(vr?.title)
+    const url = String((colour && pr?.waVideos?.[colour]) || pr?.waVideoUrl || "").trim()
     if (!url || !/^https:\/\//.test(url) || seen.has(url)) continue
     seen.add(url)
     out.push({ kind: "video", link: url, body: `${pr.name}${vr?.title ? ` · size ${vr.title}` : ""}`.slice(0, 900) })

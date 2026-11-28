@@ -28,9 +28,9 @@ export const Route = createFileRoute("/_app/products/")({
 })
 
 type VariantForm = { id?: Id<"variants">; sku: string; title: string; weightKg: number; price: number; purchasePrice: number; active: boolean }
-type ProductForm = { id?: Id<"products">; name: string; category: string; description: string; imageUrl: string; active: boolean; preOrder: boolean; preOrderFrom: "china" | "bangladesh"; waVideoUrl: string; variants: VariantForm[] }
+type ProductForm = { id?: Id<"products">; name: string; category: string; description: string; imageUrl: string; active: boolean; preOrder: boolean; preOrderFrom: "china" | "bangladesh"; waVideoUrl: string; waVideos: Record<string, string>; variants: VariantForm[] }
 
-const blank = (): ProductForm => ({ name: "", category: "", description: "", imageUrl: "", active: true, preOrder: false, preOrderFrom: "china", waVideoUrl: "", variants: [] })
+const blank = (): ProductForm => ({ name: "", category: "", description: "", imageUrl: "", active: true, preOrder: false, preOrderFrom: "china", waVideoUrl: "", waVideos: {}, variants: [] })
 
 function ProductsPage() {
   const can = useCan()
@@ -101,7 +101,7 @@ function ProductsPage() {
                       <td className="p-3 text-right">
                         {can("products.manage") && (
                           <Button variant="ghost" size="sm" onClick={() => setEditing({
-                            id: p._id, name: p.name, category: p.category ?? "", description: p.description ?? "", imageUrl: p.imageUrl ?? "", active: p.active, preOrder: !!p.preOrder, preOrderFrom: p.preOrderFrom ?? "china", waVideoUrl: (p as any).waVideoUrl ?? "",
+                            id: p._id, name: p.name, category: p.category ?? "", description: p.description ?? "", imageUrl: p.imageUrl ?? "", active: p.active, preOrder: !!p.preOrder, preOrderFrom: p.preOrderFrom ?? "china", waVideoUrl: (p as any).waVideoUrl ?? "", waVideos: { ...((p as any).waVideos ?? {}) },
                             variants: p.variants.map((v) => ({ id: v._id, sku: v.sku, title: v.title, weightKg: v.weightKg, price: v.price, purchasePrice: v.purchasePrice, active: v.active })),
                           })}>Edit</Button>
                         )}
@@ -193,6 +193,28 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
               </label>
             </div>
             <p className="text-xs text-muted-foreground">When a customer taps Confirm on WhatsApp, they get this video with the confirmation, so they can see which product they ordered. Leave empty to send no video.</p>
+            {(() => {
+              // one video per colour when the product has more than one colour ("Black / 42" → Black)
+              const colours = [...new Set(f.variants.map((x) => x.title.split(" / ")).filter((p) => p.length >= 2 && p[0].trim()).map((p) => p[0].trim()))]
+              if (colours.length < 2) return null
+              return (
+                <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3" data-testid="colour-videos">
+                  <p className="text-xs font-medium">Video for each colour <span className="font-normal text-muted-foreground">— the customer gets the video of the colour they ordered. A colour left empty gets the video above.</span></p>
+                  {colours.map((c) => (
+                    <div key={c} className="flex items-center gap-2">
+                      <span className="w-28 shrink-0 truncate text-sm font-medium" title={c}>{c}</span>
+                      {f.waVideos[c] && <video src={f.waVideos[c]} muted playsInline preload="metadata" className="size-9 shrink-0 rounded border bg-black object-cover" />}
+                      <Input value={f.waVideos[c] ?? ""} onChange={(e) => setF({ ...f, waVideos: { ...f.waVideos, [c]: e.target.value } })} placeholder={`Video for ${c} (MP4 under 16 MB, or https:// link)`} />
+                      <label className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-3 text-sm font-medium hover:bg-muted">
+                        <Upload className="size-4" /> {video.busy ? "Uploading…" : "Upload"}
+                        <input type="file" accept="video/mp4" className="hidden" disabled={video.busy > 0}
+                          onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; if (file.size > 16 * 1024 * 1024) { toast.error("WhatsApp videos must be under 16 MB"); return } const [url] = await video.upload([file]); if (url) setF((cur) => ({ ...cur, waVideos: { ...cur.waVideos, [c]: url } })) }} />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
           </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.active} onCheckedChange={(v) => setF({ ...f, active: v })} /> Active (can be sold)</label>
           <label className="flex items-center gap-2 text-sm"><Switch checked={f.preOrder} onCheckedChange={(v) => setF({ ...f, preOrder: v })} /> Pre-order product (takes long to arrive — orders go to the Pre-Order tab). SKUs starting with “PO-” count as pre-order automatically.</label>
@@ -250,7 +272,7 @@ function ProductDialog({ initial, onClose }: { initial: ProductForm; onClose: ()
               setBusy(true)
               try {
                 await save({
-                  id: f.id, name: f.name, category: f.category || undefined, description: f.description.trim() || undefined, imageUrl: f.imageUrl || undefined, active: f.active, preOrder: f.preOrder, preOrderFrom: f.preOrderFrom, waVideoUrl: f.waVideoUrl,
+                  id: f.id, name: f.name, category: f.category || undefined, description: f.description.trim() || undefined, imageUrl: f.imageUrl || undefined, active: f.active, preOrder: f.preOrder, preOrderFrom: f.preOrderFrom, waVideoUrl: f.waVideoUrl, waVideos: f.waVideos,
                   variants: f.variants.map((v) => ({ ...v, attrs: undefined })),
                 })
                 toast.success("Product saved")
