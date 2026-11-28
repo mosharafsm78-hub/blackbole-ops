@@ -805,7 +805,18 @@ export const openOrdersFor = query({
     const done = new Set(["delivered_due", "delivered_paid", "pending_returned", "returned", "damaged", "cancelled"])
     const rows = await ctx.db.query("orders").withIndex("by_created", (x) => x.gte("createdAt", from)).collect()
     return rows.filter((o) => !o.deletedAt && !done.has(o.status) && o.items.some((i: any) => skuPrefixes.some((p) => i.sku?.startsWith(p))))
-      .map((o) => ({ invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, status: o.status, createdAt: o.createdAt, shippedAt: (o as any).shippedAt ?? null, consignment: (o as any).consignmentId ?? (o as any).trackingCode ?? null,
+      .map((o) => ({ invoice: o.invoiceCode ?? `BB-${o.invoiceNo}`, status: o.status, wa: (o as any).waVerify?.result ?? null, waAt: (o as any).waVerify?.at ?? null, source: (o as any).source ?? null, createdAt: o.createdAt, shippedAt: (o as any).shippedAt ?? null, consignment: (o as any).consignmentId ?? (o as any).trackingCode ?? null,
         items: o.items.filter((i: any) => skuPrefixes.some((p) => i.sku?.startsWith(p))).map((i: any) => `${i.sku} x${i.qty}`).join(", ") }))
+  },
+})
+
+export const videosFor = query({
+  args: { skuPrefixes: v.array(v.string()) },
+  handler: async (ctx, { skuPrefixes }) => {
+    await requirePerm(ctx, "reports.view")
+    const vs = (await ctx.db.query("variants").collect()).filter((x) => skuPrefixes.some((p) => x.sku.startsWith(p)))
+    const out: Record<string, string | null> = {}
+    for (const id of [...new Set(vs.map((x) => x.productId))]) { const p = await ctx.db.get(id); if (p) out[p.name] = (p as any).waVideoUrl ?? null }
+    return out
   },
 })
